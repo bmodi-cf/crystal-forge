@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crystal-forge-pg
+    environment:
+      POSTGRES_USER: crystal
+      POSTGRES_PASSWORD: crystal
+      POSTGRES_DB: crystal_forge
+    ports:
+      # Host 5433 → container 5432 because another Postgres already binds 5432 on this host.
+      - "5433:5432"
+    volumes:
+      - crystal-forge-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crystal -d crystal_forge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  crystal-forge-pgdata:
