@@ -2,9 +2,9 @@
 
 import { useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import type { FieldErrors, FieldValues, Resolver } from 'react-hook-form';
 import {
   Dialog,
   DialogContent,
@@ -25,29 +25,6 @@ const formSchema = z.object({
   description: z.string().trim().max(500, 'Max 500 characters').optional().or(z.literal('')),
   groups: z.array(z.string().min(1)).min(1, 'Pick at least one group'),
 });
-
-/** Zod v4-compatible resolver (v4 uses .issues, not .errors) */
-function zodV4Resolver<TFieldValues extends FieldValues>(
-  schema: z.ZodTypeAny,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Resolver<TFieldValues, any> {
-  return (async (values: TFieldValues) => {
-    const result = await schema.safeParseAsync(values);
-    if (result.success) {
-      return { values: result.data as TFieldValues, errors: {} };
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const errors: Record<string, any> = {};
-    for (const issue of result.error.issues) {
-      const path = issue.path.join('.');
-      if (!errors[path]) {
-        errors[path] = { message: issue.message, type: issue.code };
-      }
-    }
-    return { values: {} as TFieldValues, errors: errors as FieldErrors<TFieldValues> };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  }) as unknown as Resolver<TFieldValues, any>;
-}
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -83,7 +60,7 @@ export function ForgeFormModal(props: Props) {
     reset,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
-    resolver: zodV4Resolver(formSchema),
+    resolver: zodResolver(formSchema),
     defaultValues: initial,
   });
 
