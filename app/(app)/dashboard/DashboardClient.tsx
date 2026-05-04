@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,11 +24,13 @@ type Props = {
 export function DashboardClient({ initialForges, allGroups }: Props) {
   const router = useRouter();
   const [forges, setForges] = useState<Forge[]>(initialForges);
-
-  // Sync local state when the server component re-renders after router.refresh().
-  useEffect(() => {
+  const [seenInitial, setSeenInitial] = useState(initialForges);
+  // When router.refresh() delivers new initialForges from the RSC, sync local
+  // state during render — the React 19 idiom that avoids set-state-in-effect.
+  if (seenInitial !== initialForges) {
+    setSeenInitial(initialForges);
     setForges(initialForges);
-  }, [initialForges]);
+  }
 
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
