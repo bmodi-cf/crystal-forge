@@ -16,8 +16,9 @@ module.exports = {
     const normalised = filename.replace(/\\/g, '/');
     const isService = /\/lib\/services\//.test(normalised) || /\/lib\/services\.[tj]sx?$/.test(normalised);
     const isPrismaItself = /\/lib\/prisma\.[tj]sx?$/.test(normalised);
+    const isPrismaSeed = /\/prisma\/seed\.[tj]sx?$/.test(normalised);
 
-    if (isService || isPrismaItself) {
+    if (isService || isPrismaItself || isPrismaSeed) {
       return {};
     }
 
