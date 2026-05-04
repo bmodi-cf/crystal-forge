@@ -27,6 +27,11 @@ module.exports = {
       ImportDeclaration(node) {
         const source = node.source.value;
         if (typeof source !== 'string') return;
+        // Type-only imports (`import type { ... }`) are erased at build time
+        // and do not constitute runtime DB access. Allow them anywhere so
+        // shared type aliases (e.g. Prisma.ForgeWhereInput in lib/acl.ts)
+        // don't have to live inside lib/services/*.
+        if (node.importKind === 'type') return;
         if (
           source === '@/lib/prisma' ||
           source.endsWith('/lib/prisma') ||
