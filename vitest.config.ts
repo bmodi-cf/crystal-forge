@@ -16,7 +16,6 @@ export default defineConfig({
     // Running test files in parallel races on the same tables and produces
     // intermittent FK violations. Serialise via a single fork.
     pool: 'forks',
-    forks: { singleFork: true },
     fileParallelism: false,
   },
   resolve: {
