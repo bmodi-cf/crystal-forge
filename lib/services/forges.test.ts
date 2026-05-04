@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
-import { listForges, getForge, createForge, updateForge } from './forges';
+import { listForges, getForge, createForge, updateForge, deleteForge } from './forges';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 
 describe('listForges', () => {
@@ -174,6 +174,66 @@ describe('updateForge', () => {
       await expect(
         updateForge(tom, forge.id, { groups: ['Engineering', 'Imaginary'] }),
       ).rejects.toBeInstanceOf(ValidationError);
+    });
+  });
+});
+
+describe('deleteForge', () => {
+  it('creator can delete', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
+      const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
+      await deleteForge(tom, forge.id);
+      const remaining = await prisma.forge.findUnique({ where: { id: forge.id } });
+      expect(remaining).toBeNull();
+    });
+  });
+
+  it('admin can delete a forge they did not create', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom   = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
+      const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin', groups: [], isAdmin: true });
+      const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
+      await deleteForge(admin, forge.id);
+      const remaining = await prisma.forge.findUnique({ where: { id: forge.id } });
+      expect(remaining).toBeNull();
+    });
+  });
+
+  it('group member who is not creator/admin cannot delete', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom  = await makeUser(prisma, { email: 't@x', name: 'Tom',  groups: ['Engineering'] });
+      const maya = await makeUser(prisma, { email: 'm@x', name: 'Maya', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
+      await expect(deleteForge(maya, forge.id)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it('non-member cannot delete', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
+      const stranger = await makeUser(prisma, { email: 's@x', name: 'S', groups: ['Sales'] });
+      const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
+      await expect(deleteForge(stranger, forge.id)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it('cascades forge_groups rows when a forge is deleted', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
+      const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering', 'Operations'] });
+      await deleteForge(tom, forge.id);
+      const fgRows = await prisma.forgeGroup.findMany({ where: { forgeId: forge.id } });
+      expect(fgRows).toEqual([]);
+    });
+  });
+
+  it('throws NotFoundError when the id does not exist', async () => {
+    await withCleanDb(async (prisma) => {
+      const u = await makeUser(prisma, { email: 'u@x', name: 'U', groups: [] });
+      await expect(
+        deleteForge(u, '00000000-0000-0000-0000-000000000000'),
+      ).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 });

@@ -141,3 +141,25 @@ export async function updateForge(
     return toDto(updated);
   });
 }
+
+export async function deleteForge(
+  currentUser: SessionUser,
+  id: string,
+): Promise<void> {
+  const existing = await prisma.forge.findUnique({
+    where: { id },
+    include: forgeInclude,
+  });
+  if (!existing) throw new NotFoundError('forge', id);
+
+  const aclShape = {
+    id: existing.id,
+    createdById: existing.createdById,
+    groups: existing.groups.map((fg) => fg.group.name),
+  };
+  if (!canWriteForge(currentUser, aclShape)) {
+    throw new ForbiddenError(`Cannot delete forge ${id}`);
+  }
+
+  await prisma.forge.delete({ where: { id } }); // ON DELETE CASCADE wipes forge_groups
+}
