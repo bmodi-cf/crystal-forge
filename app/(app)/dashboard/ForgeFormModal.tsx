@@ -74,7 +74,7 @@ export function ForgeFormModal(props: Props) {
     const method = mode === 'edit' ? 'PATCH' : 'POST';
     const body = JSON.stringify({
       name: values.name,
-      description: values.description || null,
+      description: mode === 'edit' ? (values.description || null) : (values.description || ''),
       groups: values.groups,
     });
     let res: Response;

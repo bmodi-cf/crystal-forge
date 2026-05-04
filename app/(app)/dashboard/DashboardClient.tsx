@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,6 +24,12 @@ type Props = {
 export function DashboardClient({ initialForges, allGroups }: Props) {
   const router = useRouter();
   const [forges, setForges] = useState<Forge[]>(initialForges);
+
+  // Sync local state when the server component re-renders after router.refresh().
+  useEffect(() => {
+    setForges(initialForges);
+  }, [initialForges]);
+
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
 
