@@ -1,26 +1,96 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Crystal Forge palette — extracted from design/project/*.html :root vars */
+@theme {
+  --color-dark-blue: #001C38;
+  --color-light-navy: #002E5C;
+  --color-gold: #B9A060;
+  --color-gold-soft: #d4be7e;
+  --color-gold-deep: #8c7747;
+  --color-ink: #e7ecf2;
+  --color-ink-dim: #9aa7b6;
+  --color-ink-faint: #5d6b7d;
+  --color-bg: #02101f;
+  --color-panel: rgba(255, 255, 255, 0.035);
+  --color-panel-2: rgba(255, 255, 255, 0.05);
+  --color-panel-3: rgba(255, 255, 255, 0.075);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+  --color-danger: #d96868;
+  --color-good: #4ad28b;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    /* shadcn HSL tokens mapped to Crystal Forge palette */
+    --background: 207 86% 6%;          /* #02101f */
+    --foreground: 213 28% 93%;         /* #e7ecf2 */
+    --card: 213 50% 8%;
+    --card-foreground: 213 28% 93%;
+    --popover: 213 50% 10%;
+    --popover-foreground: 213 28% 93%;
+    --primary: 41 36% 55%;             /* gold #B9A060 */
+    --primary-foreground: 30 50% 8%;
+    --secondary: 213 30% 14%;
+    --secondary-foreground: 213 28% 93%;
+    --muted: 213 20% 16%;
+    --muted-foreground: 213 15% 66%;   /* ink-dim */
+    --accent: 213 30% 14%;
+    --accent-foreground: 213 28% 93%;
+    --destructive: 0 60% 63%;          /* danger */
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 100% / 8%;
+    --input: 0 0% 100% / 8%;
+    --ring: 41 36% 55%;
+    --radius: 0.5rem;
+  }
+
+  body {
+    color: #e7ecf2;
+    font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(80% 60% at 50% -10%, rgba(0, 46, 92, 0.5), transparent 60%),
+      radial-gradient(60% 60% at 100% 0%, rgba(185, 160, 96, 0.06), transparent 50%),
+      #02101f;
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Login page entrance animations — extracted from design/project/Login.html */
+@keyframes logoIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes haloIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes shimmerOpacity {
+  0% { opacity: 0; }
+  20% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes shimmerSweep {
+  from { left: -40%; }
+  to { left: 130%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-stage *, .login-stage *::before, .login-stage *::after {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
