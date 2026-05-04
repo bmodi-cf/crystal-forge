@@ -777,9 +777,12 @@ AUTH_MICROSOFT_ENTRA_ID_ISSUER="https://login.microsoftonline.com/<your-tenant-i
 AUTH_DEV_USERS_ENABLED="true"
 ```
 
-- [ ] **Step 3: Create `.env.local` with working dev defaults**
+- [ ] **Step 3: Create `.env.local` with working dev defaults — IF AND ONLY IF the file does not already exist**
+
+The repository may already contain a `.env.local` populated by the orchestrator with real Entra ID credentials. **Do not overwrite it.** Run:
 
 ```bash
+test -f .env.local && echo "EXISTS — skipping" || cat > .env.local <<'EOF'
 DATABASE_URL="postgresql://crystal:crystal@localhost:5432/crystal_forge?schema=public"
 AUTH_SECRET="dev-only-secret-replace-in-production-with-pnpm-dlx-auth-secret"
 NEXTAUTH_URL="http://localhost"
@@ -787,7 +790,11 @@ AUTH_MICROSOFT_ENTRA_ID_ID=""
 AUTH_MICROSOFT_ENTRA_ID_SECRET=""
 AUTH_MICROSOFT_ENTRA_ID_ISSUER="https://login.microsoftonline.com/common/v2.0"
 AUTH_DEV_USERS_ENABLED="true"
+EOF
+chmod 600 .env.local
 ```
+
+Expected: prints `EXISTS — skipping` if a real env file already exists, otherwise creates one with placeholder values.
 
 - [ ] **Step 4: Verify `.env*` is in `.gitignore`** (Next.js adds it by default; confirm)
 
