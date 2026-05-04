@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 const PUBLIC_API_PREFIXES = ['/api/auth', '/api/dev'];
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Skip explicitly public API namespaces (Auth.js routes; dev surface manages its own gate)
