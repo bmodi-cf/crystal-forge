@@ -2,6 +2,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // Seed the dev DB before any test runs. Unit tests use withCleanDb which
+  // truncates everything, so back-to-back `pnpm test && pnpm e2e` would
+  // otherwise leave E2E with an empty DB.
+  globalSetup: './tests/e2e/global-setup.ts',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

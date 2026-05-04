@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 const SEED_USERS = {
   maya:  { email: 'maya.chen@crystalfountains.com',  visibleForges: ['Aquaflow Designer', 'Forge Labs'] },
@@ -6,7 +6,7 @@ const SEED_USERS = {
   admin: { email: 'admin@crystalfountains.com',      visibleForges: ['Aquaflow Designer', 'Site Survey Pro', 'QuoteBuilder', 'Maintenance Hub', 'BrandKit Manager', 'PeoplePulse', 'Forge Labs', 'InvoiceBridge', 'Showcase Gallery'] },
 };
 
-async function devLogin(page: any, email: string) {
+async function devLogin(page: Page, email: string) {
   const res = await page.request.post('/api/dev/switch-user', { data: { email } });
   expect(res.status()).toBe(200);
 }
