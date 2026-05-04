@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
-import { listForges, getForge, createForge } from './forges';
+import { listForges, getForge, createForge, updateForge } from './forges';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 
 describe('listForges', () => {
@@ -108,6 +108,71 @@ describe('createForge', () => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
       await expect(
         createForge(tom, { name: 'X', description: '', groups: ['NoSuchGroup'] }),
+      ).rejects.toBeInstanceOf(ValidationError);
+    });
+  });
+});
+
+describe('updateForge', () => {
+  it('creator can update name, description and groups', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      await prisma.group.create({ data: { name: 'Operations' } });
+      const forge = await makeForge(prisma, { name: 'Old', createdById: tom.id, groups: ['Engineering'] });
+      const updated = await updateForge(tom, forge.id, {
+        name: 'New',
+        description: 'desc',
+        groups: ['Operations'],
+      });
+      expect(updated.name).toBe('New');
+      expect(updated.description).toBe('desc');
+      expect(updated.groups).toEqual(['Operations']);
+    });
+  });
+
+  it('admin can update any forge', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom   = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
+      const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin', groups: [], isAdmin: true });
+      const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
+      const updated = await updateForge(admin, forge.id, { name: 'A2' });
+      expect(updated.name).toBe('A2');
+    });
+  });
+
+  it('group member who is not creator/admin cannot update', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom  = await makeUser(prisma, { email: 't@x', name: 'Tom',  groups: ['Engineering'] });
+      const maya = await makeUser(prisma, { email: 'm@x', name: 'Maya', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
+      await expect(updateForge(maya, forge.id, { name: 'X' })).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it('non-member cannot update', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
+      const stranger = await makeUser(prisma, { email: 's@x', name: 'S', groups: ['Sales'] });
+      const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
+      await expect(updateForge(stranger, forge.id, { name: 'X' })).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it('throws NotFoundError when the id does not exist', async () => {
+    await withCleanDb(async (prisma) => {
+      const u = await makeUser(prisma, { email: 'u@x', name: 'U', groups: [] });
+      await expect(
+        updateForge(u, '00000000-0000-0000-0000-000000000000', { name: 'X' }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  it('throws ValidationError when an unknown group is supplied', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
+      await expect(
+        updateForge(tom, forge.id, { groups: ['Engineering', 'Imaginary'] }),
       ).rejects.toBeInstanceOf(ValidationError);
     });
   });

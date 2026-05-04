@@ -1,9 +1,9 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { canReadForge, forgeReadFilter } from '@/lib/acl';
+import { canReadForge, canWriteForge, forgeReadFilter } from '@/lib/acl';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import type { Forge, SessionUser } from './types';
-import type { CreateForgeInput } from './forges-schema';
+import type { CreateForgeInput, UpdateForgeInput } from './forges-schema';
 
 const forgeInclude = {
   groups: { include: { group: true } },
@@ -89,5 +89,55 @@ export async function createForge(
       include: forgeInclude,
     });
     return toDto(created);
+  });
+}
+
+export async function updateForge(
+  currentUser: SessionUser,
+  id: string,
+  input: UpdateForgeInput,
+): Promise<Forge> {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.forge.findUnique({ where: { id }, include: forgeInclude });
+    if (!existing) throw new NotFoundError('forge', id);
+
+    const aclShape = {
+      id: existing.id,
+      createdById: existing.createdById,
+      groups: existing.groups.map((fg) => fg.group.name),
+    };
+    if (!canWriteForge(currentUser, aclShape)) {
+      throw new ForbiddenError(`Cannot update forge ${id}`);
+    }
+
+    const data: Prisma.ForgeUpdateInput = {};
+    if (input.name !== undefined) {
+      data.name = input.name;
+      data.initials = deriveInitials(input.name);
+    }
+    if (input.description !== undefined) {
+      const trimmed = input.description?.trim() ?? null;
+      data.description = trimmed && trimmed.length > 0 ? trimmed : null;
+    }
+
+    if (input.groups !== undefined) {
+      const groupRows = await tx.group.findMany({ where: { name: { in: input.groups } } });
+      if (groupRows.length !== input.groups.length) {
+        const known = new Set(groupRows.map((g) => g.name));
+        const unknown = input.groups.filter((g) => !known.has(g));
+        throw new ValidationError('Unknown group(s)', { groups: unknown });
+      }
+      await tx.forgeGroup.deleteMany({ where: { forgeId: id } });
+      await tx.forgeGroup.createMany({
+        data: groupRows.map((g) => ({ forgeId: id, groupId: g.id })),
+      });
+    }
+
+    const updated = await tx.forge.update({
+      where: { id },
+      data,
+      include: forgeInclude,
+    });
+    return toDto(updated);
   });
 }
