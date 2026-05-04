@@ -1,3 +1,6 @@
+'use client';
+
+import { Pencil, Trash2 } from 'lucide-react';
 import type { Forge } from '@/lib/services/types';
 
 const TONE_CLASSES: Record<Forge['tone'], string> = {
@@ -18,8 +21,15 @@ const STATUS_LABEL: Record<Forge['status'], string> = {
   archived: '○ ARCHIVED',
 };
 
-export function ForgeCard({ forge }: { forge: Forge }) {
+type Props = {
+  forge: Forge;
+  onEdit?: (forge: Forge) => void;
+  onDelete?: (forge: Forge) => void;
+};
+
+export function ForgeCard({ forge, onEdit, onDelete }: Props) {
   const updated = new Date(forge.updatedAt).toLocaleDateString();
+  const showActions = Boolean(onEdit || onDelete);
   return (
     <article className="relative flex min-h-[220px] flex-col gap-4 overflow-hidden rounded-[14px] border border-border bg-panel p-5 transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-panel-2">
       <div className="flex items-start gap-3.5">
@@ -50,7 +60,33 @@ export function ForgeCard({ forge }: { forge: Forge }) {
 
       <div className="mt-auto flex items-center justify-between gap-2 border-t border-border pt-3.5">
         <span className="font-mono text-[11px] text-ink-faint">{STATUS_LABEL[forge.status]}</span>
-        <span className="text-[11px] text-ink-faint">by {forge.createdBy.name}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-ink-faint">by {forge.createdBy.name}</span>
+          {showActions && (
+            <div className="flex items-center gap-1">
+              {onEdit && (
+                <button
+                  type="button"
+                  aria-label={`Edit ${forge.name}`}
+                  onClick={() => onEdit(forge)}
+                  className="rounded-md p-1.5 text-ink-dim transition hover:bg-panel-3 hover:text-ink"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  type="button"
+                  aria-label={`Delete ${forge.name}`}
+                  onClick={() => onDelete(forge)}
+                  className="rounded-md p-1.5 text-ink-dim transition hover:bg-[rgba(217,104,104,0.12)] hover:text-[#ff9f9f]"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </article>
   );
