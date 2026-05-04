@@ -18,6 +18,8 @@ tester.run('no-prisma-outside-services', rule, {
     { filename: '/repo/lib/services/users.ts', code: "import { prisma } from '../prisma';" },
     { filename: '/repo/app/dashboard/page.tsx', code: "import { listForges } from '@/lib/services/forges';" },
     { filename: '/repo/prisma/seed.ts', code: "import { PrismaClient } from '@prisma/client';" },
+    { filename: '/repo/lib/test/db.ts', code: "import { PrismaClient } from '@prisma/client';" },
+    { filename: '/repo/lib/test/db.ts', code: "import { prisma } from '@/lib/prisma';" },
   ],
   invalid: [
     {
