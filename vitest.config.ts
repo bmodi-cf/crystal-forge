@@ -12,6 +12,12 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     exclude: ['**/node_modules/**', '**/tests/e2e/**', '**/.next/**'],
+    // Service tests share one Postgres instance and call withCleanDb to truncate.
+    // Running test files in parallel races on the same tables and produces
+    // intermittent FK violations. Serialise via a single fork.
+    pool: 'forks',
+    forks: { singleFork: true },
+    fileParallelism: false,
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, '.') },
