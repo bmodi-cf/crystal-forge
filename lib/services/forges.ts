@@ -1,8 +1,9 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { canReadForge, forgeReadFilter } from '@/lib/acl';
-import { ForbiddenError, NotFoundError } from '@/lib/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import type { Forge, SessionUser } from './types';
+import type { CreateForgeInput } from './forges-schema';
 
 const forgeInclude = {
   groups: { include: { group: true } },
@@ -52,4 +53,41 @@ export async function getForge(currentUser: SessionUser, id: string): Promise<Fo
     throw new ForbiddenError(`Cannot read forge ${id}`);
   }
   return toDto(row);
+}
+
+function deriveInitials(name: string): string {
+  const cleaned = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0]!)
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+  return cleaned || 'F';
+}
+
+export async function createForge(
+  currentUser: SessionUser,
+  input: CreateForgeInput,
+): Promise<Forge> {
+  return prisma.$transaction(async (tx) => {
+    const groupRows = await tx.group.findMany({ where: { name: { in: input.groups } } });
+    if (groupRows.length !== input.groups.length) {
+      const known = new Set(groupRows.map((g) => g.name));
+      const unknown = input.groups.filter((g) => !known.has(g));
+      throw new ValidationError('Unknown group(s)', { groups: unknown });
+    }
+    const description = input.description?.trim() ? input.description.trim() : null;
+    const created = await tx.forge.create({
+      data: {
+        name: input.name,
+        description,
+        initials: deriveInitials(input.name),
+        createdById: currentUser.id,
+        groups: { create: groupRows.map((g) => ({ groupId: g.id })) },
+      },
+      include: forgeInclude,
+    });
+    return toDto(created);
+  });
 }
