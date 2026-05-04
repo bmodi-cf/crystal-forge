@@ -11,3 +11,12 @@ export async function devCreateSessionForEmail(
   await prisma.session.create({ data: { sessionToken, userId: user.id, expires } });
   return { sessionToken, expires };
 }
+
+export async function listSeededUsersForDevSwitch(): Promise<Array<{ email: string; name: string }>> {
+  const users = await prisma.user.findMany({
+    where: { entraOid: null }, // dev-seeded users have no Entra OID
+    select: { email: true, name: true },
+    orderBy: { name: 'asc' },
+  });
+  return users;
+}
