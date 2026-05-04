@@ -1,0 +1,1138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Crystal Forge — Forge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --dark-blue:#001C38;
+    --light-navy:#002E5C;
+    --gold:#B9A060;
+    --gold-soft:#d4be7e;
+    --gold-deep:#8c7747;
+    --light-grey:#969696;
+    --ink:#e7ecf2;
+    --ink-dim:#9aa7b6;
+    --ink-faint:#5d6b7d;
+
+    --bg:#02101f;
+    --panel:rgba(255,255,255,0.035);
+    --panel-2:rgba(255,255,255,0.05);
+    --panel-3:rgba(255,255,255,0.075);
+    --border:rgba(255,255,255,0.08);
+    --border-strong:rgba(255,255,255,0.14);
+    --danger:#d96868;
+    --good:#4ad28b;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(80% 60% at 50% -10%, rgba(0,46,92,0.5), transparent 60%),
+      var(--bg);
+    background-attachment:fixed;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    height:100vh;
+    overflow:hidden;
+  }
+  button{font-family:inherit; cursor:pointer;}
+  input,textarea,select{font-family:inherit;}
+
+  /* ── topbar (matches Dashboard) ─────────────────────── */
+  .topbar{
+    height:64px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 24px;
+    background:rgba(2,16,31,0.75);
+    backdrop-filter:saturate(140%) blur(16px);
+    -webkit-backdrop-filter:saturate(140%) blur(16px);
+    border-bottom:1px solid var(--border);
+    flex-shrink:0;
+  }
+  .brand{ display:flex; align-items:center; gap:14px; }
+  .brand a{ display:flex; align-items:center; }
+  .brand img{ height:28px; display:block; }
+  .brand .divider{ width:1px; height:22px; background:var(--border-strong); }
+  .brand .product{
+    font-size:12px;
+    letter-spacing:.28em;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+    font-weight:500;
+  }
+  .brand .product b{ color:var(--gold-soft); font-weight:600; }
+
+  /* breadcrumb */
+  .breadcrumb{
+    display:flex; align-items:center; gap:10px;
+    font-size:13px; color:var(--ink-dim);
+    margin-left:18px; padding-left:18px;
+    border-left:1px solid var(--border);
+  }
+  .breadcrumb a{
+    color:var(--ink-dim); text-decoration:none;
+    display:inline-flex; align-items:center; gap:6px;
+    padding:5px 10px; border-radius:6px;
+    transition:.15s ease;
+  }
+  .breadcrumb a:hover{ color:var(--ink); background:var(--panel); }
+  .breadcrumb .sep{ color:var(--ink-faint); }
+  .breadcrumb .current{ color:var(--ink); font-weight:500; display:flex; align-items:center; gap:8px;}
+  .breadcrumb .current .dot{ width:6px; height:6px; border-radius:50%; background:var(--good); box-shadow:0 0 8px rgba(74,210,139,0.6);}
+
+  .topbar-right{ display:flex; align-items:center; gap:10px; }
+
+  .icon-btn{
+    width:36px; height:36px;
+    border-radius:8px;
+    display:grid; place-items:center;
+    background:transparent;
+    border:1px solid transparent;
+    color:var(--ink-dim);
+    transition:.15s ease;
+  }
+  .icon-btn:hover{ color:var(--ink); background:var(--panel); border-color:var(--border-strong); }
+
+  .close-btn{
+    background:transparent;
+    color:var(--ink);
+    border:1px solid var(--border-strong);
+    padding:7px 14px;
+    border-radius:8px;
+    font-size:13px;
+    font-weight:500;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    transition:.18s;
+  }
+  .close-btn:hover{ background:var(--panel-2); border-color:rgba(217,104,104,0.45); color:#ff9f9f; }
+
+  .user{
+    display:flex; align-items:center; gap:8px;
+    padding:5px 6px;
+    border-radius:999px;
+    border:1px solid transparent;
+    transition:.15s;
+  }
+  .user:hover{ border-color:var(--border); background:var(--panel); }
+  .avatar{
+    width:30px; height:30px; border-radius:50%;
+    background:linear-gradient(135deg, var(--gold) 0%, var(--gold-deep) 100%);
+    color:#1a1408;
+    display:grid; place-items:center;
+    font-weight:600; font-size:11.5px;
+    box-shadow:0 0 0 1px rgba(185,160,96,0.3);
+  }
+
+  /* ── main split ─────────────────────────────────────── */
+  .workspace{
+    height:calc(100vh - 64px);
+    display:grid;
+    grid-template-columns: minmax(380px, 38%) 1fr;
+    overflow:hidden;
+  }
+
+  /* ── chat column ────────────────────────────────────── */
+  .chat-col{
+    display:flex;
+    flex-direction:column;
+    border-right:1px solid var(--border);
+    background:rgba(2,12,24,0.5);
+    min-width:0;
+  }
+
+  .chat-head{
+    height:54px;
+    flex-shrink:0;
+    padding:0 16px;
+    border-bottom:1px solid var(--border);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  }
+  .conv-title{
+    flex:1; min-width:0;
+    display:flex; align-items:center; gap:8px;
+    overflow:hidden;
+  }
+  .conv-title .label{
+    font-size:13.5px; font-weight:500;
+    color:var(--ink);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .conv-title .meta{
+    font-size:11px; color:var(--ink-faint);
+    font-family:'JetBrains Mono',monospace;
+    flex-shrink:0;
+  }
+
+  .chat-head-actions{ display:flex; gap:4px; flex-shrink:0; position:relative;}
+
+  .new-conv-btn{
+    background:transparent;
+    color:var(--ink-dim);
+    border:1px solid var(--border);
+    padding:6px 11px;
+    border-radius:7px;
+    font-size:12px;
+    font-weight:500;
+    display:inline-flex; align-items:center; gap:6px;
+    transition:.15s;
+  }
+  .new-conv-btn:hover{ color:var(--ink); border-color:rgba(185,160,96,0.45); background:var(--panel); }
+
+  /* history dropdown */
+  .history-pop{
+    position:absolute;
+    top:calc(100% + 6px);
+    right:0;
+    width:320px;
+    background:#081827;
+    border:1px solid var(--border-strong);
+    border-radius:12px;
+    padding:6px;
+    box-shadow:0 24px 48px -12px rgba(0,0,0,0.7);
+    opacity:0; transform:translateY(-4px); pointer-events:none;
+    transition:.18s;
+    z-index:20;
+    max-height:60vh;
+    overflow-y:auto;
+  }
+  .history-pop[data-open="true"]{ opacity:1; transform:translateY(0); pointer-events:auto; }
+  .history-pop .head{
+    padding:10px 12px 6px;
+    font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--ink-faint);
+  }
+  .history-item{
+    display:block;
+    width:100%; text-align:left;
+    background:none; border:none;
+    padding:10px 12px;
+    border-radius:8px;
+    color:var(--ink);
+    font-size:13px;
+    transition:.12s;
+  }
+  .history-item:hover{ background:var(--panel-2);}
+  .history-item[data-active="true"]{ background:rgba(185,160,96,0.12); color:var(--gold-soft); }
+  .history-item .h-meta{
+    display:block;
+    font-size:11px; color:var(--ink-faint);
+    margin-top:2px;
+    font-family:'JetBrains Mono',monospace;
+  }
+
+  /* messages */
+  .messages{
+    flex:1;
+    overflow-y:auto;
+    padding:20px 16px 8px;
+    display:flex; flex-direction:column; gap:18px;
+    scrollbar-width:thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+  }
+  .messages::-webkit-scrollbar{ width:8px; }
+  .messages::-webkit-scrollbar-thumb{ background:rgba(255,255,255,0.08); border-radius:4px; }
+
+  .msg{
+    display:flex; gap:10px;
+    max-width:100%;
+  }
+  .msg .avatar-sm{
+    width:26px; height:26px; border-radius:6px;
+    flex-shrink:0;
+    display:grid; place-items:center;
+    font-size:11px; font-weight:600;
+  }
+  .msg.user .avatar-sm{
+    background:linear-gradient(135deg, var(--gold) 0%, var(--gold-deep) 100%);
+    color:#1a1408;
+  }
+  .msg.ai .avatar-sm{
+    background:linear-gradient(135deg, #002E5C, #001C38);
+    border:1px solid rgba(60,110,170,0.4);
+    color:#9ec6ee;
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+  }
+  .msg .body{
+    flex:1; min-width:0;
+  }
+  .msg .name{
+    font-size:11px; color:var(--ink-faint);
+    margin-bottom:4px;
+    font-weight:500;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+  }
+  .msg .bubble{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:11px 13px;
+    font-size:13.5px;
+    line-height:1.55;
+    color:var(--ink);
+  }
+  .msg.user .bubble{
+    background:rgba(185,160,96,0.08);
+    border-color:rgba(185,160,96,0.25);
+  }
+  .msg .bubble p + p{ margin-top:8px; }
+  .msg .bubble code{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    background:rgba(0,0,0,0.35);
+    padding:1px 5px; border-radius:4px;
+    color:var(--gold-soft);
+  }
+  .msg .bubble .build-step{
+    display:flex; align-items:center; gap:8px;
+    margin-top:6px;
+    font-size:12px;
+    color:var(--ink-dim);
+    font-family:'JetBrains Mono',monospace;
+  }
+  .msg .bubble .build-step .check{
+    width:14px; height:14px;
+    border-radius:50%;
+    background:rgba(74,210,139,0.15);
+    border:1px solid rgba(74,210,139,0.4);
+    color:var(--good);
+    display:grid; place-items:center;
+    font-size:9px;
+    flex-shrink:0;
+  }
+
+  .typing{
+    display:flex; gap:4px; padding:6px 0;
+  }
+  .typing span{
+    width:6px; height:6px; border-radius:50%;
+    background:var(--ink-dim);
+    animation:typingBlink 1.2s infinite ease-in-out;
+  }
+  .typing span:nth-child(2){ animation-delay:.15s; }
+  .typing span:nth-child(3){ animation-delay:.3s; }
+  @keyframes typingBlink{
+    0%,80%,100%{ opacity:.25; transform:translateY(0); }
+    40%{ opacity:1; transform:translateY(-2px); }
+  }
+
+  /* composer */
+  .composer{
+    flex-shrink:0;
+    padding:12px 16px 16px;
+    border-top:1px solid var(--border);
+    background:rgba(2,12,24,0.7);
+  }
+  .composer-box{
+    background:var(--panel-2);
+    border:1px solid var(--border-strong);
+    border-radius:12px;
+    padding:10px 10px 8px;
+    transition:.18s;
+  }
+  .composer-box:focus-within{
+    border-color:var(--gold);
+    box-shadow:0 0 0 3px rgba(185,160,96,0.18);
+  }
+  .composer-box textarea{
+    width:100%;
+    background:transparent;
+    border:none;
+    color:var(--ink);
+    font-size:14px;
+    line-height:1.5;
+    resize:none;
+    min-height:38px;
+    max-height:160px;
+  }
+  .composer-box textarea:focus{ outline:none; }
+  .composer-box textarea::placeholder{ color:var(--ink-faint); }
+
+  .composer-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+    margin-top:6px;
+  }
+  .composer-row .left{ display:flex; gap:4px; }
+  .composer-row .left button{
+    background:transparent;
+    border:none;
+    color:var(--ink-faint);
+    width:28px; height:28px;
+    border-radius:6px;
+    display:grid; place-items:center;
+    transition:.12s;
+  }
+  .composer-row .left button:hover{ color:var(--ink); background:var(--panel); }
+
+  .model-pick{
+    background:transparent;
+    border:1px solid var(--border);
+    color:var(--ink-dim);
+    padding:5px 9px;
+    border-radius:6px;
+    font-size:11.5px;
+    font-family:'JetBrains Mono',monospace;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    transition:.12s;
+  }
+  .model-pick:hover{ color:var(--ink); border-color:var(--border-strong);}
+
+  .send-btn{
+    background:linear-gradient(180deg, var(--gold-soft), var(--gold));
+    color:#1a1408;
+    border:none;
+    padding:7px 12px;
+    border-radius:7px;
+    font-size:12.5px;
+    font-weight:600;
+    display:inline-flex; align-items:center; gap:6px;
+    transition:.15s;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.25);
+  }
+  .send-btn:hover:not(:disabled){ transform:translateY(-1px); box-shadow:0 8px 18px -8px rgba(185,160,96,0.6), inset 0 1px 0 rgba(255,255,255,0.3); }
+  .send-btn:disabled{ opacity:.4; cursor:not-allowed; }
+
+  /* ── preview column ─────────────────────────────────── */
+  .preview-col{
+    display:flex; flex-direction:column;
+    min-width:0;
+    background:transparent;
+  }
+  .preview-head{
+    height:54px;
+    flex-shrink:0;
+    padding:0 18px;
+    border-bottom:1px solid var(--border);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+  }
+  .preview-head .left{ display:flex; align-items:center; gap:14px; min-width:0; }
+  .build-status{
+    display:inline-flex; align-items:center; gap:8px;
+    background:rgba(74,210,139,0.08);
+    border:1px solid rgba(74,210,139,0.3);
+    color:#9ce8be;
+    padding:5px 10px;
+    border-radius:999px;
+    font-size:11.5px;
+    font-weight:500;
+    letter-spacing:.02em;
+    flex-shrink:0;
+  }
+  .build-status .dot{
+    width:6px; height:6px; border-radius:50%; background:var(--good);
+    box-shadow:0 0 8px rgba(74,210,139,0.7);
+    animation:pulseGood 2s infinite;
+  }
+  .build-status[data-state="building"]{
+    background:rgba(224,169,72,0.1); border-color:rgba(224,169,72,0.35); color:#f3cd8b;
+  }
+  .build-status[data-state="building"] .dot{ background:#e0a948; box-shadow:0 0 8px rgba(224,169,72,0.7); }
+  @keyframes pulseGood{
+    0%,100%{ opacity:1; transform:scale(1); }
+    50%{ opacity:.55; transform:scale(.85); }
+  }
+
+  .url-pill{
+    flex:1;
+    min-width:0;
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--ink-dim);
+    border-radius:8px;
+    padding:6px 12px;
+    font-size:12.5px;
+    font-family:'JetBrains Mono',monospace;
+    display:flex; align-items:center; gap:8px;
+    max-width:480px;
+  }
+  .url-pill .lock{ color:var(--good); flex-shrink:0;}
+  .url-pill .url{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink); }
+
+  .device-toggle{
+    display:flex;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:7px;
+    padding:2px;
+  }
+  .device-toggle button{
+    background:transparent;
+    border:none;
+    color:var(--ink-faint);
+    padding:5px 9px;
+    border-radius:5px;
+    display:grid; place-items:center;
+    transition:.12s;
+  }
+  .device-toggle button[data-active="true"]{
+    background:var(--panel-3);
+    color:var(--ink);
+  }
+
+  /* preview body */
+  .preview-body{
+    flex:1;
+    overflow:auto;
+    padding:24px;
+    display:grid;
+    place-items:start center;
+    background:
+      linear-gradient(rgba(255,255,255,0.015), rgba(255,255,255,0.015)),
+      repeating-linear-gradient(0deg, transparent 0 39px, rgba(255,255,255,0.025) 39px 40px),
+      repeating-linear-gradient(90deg, transparent 0 39px, rgba(255,255,255,0.025) 39px 40px);
+  }
+
+  .device-frame{
+    width:100%;
+    max-width:1100px;
+    background:#fbfbf8;
+    border-radius:12px;
+    box-shadow:0 30px 80px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+    overflow:hidden;
+    color:#1d2733;
+    transition:max-width .35s cubic-bezier(.2,.65,.25,1);
+  }
+  .device-frame[data-device="mobile"]{ max-width:380px; }
+
+  /* the user's "built" app — Aquaflow Designer mock */
+  .app-bar{
+    background:#001C38;
+    color:#fff;
+    padding:14px 20px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    border-bottom:3px solid var(--gold);
+  }
+  .app-bar h1{
+    font-size:15px;
+    font-weight:600;
+    letter-spacing:-0.01em;
+    display:flex; align-items:center; gap:10px;
+  }
+  .app-bar h1::before{
+    content:""; width:18px; height:18px; border-radius:4px;
+    background:linear-gradient(135deg, var(--gold), var(--gold-deep));
+  }
+  .app-bar nav{ display:flex; gap:4px; font-size:12px;}
+  .app-bar nav a{
+    color:rgba(255,255,255,0.7);
+    text-decoration:none;
+    padding:6px 10px;
+    border-radius:5px;
+  }
+  .app-bar nav a.active{ background:rgba(255,255,255,0.1); color:#fff;}
+
+  .app-body{
+    padding:24px;
+    display:grid;
+    grid-template-columns: 220px 1fr;
+    gap:24px;
+  }
+  .device-frame[data-device="mobile"] .app-body{ grid-template-columns: 1fr; }
+
+  .app-side{
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .app-side h4{
+    font-size:10.5px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:#7a8597;
+    margin-bottom:6px;
+    font-weight:600;
+  }
+  .app-side a{
+    display:flex; align-items:center; gap:8px;
+    padding:7px 10px;
+    border-radius:6px;
+    font-size:13px;
+    color:#3a4757;
+    text-decoration:none;
+    transition:.15s;
+  }
+  .app-side a:hover{ background:#eef0ec; }
+  .app-side a.active{
+    background:rgba(0,46,92,0.08);
+    color:var(--dark-blue);
+    font-weight:500;
+  }
+  .app-side a .lead{
+    width:6px; height:6px; border-radius:50%; background:#cbd2dc;
+  }
+  .app-side a.active .lead{ background:var(--gold); }
+
+  .app-main h2{
+    font-size:18px; font-weight:600; letter-spacing:-0.01em;
+    margin-bottom:4px;
+  }
+  .app-main .sub{
+    color:#6b7785;
+    font-size:13px;
+    margin-bottom:18px;
+  }
+
+  .stats{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:10px;
+    margin-bottom:18px;
+  }
+  .device-frame[data-device="mobile"] .stats{ grid-template-columns:1fr 1fr; }
+  .stat{
+    background:#fff;
+    border:1px solid #e8ebef;
+    padding:12px;
+    border-radius:8px;
+  }
+  .stat .l{ font-size:10.5px; color:#7a8597; letter-spacing:.08em; text-transform:uppercase; font-weight:500;}
+  .stat .v{ font-size:22px; font-weight:600; margin-top:2px; letter-spacing:-0.02em; color:#001C38; font-family:'JetBrains Mono',monospace;}
+  .stat .d{ font-size:11px; color:var(--gold-deep); margin-top:2px; font-weight:500;}
+
+  .table-card{
+    background:#fff;
+    border:1px solid #e8ebef;
+    border-radius:8px;
+    overflow:hidden;
+  }
+  .table-head{
+    padding:12px 16px;
+    border-bottom:1px solid #e8ebef;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .table-head h3{ font-size:13px; font-weight:600;}
+  .table-head .pill{
+    font-size:10.5px;
+    background:rgba(185,160,96,0.15);
+    color:var(--gold-deep);
+    padding:3px 9px;
+    border-radius:999px;
+    font-weight:500;
+  }
+  .row{
+    display:grid;
+    grid-template-columns: 1fr 100px 100px 80px;
+    gap:10px;
+    padding:11px 16px;
+    border-top:1px solid #f0f2f5;
+    font-size:12.5px;
+    align-items:center;
+  }
+  .row:first-of-type{ border-top:none; background:#fafbfc; font-size:11px; color:#7a8597; text-transform:uppercase; letter-spacing:.08em; padding-top:8px; padding-bottom:8px;}
+  .row .name{ font-weight:500; color:#001C38;}
+  .row .num{ font-family:'JetBrains Mono',monospace; color:#001C38;}
+  .row .badge{
+    font-size:10.5px;
+    padding:2px 7px; border-radius:4px;
+    font-weight:500;
+    width:fit-content;
+  }
+  .row .badge.ok{ background:rgba(74,210,139,0.15); color:#1a8d54;}
+  .row .badge.warn{ background:rgba(224,169,72,0.18); color:#8c6817;}
+  .device-frame[data-device="mobile"] .row{ grid-template-columns: 1fr 80px; }
+  .device-frame[data-device="mobile"] .row > :nth-child(2),
+  .device-frame[data-device="mobile"] .row > :nth-child(3){ display:none; }
+
+  /* added-by-chat highlight pulse */
+  @keyframes addedPulse{
+    0%{ background:rgba(185,160,96,0.35); }
+    100%{ background:transparent; }
+  }
+  .just-added{
+    animation: addedPulse 2.4s ease-out;
+  }
+
+  /* ── responsive ─────────────────────────────────────── */
+  @media (max-width:980px){
+    .workspace{ grid-template-columns: 1fr; grid-template-rows: 50% 50%; }
+    .chat-col{ border-right:none; border-bottom:1px solid var(--border); }
+    .breadcrumb{ display:none; }
+  }
+  @media (max-width:640px){
+    .topbar{ padding:0 14px; }
+    .url-pill{ display:none; }
+  }
+
+  /* ── toast ──────────────────────────────────────────── */
+  .toast{
+    position:fixed;
+    bottom:20px; left:50%;
+    transform:translateX(-50%) translateY(20px);
+    background:#0a1a2c;
+    border:1px solid var(--border-strong);
+    color:var(--ink);
+    padding:10px 16px;
+    border-radius:10px;
+    font-size:13px;
+    box-shadow:0 12px 30px -8px rgba(0,0,0,0.6);
+    opacity:0;
+    pointer-events:none;
+    transition:.25s;
+    z-index:200;
+    display:flex; align-items:center; gap:10px;
+  }
+  .toast[data-show="true"]{ opacity:1; transform:translateX(-50%) translateY(0);}
+  .toast .dot{ width:6px; height:6px; border-radius:50%; background:var(--gold); box-shadow:0 0 8px rgba(185,160,96,0.7);}
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+// ── Icon set ─────────────────────────────────────────
+function Icon({ name, size=14 }){
+  const s = { width:size, height:size, viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:2, strokeLinecap:"round", strokeLinejoin:"round" };
+  switch(name){
+    case "back":     return <svg {...s}><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>;
+    case "x":        return <svg {...s}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
+    case "plus":     return <svg {...s}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+    case "history":  return <svg {...s}><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><polyline points="3 3 3 8 8 8"/><polyline points="12 7 12 12 15 14"/></svg>;
+    case "send":     return <svg {...s}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>;
+    case "attach":   return <svg {...s}><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>;
+    case "image":    return <svg {...s}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>;
+    case "refresh":  return <svg {...s}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>;
+    case "external": return <svg {...s}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>;
+    case "lock":     return <svg {...s}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>;
+    case "desktop":  return <svg {...s}><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>;
+    case "phone":    return <svg {...s}><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>;
+    case "chev":     return <svg {...s}><polyline points="6 9 12 15 18 9"/></svg>;
+    case "sparkle":  return <svg {...s}><path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5z"/><path d="M19 14l1 3 3 1-3 1-1 3-1-3-3-1 3-1z"/></svg>;
+    default: return null;
+  }
+}
+
+// ── Topbar ───────────────────────────────────────────
+function Topbar({ forgeName, status, user, onClose }){
+  return (
+    <header className="topbar">
+      <div className="brand">
+        <a href="Dashboard.html" title="Back to Forges">
+          <img src="assets/crystal-fountains-logo.png" alt="Crystal Fountains" />
+        </a>
+        <div className="divider"/>
+        <div className="product"><b>Crystal</b> Forge</div>
+
+        <nav className="breadcrumb" aria-label="breadcrumb">
+          <a href="Dashboard.html">
+            <Icon name="back" size={13}/> Forges
+          </a>
+          <span className="sep">/</span>
+          <span className="current">
+            <span className="dot"/> {forgeName}
+          </span>
+        </nav>
+      </div>
+
+      <div className="topbar-right">
+        <button className="close-btn" onClick={onClose}>
+          <Icon name="x" size={14}/> Close Forge
+        </button>
+        <div className="user">
+          <span className="avatar">{user.initials}</span>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ── Chat column ──────────────────────────────────────
+const CONVERSATIONS_SEED = [
+  { id:"c-001", title:"Add nozzle calibration tab", updated:"just now", active:true },
+  { id:"c-002", title:"Switch table to grid view",   updated:"yesterday" },
+  { id:"c-003", title:"Initial scaffold",            updated:"2 days ago" },
+  { id:"c-004", title:"Brand colors + dark header",  updated:"4 days ago" },
+];
+
+const STARTER_MESSAGES = [
+  { who:"ai", name:"Crystal Forge", body: <>
+      <p>Welcome back to <code>Aquaflow Designer</code>. I've loaded your last build.</p>
+      <p>Tell me what you'd like to change — add a tab, adjust the layout, change the table columns, or wire up a new data source.</p>
+    </> },
+  { who:"user", name:"Maya", body: <p>Add a small KPI strip above the calibration table — total nozzles, average pressure, and out-of-spec count.</p>},
+  { who:"ai", name:"Crystal Forge", body: <>
+      <p>Done. I've added a 3-card KPI strip above the calibration table.</p>
+      <div className="build-step"><span className="check">✓</span> Added <code>StatStrip</code> component</div>
+      <div className="build-step"><span className="check">✓</span> Wired <code>nozzles.summary</code> data</div>
+      <div className="build-step"><span className="check">✓</span> Build #42 deployed</div>
+    </> },
+];
+
+function ChatColumn({ onAssistantTask, building }){
+  const [conversations, setConversations] = useState(CONVERSATIONS_SEED);
+  const [activeId, setActiveId] = useState("c-001");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [messages, setMessages] = useState(STARTER_MESSAGES);
+  const [draft, setDraft] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const histRef = useRef(null);
+  const msgsRef = useRef(null);
+  const taRef = useRef(null);
+
+  const activeConv = conversations.find(c => c.id === activeId);
+
+  useEffect(()=>{
+    function onDoc(e){
+      if(histRef.current && !histRef.current.contains(e.target)) setHistoryOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return ()=>document.removeEventListener("mousedown", onDoc);
+  },[]);
+
+  useEffect(()=>{
+    msgsRef.current?.scrollTo({ top: msgsRef.current.scrollHeight, behavior:"smooth" });
+  },[messages, thinking]);
+
+  function newConversation(){
+    const id = "c-" + String(Math.floor(Math.random()*900)+100);
+    const c = { id, title:"New conversation", updated:"just now", active:true };
+    setConversations(cs => [c, ...cs.map(x=>({...x, active:false}))]);
+    setActiveId(id);
+    setMessages([
+      { who:"ai", name:"Crystal Forge", body: <p>New conversation. What should we build?</p> }
+    ]);
+    setHistoryOpen(false);
+  }
+
+  function pickConversation(c){
+    setActiveId(c.id);
+    setHistoryOpen(false);
+  }
+
+  function send(){
+    const text = draft.trim();
+    if(!text || thinking) return;
+    setMessages(ms => [...ms, { who:"user", name:"Maya", body:<p>{text}</p> }]);
+    setDraft("");
+    if(taRef.current){ taRef.current.style.height = "auto"; }
+    setThinking(true);
+
+    // tell parent to flag a "build" change
+    const buildLabel = onAssistantTask?.(text);
+
+    setTimeout(()=>{
+      setThinking(false);
+      setMessages(ms => [...ms, {
+        who:"ai",
+        name:"Crystal Forge",
+        body: <>
+          <p>Got it. Applying the change now.</p>
+          <div className="build-step"><span className="check">✓</span> {buildLabel || "Updated UI components"}</div>
+          <div className="build-step"><span className="check">✓</span> Hot-reloaded preview</div>
+        </>
+      }]);
+    }, 1400);
+  }
+
+  function onKey(e){
+    if(e.key === "Enter" && !e.shiftKey){
+      e.preventDefault();
+      send();
+    }
+  }
+
+  function autoSize(e){
+    setDraft(e.target.value);
+    e.target.style.height = "auto";
+    e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
+  }
+
+  return (
+    <section className="chat-col" aria-label="Build conversation">
+      <div className="chat-head">
+        <div className="conv-title">
+          <span className="label">{activeConv?.title || "New conversation"}</span>
+          <span className="meta">· {activeConv?.updated}</span>
+        </div>
+        <div className="chat-head-actions" ref={histRef}>
+          <button className="new-conv-btn" onClick={newConversation} title="Start new conversation">
+            <Icon name="plus" size={12}/> New
+          </button>
+          <button className="new-conv-btn" data-active={historyOpen} onClick={()=>setHistoryOpen(o=>!o)} aria-expanded={historyOpen}>
+            <Icon name="history" size={12}/> History <Icon name="chev" size={11}/>
+          </button>
+
+          <div className="history-pop" data-open={historyOpen}>
+            <div className="head">Conversations</div>
+            {conversations.map(c => (
+              <button key={c.id} className="history-item" data-active={c.id===activeId} onClick={()=>pickConversation(c)}>
+                {c.title}
+                <span className="h-meta">{c.updated}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="messages" ref={msgsRef}>
+        {messages.map((m, i) => (
+          <div className={"msg " + m.who} key={i}>
+            <span className="avatar-sm">{m.who === "user" ? "M" : "CF"}</span>
+            <div className="body">
+              <div className="name">{m.name}</div>
+              <div className="bubble">{m.body}</div>
+            </div>
+          </div>
+        ))}
+        {thinking && (
+          <div className="msg ai">
+            <span className="avatar-sm">CF</span>
+            <div className="body">
+              <div className="name">Crystal Forge</div>
+              <div className="bubble">
+                <div className="typing"><span/><span/><span/></div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="composer">
+        <div className="composer-box">
+          <textarea
+            ref={taRef}
+            value={draft}
+            placeholder="Describe a change — add a tab, change the table, wire up a new data source…"
+            onChange={autoSize}
+            onKeyDown={onKey}
+            rows={1}
+          />
+          <div className="composer-row">
+            <div className="left">
+              <button title="Attach file"><Icon name="attach"/></button>
+              <button title="Add image"><Icon name="image"/></button>
+              <button className="model-pick" title="Model">
+                <Icon name="sparkle" size={11}/> forge-build · v3
+              </button>
+            </div>
+            <button className="send-btn" onClick={send} disabled={!draft.trim() || thinking || building}>
+              <Icon name="send" size={12}/> Send
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Preview column (the "running app") ───────────────
+function PreviewColumn({ buildState, build, device, onDevice, kpis, addedRow }){
+  return (
+    <section className="preview-col" aria-label="Running application">
+      <div className="preview-head">
+        <div className="left">
+          <div className="build-status" data-state={buildState}>
+            <span className="dot"/>
+            {buildState === "building" ? "Building…" : `Live · Build #${build}`}
+          </div>
+          <div className="url-pill">
+            <Icon name="lock" size={12}/>
+            <span className="url">aquaflow-designer.forge.crystalfountains.app</span>
+          </div>
+        </div>
+        <div style={{display:"flex", alignItems:"center", gap:8}}>
+          <div className="device-toggle">
+            <button data-active={device==="desktop"} onClick={()=>onDevice("desktop")} title="Desktop"><Icon name="desktop" size={13}/></button>
+            <button data-active={device==="mobile"}  onClick={()=>onDevice("mobile")}  title="Mobile"><Icon name="phone" size={13}/></button>
+          </div>
+          <button className="icon-btn" title="Reload"><Icon name="refresh" size={14}/></button>
+          <button className="icon-btn" title="Open in new tab"><Icon name="external" size={14}/></button>
+        </div>
+      </div>
+
+      <div className="preview-body">
+        <div className="device-frame" data-device={device}>
+          <div className="app-bar">
+            <h1>Aquaflow Designer</h1>
+            <nav>
+              <a href="#" className="active">Dashboard</a>
+              <a href="#">Projects</a>
+              <a href="#">Library</a>
+              <a href="#">Settings</a>
+            </nav>
+          </div>
+
+          <div className="app-body">
+            <aside className="app-side">
+              <h4>Workspace</h4>
+              <a href="#" className="active"><span className="lead"/> Calibration</a>
+              <a href="#"><span className="lead"/> Hydraulics</a>
+              <a href="#"><span className="lead"/> Nozzle Library</a>
+              <a href="#"><span className="lead"/> Simulations</a>
+              <a href="#"><span className="lead"/> Reports</a>
+            </aside>
+
+            <main className="app-main">
+              <h2>Nozzle Calibration</h2>
+              <p className="sub">Riverside Plaza · Site 04 · last sync 2 min ago</p>
+
+              <div className="stats">
+                <div className="stat">
+                  <div className="l">Total Nozzles</div>
+                  <div className="v">{kpis.total}</div>
+                  <div className="d">+{kpis.added} this week</div>
+                </div>
+                <div className="stat">
+                  <div className="l">Avg Pressure</div>
+                  <div className="v">{kpis.pressure.toFixed(1)} <span style={{fontSize:13, color:"#7a8597"}}>bar</span></div>
+                  <div className="d">within spec</div>
+                </div>
+                <div className="stat">
+                  <div className="l">Out of Spec</div>
+                  <div className="v" style={{color: kpis.outOfSpec>3 ? "#b8442e" : "#001C38"}}>{kpis.outOfSpec}</div>
+                  <div className="d">{kpis.outOfSpec>3 ? "needs review" : "all good"}</div>
+                </div>
+              </div>
+
+              <div className="table-card">
+                <div className="table-head">
+                  <h3>Calibration Runs</h3>
+                  <span className="pill">{kpis.runs} runs · last 30 days</span>
+                </div>
+                <div className="row">
+                  <div>Run</div>
+                  <div>Pressure</div>
+                  <div>Flow</div>
+                  <div>Status</div>
+                </div>
+                {[
+                  ["RUN-2041","2.3 bar","48.0 L/m","ok"],
+                  ["RUN-2040","2.1 bar","45.8 L/m","ok"],
+                  ["RUN-2039","2.8 bar","52.4 L/m","warn"],
+                  ["RUN-2038","2.2 bar","47.3 L/m","ok"],
+                  ["RUN-2037","2.4 bar","49.1 L/m","ok"],
+                ].map(([id, p, f, s], i)=>(
+                  <div className="row" key={id}>
+                    <div className="name">{id}</div>
+                    <div className="num">{p}</div>
+                    <div className="num">{f}</div>
+                    <div><span className={"badge " + s}>{s === "ok" ? "in spec" : "review"}</span></div>
+                  </div>
+                ))}
+                {addedRow && (
+                  <div className="row just-added" key={addedRow.id}>
+                    <div className="name">{addedRow.id}</div>
+                    <div className="num">{addedRow.p}</div>
+                    <div className="num">{addedRow.f}</div>
+                    <div><span className="badge ok">in spec</span></div>
+                  </div>
+                )}
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── App shell ────────────────────────────────────────
+function App(){
+  const user = { name:"Maya Chen", initials:"MC" };
+  const forge = { name:"Aquaflow Designer" };
+
+  const [device, setDevice] = useState("desktop");
+  const [buildState, setBuildState] = useState("live"); // 'live' | 'building'
+  const [build, setBuild] = useState(42);
+  const [kpis, setKpis] = useState({ total:128, added:6, pressure:2.34, outOfSpec:2, runs:217 });
+  const [addedRow, setAddedRow] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  useEffect(()=>{
+    if(!toast) return;
+    const t = setTimeout(()=>setToast(null), 2400);
+    return ()=>clearTimeout(t);
+  },[toast]);
+
+  function handleClose(){
+    setToast({ msg:"Returning to Forges…" });
+    setTimeout(()=>{ window.location.href = "Dashboard.html"; }, 600);
+  }
+
+  // when user sends chat, simulate a build cycle that mutates the preview
+  function handleAssistantTask(text){
+    setBuildState("building");
+    setTimeout(()=>{
+      setBuildState("live");
+      setBuild(b => b + 1);
+
+      // trivially mutate preview based on prompt text
+      const t = text.toLowerCase();
+      let label = "Updated UI components";
+      if(t.includes("kpi") || t.includes("stat") || t.includes("strip")){
+        setKpis(k => ({...k, total:k.total+3, added:k.added+1}));
+        label = "Refreshed KPI strip";
+      } else if(t.includes("row") || t.includes("table") || t.includes("calibration")){
+        const id = "RUN-" + (2042 + Math.floor(Math.random()*8));
+        const newRow = { id, p: (2 + Math.random()*0.6).toFixed(1)+" bar", f:(46 + Math.random()*4).toFixed(1)+" L/m" };
+        setAddedRow(newRow);
+        setKpis(k => ({...k, runs:k.runs+1}));
+        label = `Added ${id} to calibration table`;
+      } else if(t.includes("color") || t.includes("brand") || t.includes("dark") || t.includes("theme")){
+        label = "Adjusted theme tokens";
+      } else {
+        // generic bump
+        setKpis(k => ({...k, total:k.total+1}));
+        label = "Applied requested change";
+      }
+    }, 1300);
+
+    return null; // label is shown after build settles via the message itself
+  }
+
+  return (
+    <div data-screen-label="03 Forge">
+      <Topbar forgeName={forge.name} user={user} status="live" onClose={handleClose}/>
+      <div className="workspace">
+        <ChatColumn onAssistantTask={handleAssistantTask} building={buildState==="building"}/>
+        <PreviewColumn
+          buildState={buildState}
+          build={build}
+          device={device}
+          onDevice={setDevice}
+          kpis={kpis}
+          addedRow={addedRow}
+        />
+      </div>
+
+      <div className="toast" data-show={!!toast}>
+        <span className="dot"/>
+        <span>{toast?.msg}</span>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

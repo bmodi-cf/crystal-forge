@@ -1,0 +1,944 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Crystal Forge — Forges</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --dark-blue:#001C38;
+    --light-navy:#002E5C;
+    --gold:#B9A060;
+    --gold-soft:#d4be7e;
+    --gold-deep:#8c7747;
+    --light-grey:#969696;
+    --ink:#e7ecf2;
+    --ink-dim:#9aa7b6;
+    --ink-faint:#5d6b7d;
+
+    --bg:#02101f;
+    --panel:rgba(255,255,255,0.035);
+    --panel-2:rgba(255,255,255,0.05);
+    --border:rgba(255,255,255,0.08);
+    --border-strong:rgba(255,255,255,0.14);
+    --danger:#d96868;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+
+  html,body{height:100%}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(80% 60% at 50% -10%, rgba(0,46,92,0.5), transparent 60%),
+      radial-gradient(60% 60% at 100% 0%, rgba(185,160,96,0.06), transparent 50%),
+      var(--bg);
+    background-attachment:fixed;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    min-height:100vh;
+  }
+
+  button{font-family:inherit; cursor:pointer;}
+  input,textarea,select{font-family:inherit;}
+
+  /* ── header ─────────────────────────────────────────── */
+  .topbar{
+    position:sticky;
+    top:0;
+    z-index:50;
+    height:64px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 32px;
+    background:rgba(2,16,31,0.75);
+    backdrop-filter:saturate(140%) blur(16px);
+    -webkit-backdrop-filter:saturate(140%) blur(16px);
+    border-bottom:1px solid var(--border);
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:14px;
+  }
+  .brand img{
+    height:28px;
+    width:auto;
+    display:block;
+  }
+  .brand .divider{
+    width:1px; height:22px; background:var(--border-strong);
+  }
+  .brand .product{
+    font-size:12px;
+    letter-spacing:.28em;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+    font-weight:500;
+  }
+  .brand .product b{ color:var(--gold-soft); font-weight:600; }
+
+  .user{
+    position:relative;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:6px 10px 6px 6px;
+    border-radius:999px;
+    border:1px solid transparent;
+    transition:.2s ease;
+  }
+  .user:hover{ border-color:var(--border-strong); background:var(--panel); }
+  .user[data-open="true"]{ border-color:var(--border-strong); background:var(--panel-2); }
+  .avatar{
+    width:32px; height:32px; border-radius:50%;
+    background:linear-gradient(135deg, var(--gold) 0%, var(--gold-deep) 100%);
+    color:#1a1408;
+    display:grid; place-items:center;
+    font-weight:600; font-size:12px;
+    flex-shrink:0;
+    box-shadow:0 0 0 1px rgba(185,160,96,0.3);
+  }
+  .user-meta{display:flex; flex-direction:column; line-height:1.15; align-items:flex-start;}
+  .user-meta .n{ font-size:13px; font-weight:500; color:var(--ink); }
+  .user-meta .e{ font-size:11px; color:var(--ink-dim); }
+  .user .chev{ color:var(--ink-dim); margin-left:4px; transition:transform .2s; }
+  .user[data-open="true"] .chev{ transform:rotate(180deg); }
+
+  .menu{
+    position:absolute;
+    top:calc(100% + 10px);
+    right:0;
+    min-width:220px;
+    background:#0a1a2c;
+    border:1px solid var(--border-strong);
+    border-radius:12px;
+    padding:6px;
+    box-shadow:0 24px 48px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.02);
+    opacity:0; transform:translateY(-4px); pointer-events:none;
+    transition:.18s ease;
+  }
+  .user[data-open="true"] .menu{ opacity:1; transform:translateY(0); pointer-events:auto; }
+  .menu .item{
+    display:flex; align-items:center; gap:10px;
+    padding:10px 12px;
+    border-radius:8px;
+    font-size:13px;
+    color:var(--ink);
+    background:none; border:none; width:100%; text-align:left;
+  }
+  .menu .item:hover{ background:var(--panel-2); }
+  .menu .item.danger{ color:#e89393; }
+  .menu .item.danger:hover{ background:rgba(217,104,104,0.12); color:#ff9f9f; }
+  .menu .sep{ height:1px; background:var(--border); margin:4px 6px; }
+  .menu .head{ padding:10px 12px 6px; font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-faint); }
+
+  /* ── page wrap ──────────────────────────────────────── */
+  .page{
+    max-width:1400px;
+    margin:0 auto;
+    padding:40px 32px 80px;
+  }
+
+  .page-head{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:24px;
+    margin-bottom:28px;
+  }
+  .page-head h1{
+    font-size:32px;
+    font-weight:600;
+    letter-spacing:-0.02em;
+  }
+  .page-head .sub{
+    color:var(--ink-dim);
+    font-size:14px;
+    margin-top:6px;
+  }
+  .page-head .sub b{ color:var(--ink); font-weight:500; }
+
+  /* ── controls row ───────────────────────────────────── */
+  .controls{
+    display:flex;
+    gap:12px;
+    align-items:center;
+    margin-bottom:24px;
+    flex-wrap:wrap;
+  }
+  .search{
+    position:relative;
+    flex:1 1 320px;
+    max-width:520px;
+  }
+  .search input{
+    width:100%;
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--ink);
+    border-radius:10px;
+    padding:12px 14px 12px 42px;
+    font-size:14px;
+    transition:.2s ease;
+  }
+  .search input::placeholder{ color:var(--ink-faint); }
+  .search input:focus{
+    outline:none;
+    border-color:var(--gold);
+    box-shadow:0 0 0 3px rgba(185,160,96,0.18);
+    background:var(--panel-2);
+  }
+  .search svg{
+    position:absolute;
+    left:14px; top:50%;
+    transform:translateY(-50%);
+    color:var(--ink-dim);
+    pointer-events:none;
+  }
+  .search .kbd{
+    position:absolute;
+    right:10px; top:50%;
+    transform:translateY(-50%);
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+    color:var(--ink-dim);
+    border:1px solid var(--border);
+    padding:2px 6px;
+    border-radius:4px;
+    pointer-events:none;
+  }
+
+  .chips{
+    display:flex; gap:6px; flex-wrap:wrap;
+  }
+  .chip{
+    background:transparent;
+    color:var(--ink-dim);
+    border:1px solid var(--border);
+    padding:8px 14px;
+    border-radius:999px;
+    font-size:12.5px;
+    font-weight:500;
+    transition:.2s ease;
+  }
+  .chip:hover{ color:var(--ink); border-color:var(--border-strong); }
+  .chip[data-active="true"]{
+    background:rgba(185,160,96,0.12);
+    border-color:rgba(185,160,96,0.55);
+    color:var(--gold-soft);
+  }
+  .chip .count{
+    margin-left:6px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    opacity:.7;
+  }
+
+  .spacer{ flex:1; }
+
+  .btn{
+    background:linear-gradient(180deg, var(--gold-soft), var(--gold));
+    color:#1a1408;
+    border:none;
+    padding:11px 18px;
+    border-radius:10px;
+    font-weight:600;
+    font-size:13.5px;
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    transition:.2s ease;
+    box-shadow:0 8px 20px -8px rgba(185,160,96,0.5), inset 0 1px 0 rgba(255,255,255,0.25);
+  }
+  .btn:hover{ transform:translateY(-1px); box-shadow:0 14px 28px -10px rgba(185,160,96,0.6), inset 0 1px 0 rgba(255,255,255,0.3); }
+  .btn:active{ transform:translateY(0); }
+  .btn.ghost{
+    background:transparent;
+    color:var(--ink);
+    border:1px solid var(--border-strong);
+    box-shadow:none;
+  }
+  .btn.ghost:hover{ background:var(--panel-2); border-color:rgba(185,160,96,0.45); transform:none;}
+  .btn.danger{
+    background:transparent;
+    color:#e89393;
+    border:1px solid rgba(217,104,104,0.35);
+    box-shadow:none;
+  }
+  .btn.danger:hover{ background:rgba(217,104,104,0.12); border-color:rgba(217,104,104,0.6); color:#ff9f9f; transform:none;}
+  .btn.sm{ padding:7px 12px; font-size:12.5px; border-radius:8px; }
+
+  /* ── grid + cards ───────────────────────────────────── */
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));
+    gap:18px;
+  }
+
+  .card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:20px;
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+    transition:.25s cubic-bezier(.2,.65,.25,1);
+    position:relative;
+    overflow:hidden;
+    min-height:220px;
+  }
+  .card::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:radial-gradient(120% 80% at 0% 0%, rgba(185,160,96,0.05), transparent 50%);
+    pointer-events:none;
+    opacity:0;
+    transition:.25s;
+  }
+  .card:hover{
+    transform:translateY(-2px);
+    border-color:var(--border-strong);
+    background:var(--panel-2);
+  }
+  .card:hover::before{ opacity:1; }
+
+  .card-top{
+    display:flex;
+    align-items:flex-start;
+    gap:14px;
+  }
+  .icon{
+    width:44px; height:44px;
+    border-radius:10px;
+    display:grid; place-items:center;
+    font-weight:700;
+    font-size:16px;
+    letter-spacing:-0.02em;
+    flex-shrink:0;
+    color:var(--ink);
+    background:linear-gradient(135deg, rgba(0,46,92,0.9), rgba(0,28,56,0.9));
+    border:1px solid var(--border-strong);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .icon[data-tone="gold"]{
+    background:linear-gradient(135deg, rgba(185,160,96,0.25), rgba(140,119,71,0.4));
+    border-color:rgba(185,160,96,0.45);
+    color:var(--gold-soft);
+  }
+  .icon[data-tone="navy"]{
+    background:linear-gradient(135deg, #002E5C, #001C38);
+    border-color:rgba(60,110,170,0.4);
+    color:#9ec6ee;
+  }
+  .icon[data-tone="grey"]{
+    background:linear-gradient(135deg, rgba(150,150,150,0.25), rgba(80,80,80,0.4));
+    border-color:rgba(150,150,150,0.4);
+    color:#e0e0e0;
+  }
+
+  .card-title{
+    flex:1;
+    min-width:0;
+  }
+  .card-title h3{
+    font-size:16px;
+    font-weight:600;
+    letter-spacing:-0.01em;
+    margin-bottom:2px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .card-title .meta{
+    font-size:11.5px;
+    color:var(--ink-dim);
+    font-family:'JetBrains Mono',monospace;
+    letter-spacing:.02em;
+  }
+
+  .status-dot{
+    width:8px; height:8px; border-radius:50%;
+    background:#4ad28b;
+    box-shadow:0 0 0 3px rgba(74,210,139,0.15);
+    flex-shrink:0;
+    margin-top:6px;
+  }
+  .status-dot[data-status="draft"]{ background:#e0a948; box-shadow:0 0 0 3px rgba(224,169,72,0.15); }
+  .status-dot[data-status="archived"]{ background:#6b7785; box-shadow:0 0 0 3px rgba(107,119,133,0.15); }
+
+  .desc{
+    font-size:13px;
+    color:var(--ink-dim);
+    line-height:1.5;
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+  }
+
+  .tags{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  .tag{
+    font-size:11px;
+    font-weight:500;
+    padding:4px 9px;
+    border-radius:6px;
+    background:rgba(255,255,255,0.04);
+    border:1px solid var(--border);
+    color:var(--ink-dim);
+    letter-spacing:.01em;
+  }
+  .tag[data-tone="gold"]{ background:rgba(185,160,96,0.1); border-color:rgba(185,160,96,0.3); color:var(--gold-soft); }
+  .tag[data-tone="navy"]{ background:rgba(0,90,170,0.15); border-color:rgba(60,120,180,0.4); color:#a9caec; }
+
+  .card-foot{
+    margin-top:auto;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+    padding-top:14px;
+    border-top:1px solid var(--border);
+  }
+  .card-foot .actions{ display:flex; gap:6px; }
+
+  /* ── empty state ────────────────────────────────────── */
+  .empty{
+    grid-column:1/-1;
+    text-align:center;
+    padding:60px 20px;
+    color:var(--ink-dim);
+    border:1px dashed var(--border);
+    border-radius:14px;
+    background:rgba(255,255,255,0.015);
+  }
+  .empty h4{ color:var(--ink); font-size:16px; font-weight:500; margin-bottom:6px;}
+
+  /* ── modal ──────────────────────────────────────────── */
+  .scrim{
+    position:fixed; inset:0;
+    background:rgba(0,8,18,0.7);
+    backdrop-filter:blur(8px);
+    -webkit-backdrop-filter:blur(8px);
+    z-index:100;
+    display:grid; place-items:center;
+    padding:24px;
+    opacity:0; pointer-events:none;
+    transition:.2s ease;
+  }
+  .scrim[data-open="true"]{ opacity:1; pointer-events:auto; }
+
+  .modal{
+    width:min(520px, 100%);
+    background:#081827;
+    border:1px solid var(--border-strong);
+    border-radius:16px;
+    box-shadow:0 30px 80px -20px rgba(0,0,0,0.7);
+    overflow:hidden;
+    transform:translateY(8px) scale(.98);
+    transition:.25s cubic-bezier(.2,.65,.25,1);
+  }
+  .scrim[data-open="true"] .modal{ transform:translateY(0) scale(1); }
+
+  .modal-head{
+    padding:22px 24px 6px;
+  }
+  .modal-head h2{ font-size:20px; font-weight:600; letter-spacing:-0.01em; }
+  .modal-head p{ font-size:13px; color:var(--ink-dim); margin-top:4px;}
+
+  .modal-body{
+    padding:18px 24px 4px;
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+
+  .field label{
+    font-size:12px; font-weight:500; color:var(--ink-dim);
+    display:block; margin-bottom:6px;
+    letter-spacing:.02em;
+  }
+  .field input, .field textarea, .field select{
+    width:100%;
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--ink);
+    padding:10px 12px;
+    border-radius:8px;
+    font-size:14px;
+    transition:.2s;
+  }
+  .field input:focus,.field textarea:focus,.field select:focus{
+    outline:none; border-color:var(--gold);
+    box-shadow:0 0 0 3px rgba(185,160,96,0.18);
+  }
+  .field textarea{ resize:vertical; min-height:80px; font-family:inherit; }
+
+  .group-picks{
+    display:flex; flex-wrap:wrap; gap:6px;
+  }
+  .group-pick{
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--ink-dim);
+    padding:6px 12px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:500;
+    transition:.15s;
+  }
+  .group-pick:hover{ color:var(--ink); border-color:var(--border-strong); }
+  .group-pick[data-active="true"]{
+    background:rgba(185,160,96,0.15);
+    border-color:rgba(185,160,96,0.55);
+    color:var(--gold-soft);
+  }
+
+  .modal-foot{
+    padding:18px 24px 22px;
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    border-top:1px solid var(--border);
+    margin-top:8px;
+    background:rgba(0,0,0,0.15);
+  }
+
+  /* ── confirm dialog ─────────────────────────────────── */
+  .confirm .modal{ width:min(420px,100%); }
+  .confirm .icon-warn{
+    width:44px; height:44px; border-radius:50%;
+    background:rgba(217,104,104,0.12);
+    border:1px solid rgba(217,104,104,0.35);
+    display:grid; place-items:center;
+    color:#e89393;
+    margin-bottom:14px;
+  }
+
+  /* ── toast ──────────────────────────────────────────── */
+  .toast{
+    position:fixed;
+    bottom:24px;
+    left:50%;
+    transform:translateX(-50%) translateY(20px);
+    background:#0a1a2c;
+    border:1px solid var(--border-strong);
+    color:var(--ink);
+    padding:12px 18px;
+    border-radius:10px;
+    font-size:13px;
+    box-shadow:0 12px 30px -8px rgba(0,0,0,0.6);
+    opacity:0;
+    pointer-events:none;
+    transition:.25s ease;
+    z-index:200;
+    display:flex; align-items:center; gap:10px;
+  }
+  .toast[data-show="true"]{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast .dot{ width:6px; height:6px; border-radius:50%; background:var(--gold); box-shadow:0 0 8px rgba(185,160,96,0.7); }
+
+  /* ── responsive ─────────────────────────────────────── */
+  @media (max-width:680px){
+    .topbar{padding:0 16px}
+    .page{padding:24px 16px 60px}
+    .user-meta{display:none}
+    .brand .product{display:none}
+    .page-head{flex-direction:column; align-items:flex-start;}
+    .page-head h1{font-size:26px}
+  }
+
+  /* ── utility ────────────────────────────────────────── */
+  .visually-hidden{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;}
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+// ── seed data ─────────────────────────────────────────
+const GROUPS = ["Engineering", "Operations", "Sales", "Finance", "Marketing", "HR", "Service", "R&D"];
+
+const SEED = [
+  { id:"f-001", name:"Aquaflow Designer",  desc:"Hydraulic modeling and nozzle simulation toolkit for fountain projects.", groups:["Engineering","R&D"], status:"active",  updated:"2 hours ago",  tone:"navy", initials:"AD" },
+  { id:"f-002", name:"Site Survey Pro",    desc:"Field-data capture for onsite installation teams. Photo, sketch, GPS.", groups:["Operations","Service"], status:"active", updated:"yesterday", tone:"gold", initials:"SS" },
+  { id:"f-003", name:"QuoteBuilder",       desc:"Generate detailed customer quotes from BOM templates and pricing rules.", groups:["Sales","Finance"], status:"active",   updated:"3 days ago", tone:"navy", initials:"QB" },
+  { id:"f-004", name:"Maintenance Hub",    desc:"Service ticket dispatch, schedules, and parts ordering for installed sites.", groups:["Service","Operations"], status:"active", updated:"6 hours ago", tone:"grey", initials:"MH" },
+  { id:"f-005", name:"BrandKit Manager",   desc:"Centralized assets, brand guidelines and approved imagery.", groups:["Marketing"], status:"draft", updated:"5 days ago", tone:"gold", initials:"BK" },
+  { id:"f-006", name:"PeoplePulse",        desc:"Employee onboarding, PTO requests and internal directory.", groups:["HR"], status:"active", updated:"1 week ago", tone:"navy", initials:"PP" },
+  { id:"f-007", name:"Forge Labs",         desc:"Sandbox environment for prototyping new internal tooling.", groups:["Engineering","R&D"], status:"draft", updated:"2 weeks ago", tone:"grey", initials:"FL" },
+  { id:"f-008", name:"InvoiceBridge",      desc:"Sync customer invoices between Crystal ERP and external accounting.", groups:["Finance"], status:"active", updated:"4 days ago", tone:"navy", initials:"IB" },
+  { id:"f-009", name:"Showcase Gallery",   desc:"Public-facing project portfolio with case studies and renders.", groups:["Marketing","Sales"], status:"archived", updated:"3 months ago", tone:"grey", initials:"SG" },
+];
+
+// ── components ────────────────────────────────────────
+
+function Topbar({ user, onLogout }){
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(()=>{
+    function onDoc(e){
+      if(ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return ()=>document.removeEventListener("mousedown", onDoc);
+  },[]);
+
+  return (
+    <header className="topbar">
+      <div className="brand">
+        <img src="assets/crystal-fountains-logo.png" alt="Crystal Fountains" />
+        <div className="divider"/>
+        <div className="product"><b>Crystal</b> Forge</div>
+      </div>
+
+      <div className="user" data-open={open} onClick={()=>setOpen(o=>!o)} ref={ref} role="button" tabIndex={0} aria-haspopup="menu" aria-expanded={open}
+           onKeyDown={(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); setOpen(o=>!o);} }}>
+        <span className="avatar" aria-hidden="true">{user.initials}</span>
+        <span className="user-meta">
+          <span className="n">{user.name}</span>
+          <span className="e">{user.email}</span>
+        </span>
+        <svg className="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+
+        <div className="menu" role="menu" onClick={e=>e.stopPropagation()}>
+          <div className="head">Account</div>
+          <button className="item" role="menuitem">
+            <Icon name="user"/> Profile settings
+          </button>
+          <button className="item" role="menuitem">
+            <Icon name="bell"/> Notifications
+          </button>
+          <button className="item" role="menuitem">
+            <Icon name="help"/> Help & support
+          </button>
+          <div className="sep"/>
+          <button className="item danger" role="menuitem" onClick={onLogout}>
+            <Icon name="logout"/> Logout
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Icon({ name, size=14 }){
+  const s = { width:size, height:size, viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:2, strokeLinecap:"round", strokeLinejoin:"round" };
+  switch(name){
+    case "search": return <svg {...s}><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
+    case "plus":   return <svg {...s}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+    case "edit":   return <svg {...s}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>;
+    case "trash":  return <svg {...s}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>;
+    case "user":   return <svg {...s}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+    case "bell":   return <svg {...s}><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
+    case "help":   return <svg {...s}><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
+    case "logout": return <svg {...s}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>;
+    case "warn":   return <svg {...s} width={20} height={20}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
+    default: return null;
+  }
+}
+
+function ForgeCard({ forge, onEdit, onDelete }){
+  return (
+    <article className="card">
+      <div className="card-top">
+        <div className="icon" data-tone={forge.tone}>{forge.initials}</div>
+        <div className="card-title">
+          <h3>{forge.name}</h3>
+          <div className="meta">{forge.id.toUpperCase()} · updated {forge.updated}</div>
+        </div>
+        <div className="status-dot" data-status={forge.status} title={forge.status}/>
+      </div>
+
+      <p className="desc">{forge.desc}</p>
+
+      <div className="tags">
+        {forge.groups.map((g,i)=>(
+          <span key={g} className="tag" data-tone={i===0?"gold":""}>{g}</span>
+        ))}
+      </div>
+
+      <div className="card-foot">
+        <span className="meta" style={{fontSize:11, color:"var(--ink-faint)", fontFamily:"'JetBrains Mono',monospace"}}>
+          {forge.status === "active" ? "● ACTIVE" : forge.status === "draft" ? "◐ DRAFT" : "○ ARCHIVED"}
+        </span>
+        <div className="actions">
+          <button className="btn ghost sm" onClick={()=>onEdit(forge)}>
+            <Icon name="edit" size={13}/> Edit
+          </button>
+          <button className="btn danger sm" onClick={()=>onDelete(forge)}>
+            <Icon name="trash" size={13}/> Delete
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function NewForgeModal({ open, onClose, onCreate, editing }){
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [groups, setGroups] = useState([]);
+
+  useEffect(()=>{
+    if(open){
+      if(editing){
+        setName(editing.name);
+        setDesc(editing.desc);
+        setGroups(editing.groups);
+      } else {
+        setName(""); setDesc(""); setGroups([]);
+      }
+    }
+  },[open, editing]);
+
+  function toggleGroup(g){
+    setGroups(gs => gs.includes(g) ? gs.filter(x=>x!==g) : [...gs, g]);
+  }
+
+  function submit(e){
+    e?.preventDefault?.();
+    if(!name.trim()) return;
+    onCreate({ name:name.trim(), desc:desc.trim() || "No description provided.", groups: groups.length ? groups : ["Engineering"] });
+  }
+
+  return (
+    <div className="scrim" data-open={open} onClick={onClose}>
+      <form className="modal" onClick={e=>e.stopPropagation()} onSubmit={submit}>
+        <div className="modal-head">
+          <h2>{editing ? "Edit Forge" : "Create a new Forge"}</h2>
+          <p>{editing ? "Update the application's details and groups." : "Forges are applications built on the Crystal Forge platform."}</p>
+        </div>
+        <div className="modal-body">
+          <div className="field">
+            <label htmlFor="f-name">Forge name</label>
+            <input id="f-name" autoFocus value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Customer Portal" required/>
+          </div>
+          <div className="field">
+            <label htmlFor="f-desc">Description</label>
+            <textarea id="f-desc" value={desc} onChange={e=>setDesc(e.target.value)} placeholder="What does this application do?"/>
+          </div>
+          <div className="field">
+            <label>Groups</label>
+            <div className="group-picks">
+              {GROUPS.map(g=>(
+                <button key={g} type="button" className="group-pick" data-active={groups.includes(g)} onClick={()=>toggleGroup(g)}>
+                  {groups.includes(g) ? "✓ " : ""}{g}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn">{editing ? "Save changes" : "Create Forge"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ConfirmDelete({ forge, onCancel, onConfirm }){
+  return (
+    <div className="scrim confirm" data-open={!!forge} onClick={onCancel}>
+      {forge && (
+        <div className="modal" onClick={e=>e.stopPropagation()}>
+          <div className="modal-head">
+            <div className="icon-warn"><Icon name="warn" size={20}/></div>
+            <h2>Delete this Forge?</h2>
+            <p>You're about to delete <b style={{color:"var(--ink)"}}>{forge.name}</b>. This action cannot be undone.</p>
+          </div>
+          <div className="modal-foot">
+            <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
+            <button type="button" className="btn danger" onClick={onConfirm}><Icon name="trash" size={13}/> Delete forge</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App(){
+  const [forges, setForges] = useState(SEED);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [confirming, setConfirming] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const user = { name:"Maya Chen", email:"maya.chen@crystalfountains.com", initials:"MC" };
+
+  // keyboard / shortcut for search
+  useEffect(()=>{
+    function onKey(e){
+      if((e.metaKey || e.ctrlKey) && e.key === "k"){
+        e.preventDefault();
+        document.getElementById("search-input")?.focus();
+      }
+      if(e.key === "Escape"){
+        setModalOpen(false);
+        setConfirming(null);
+        setEditing(null);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return ()=>window.removeEventListener("keydown", onKey);
+  },[]);
+
+  // toast auto-dismiss
+  useEffect(()=>{
+    if(!toast) return;
+    const t = setTimeout(()=>setToast(null), 2600);
+    return ()=>clearTimeout(t);
+  },[toast]);
+
+  const counts = useMemo(()=>{
+    const c = { all: forges.length, active:0, draft:0, archived:0 };
+    forges.forEach(f=>{ c[f.status]++; });
+    return c;
+  },[forges]);
+
+  const filtered = useMemo(()=>{
+    const q = query.trim().toLowerCase();
+    return forges.filter(f=>{
+      if(filter !== "all" && f.status !== filter) return false;
+      if(!q) return true;
+      return (
+        f.name.toLowerCase().includes(q) ||
+        f.desc.toLowerCase().includes(q) ||
+        f.groups.some(g=>g.toLowerCase().includes(q))
+      );
+    });
+  },[forges, query, filter]);
+
+  function handleCreate(payload){
+    if(editing){
+      setForges(fs => fs.map(f => f.id === editing.id ? {
+        ...f,
+        name:payload.name,
+        desc:payload.desc,
+        groups:payload.groups,
+        updated:"just now",
+      } : f));
+      setToast({ msg:`Updated "${payload.name}"` });
+    } else {
+      const id = "f-" + String(Math.floor(Math.random()*900)+100);
+      const tones = ["navy","gold","grey"];
+      const initials = payload.name.split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase() || "FX";
+      const f = {
+        id, name:payload.name, desc:payload.desc, groups:payload.groups,
+        status:"draft", updated:"just now", tone: tones[Math.floor(Math.random()*tones.length)], initials
+      };
+      setForges(fs => [f, ...fs]);
+      setToast({ msg:`Created "${payload.name}"` });
+    }
+    setModalOpen(false);
+    setEditing(null);
+  }
+
+  function openEdit(forge){
+    // "Edit" opens the Forge build workspace
+    window.location.href = "Forge.html?id=" + encodeURIComponent(forge.id);
+  }
+
+  function handleDelete(){
+    if(!confirming) return;
+    setForges(fs => fs.filter(f => f.id !== confirming.id));
+    setToast({ msg:`Deleted "${confirming.name}"` });
+    setConfirming(null);
+  }
+
+  function handleLogout(){
+    setToast({ msg:"Signed out — redirecting to login…" });
+    setTimeout(()=>{ window.location.href = "Login.html"; }, 900);
+  }
+
+  return (
+    <div data-screen-label="02 Dashboard">
+      <Topbar user={user} onLogout={handleLogout}/>
+
+      <main className="page">
+        <div className="page-head">
+          <div>
+            <h1>Forges</h1>
+            <div className="sub">
+              <b>{counts.all}</b> applications · <b>{counts.active}</b> active · <b>{counts.draft}</b> in draft
+            </div>
+          </div>
+          <button className="btn" onClick={()=>{ setEditing(null); setModalOpen(true); }}>
+            <Icon name="plus" size={14}/> New Forge
+          </button>
+        </div>
+
+        <div className="controls">
+          <div className="search">
+            <Icon name="search" size={16}/>
+            <input id="search-input" placeholder="Search forges, groups, descriptions…" value={query} onChange={e=>setQuery(e.target.value)} />
+            <span className="kbd">⌘K</span>
+          </div>
+
+          <div className="chips" role="tablist">
+            <button className="chip" data-active={filter==="all"}      onClick={()=>setFilter("all")}>All <span className="count">{counts.all}</span></button>
+            <button className="chip" data-active={filter==="active"}   onClick={()=>setFilter("active")}>Active <span className="count">{counts.active}</span></button>
+            <button className="chip" data-active={filter==="draft"}    onClick={()=>setFilter("draft")}>Draft <span className="count">{counts.draft}</span></button>
+            <button className="chip" data-active={filter==="archived"} onClick={()=>setFilter("archived")}>Archived <span className="count">{counts.archived}</span></button>
+          </div>
+        </div>
+
+        <div className="grid">
+          {filtered.length === 0 ? (
+            <div className="empty">
+              <h4>No forges match your search.</h4>
+              <p>Try clearing the filter or creating a new forge.</p>
+            </div>
+          ) : (
+            filtered.map(f => (
+              <ForgeCard key={f.id} forge={f} onEdit={openEdit} onDelete={(forge)=>setConfirming(forge)} />
+            ))
+          )}
+        </div>
+      </main>
+
+      <NewForgeModal
+        open={modalOpen}
+        editing={editing}
+        onClose={()=>{ setModalOpen(false); setEditing(null); }}
+        onCreate={handleCreate}
+      />
+
+      <ConfirmDelete
+        forge={confirming}
+        onCancel={()=>setConfirming(null)}
+        onConfirm={handleDelete}
+      />
+
+      <div className="toast" data-show={!!toast}>
+        <span className="dot"/>
+        <span>{toast?.msg}</span>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

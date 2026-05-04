@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Crystal Forge — Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --dark-blue:#001C38;
+    --light-navy:#002E5C;
+    --gold:#B9A060;
+    --gold-soft:#d4be7e;
+    --light-grey:#969696;
+    --ink:#e7ecf2;
+    --ink-dim:#9aa7b6;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+
+  html,body{height:100%}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    color:var(--ink);
+    background:#000;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+  /* ── stage ─────────────────────────────────────────── */
+  .stage{
+    position:fixed;
+    inset:0;
+    display:grid;
+    place-items:center;
+    /* brighter navy core fading to deep black so the dark logo has separation */
+    background:
+      radial-gradient(70% 55% at 50% 42%, rgba(0,90,170,0.55) 0%, rgba(0,46,92,0.55) 22%, rgba(0,28,56,0.6) 42%, rgba(0,0,0,1) 78%),
+      #000;
+  }
+
+  /* faint diagonal hairline texture so the bg isn't dead flat */
+  .stage::before{
+    content:"";
+    position:absolute; inset:0;
+    background-image:
+      linear-gradient(115deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 140px);
+    pointer-events:none;
+    mix-blend-mode:screen;
+  }
+
+  /* deep vignette */
+  .stage::after{
+    content:"";
+    position:absolute; inset:0;
+    background:radial-gradient(120% 80% at 50% 50%, transparent 55%, rgba(0,0,0,0.85) 100%);
+    pointer-events:none;
+  }
+
+  /* ── content stack ─────────────────────────────────── */
+  .panel{
+    position:relative;
+    z-index:2;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:28px;
+    padding:32px;
+  }
+
+  /* ── logo + halo ───────────────────────────────────── */
+  .logo-wrap{
+    position:relative;
+    width:min(340px, 48vh, 70vw);
+    aspect-ratio:1/1;
+
+    opacity:0;
+    transform:translateY(8px) scale(0.985);
+    animation:logoIn 5000ms cubic-bezier(.2,.65,.25,1) 200ms forwards;
+  }
+  .logo-wrap::before{
+    /* brighter ambient glow behind logo so the metallic logo has clear separation */
+    content:"";
+    position:absolute;
+    inset:-22%;
+    background:radial-gradient(closest-side,
+      rgba(212,190,126,0.32) 0%,
+      rgba(120,170,220,0.22) 28%,
+      rgba(0,90,170,0.20) 50%,
+      transparent 75%);
+    filter:blur(28px);
+    z-index:-1;
+    opacity:0;
+    animation:haloIn 5200ms ease-out 350ms forwards;
+  }
+  .logo-wrap img{
+    width:100%;
+    height:100%;
+    display:block;
+    object-fit:contain;
+    /* logo PNG has an opaque black bg — screen blend drops it out */
+    mix-blend-mode:screen;
+    filter:drop-shadow(0 22px 40px rgba(0,0,0,0.6));
+  }
+
+  /* shimmer pass on entry */
+  .shimmer{
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    overflow:hidden;
+    border-radius:8px;
+    opacity:0;
+    animation:shimmerOpacity 2400ms ease 4200ms forwards;
+  }
+  .shimmer::after{
+    content:"";
+    position:absolute;
+    top:-20%; bottom:-20%;
+    width:35%;
+    left:-40%;
+    background:linear-gradient(105deg,
+      transparent 0%,
+      rgba(255,255,255,0.06) 45%,
+      rgba(212,190,126,0.18) 50%,
+      rgba(255,255,255,0.06) 55%,
+      transparent 100%);
+    transform:skewX(-12deg);
+    animation:shimmerSweep 2000ms cubic-bezier(.2,.6,.25,1) 4400ms forwards;
+  }
+
+  /* ── auth block ────────────────────────────────────── */
+  .auth{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:14px;
+
+    opacity:0;
+    transform:translateY(10px);
+    animation:fadeUp 800ms ease-out 5300ms forwards;
+  }
+
+  .auth-eyebrow{
+    font-size:11px;
+    letter-spacing:.32em;
+    text-transform:uppercase;
+    color:var(--light-grey);
+    font-weight:500;
+  }
+
+  .entra-btn{
+    appearance:none;
+    border:1px solid rgba(255,255,255,0.12);
+    background:linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+    color:var(--ink);
+    font:500 15px/1 'Inter',sans-serif;
+    padding:16px 28px;
+    border-radius:10px;
+    display:inline-flex;
+    align-items:center;
+    gap:14px;
+    cursor:pointer;
+    min-width:340px;
+    justify-content:center;
+    transition:transform .25s ease, border-color .25s ease, background .25s ease, box-shadow .25s ease;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.06) inset,
+      0 12px 30px -12px rgba(0,0,0,0.7);
+  }
+  .entra-btn:hover{
+    transform:translateY(-1px);
+    border-color:rgba(185,160,96,0.55);
+    background:linear-gradient(180deg, rgba(185,160,96,0.08), rgba(255,255,255,0.02));
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.08) inset,
+      0 16px 36px -12px rgba(0,0,0,0.8),
+      0 0 0 1px rgba(185,160,96,0.25);
+  }
+  .entra-btn:focus-visible{
+    outline:none;
+    border-color:var(--gold);
+    box-shadow:0 0 0 3px rgba(185,160,96,0.35);
+  }
+  .entra-btn:active{ transform:translateY(0); }
+
+  .ms-mark{
+    width:18px; height:18px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    grid-template-rows:1fr 1fr;
+    gap:2px;
+    flex-shrink:0;
+  }
+  .ms-mark span{display:block;}
+  .ms-mark span:nth-child(1){background:#F25022}
+  .ms-mark span:nth-child(2){background:#7FBA00}
+  .ms-mark span:nth-child(3){background:#00A4EF}
+  .ms-mark span:nth-child(4){background:#FFB900}
+
+  .help{
+    font-size:12.5px;
+    color:var(--ink-dim);
+    margin-top:4px;
+  }
+  .help a{
+    color:var(--gold-soft);
+    text-decoration:none;
+    border-bottom:1px solid rgba(212,190,126,0.25);
+    padding-bottom:1px;
+  }
+  .help a:hover{ border-bottom-color:var(--gold); }
+
+  /* ── chrome corners ────────────────────────────────── */
+  .corner{
+    position:fixed;
+    z-index:3;
+    font-size:11px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:rgba(150,150,150,0.55);
+    font-weight:500;
+
+    opacity:0;
+    animation:fadeIn 900ms ease-out 1700ms forwards;
+  }
+  .corner.tl{ top:28px; left:32px; display:flex; align-items:center; gap:10px;}
+  .corner.tl::before{
+    content:"";
+    width:6px; height:6px;
+    background:var(--gold);
+    border-radius:50%;
+    box-shadow:0 0 10px rgba(185,160,96,0.7);
+  }
+  .corner.br{ bottom:28px; right:32px; }
+  .corner.bl{ bottom:28px; left:32px; color:rgba(150,150,150,0.4); }
+
+  /* ── animations ────────────────────────────────────── */
+  @keyframes logoIn{
+    from{ opacity:0; transform:translateY(8px) scale(.985); }
+    to  { opacity:1; transform:translateY(0)  scale(1); }
+  }
+  @keyframes haloIn{
+    from{ opacity:0; }
+    to  { opacity:1; }
+  }
+  @keyframes fadeUp{
+    from{ opacity:0; transform:translateY(10px); }
+    to  { opacity:1; transform:translateY(0); }
+  }
+  @keyframes fadeIn{
+    from{ opacity:0; }
+    to  { opacity:1; }
+  }
+  @keyframes shimmerOpacity{
+    0%{opacity:0} 20%{opacity:1} 100%{opacity:0}
+  }
+  @keyframes shimmerSweep{
+    from{ left:-40%; }
+    to  { left:130%; }
+  }
+
+  @media (max-width:520px){
+    .panel{gap:24px; padding:20px;}
+    .entra-btn{min-width:0; width:100%;}
+    .corner.tl,.corner.bl,.corner.br{font-size:10px}
+  }
+  @media (max-height:640px){
+    .logo-wrap{ width:min(240px, 38vh); }
+    .panel{ gap:20px; }
+    .auth-eyebrow{ font-size:10px; }
+    .entra-btn{ padding:13px 22px; font-size:14px; }
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none !important; transition:none !important; opacity:1 !important; transform:none !important;}
+  }
+</style>
+</head>
+<body>
+  <main class="stage" data-screen-label="01 Login">
+    <section class="panel" aria-labelledby="signin-title">
+      <div class="logo-wrap" role="img" aria-label="Crystal Forge">
+        <img src="assets/crystal-forge-logo.png" alt="Crystal Forge" />
+        <div class="shimmer" aria-hidden="true"></div>
+      </div>
+
+      <div class="auth">
+        <div class="auth-eyebrow" id="signin-title">Sign in to continue</div>
+
+        <button class="entra-btn" type="button" onclick="signIn()">
+          <span class="ms-mark" aria-hidden="true">
+            <span></span><span></span><span></span><span></span>
+          </span>
+          <span>Login with Microsoft Entra ID</span>
+        </button>
+
+        <div class="help">
+          Trouble signing in? <a href="#">Contact your administrator</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+<script>
+  function signIn(){
+    // placeholder — would redirect to Entra ID OAuth flow
+    const btn = document.querySelector('.entra-btn');
+    btn.disabled = true;
+    btn.style.opacity = .7;
+    btn.querySelector('span:last-child').textContent = 'Redirecting to Microsoft…';
+  }
+</script>
+</body>
+</html>
