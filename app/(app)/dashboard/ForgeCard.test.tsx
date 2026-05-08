@@ -15,6 +15,8 @@ const forge: Forge = {
   createdBy: { id: 'tom', name: 'Tom Reed' },
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-05-01T12:00:00Z',
+  repoFullName: 'bmodi-cf/aquaflow-designer',
+  repoUrl: 'https://github.com/bmodi-cf/aquaflow-designer',
 };
 
 describe('ForgeCard', () => {
@@ -25,6 +27,13 @@ describe('ForgeCard', () => {
     expect(screen.getByText('AD')).toBeInTheDocument();
     expect(screen.getByText('Engineering')).toBeInTheDocument();
     expect(screen.getByText('R&D')).toBeInTheDocument();
+  });
+
+  it('renders a "View on GitHub" link pointing at repoUrl', () => {
+    render(<ForgeCard forge={forge} />);
+    const link = screen.getByRole('link', { name: /view on github/i });
+    expect(link).toHaveAttribute('href', 'https://github.com/bmodi-cf/aquaflow-designer');
+    expect(link).toHaveAttribute('target', '_blank');
   });
 
   it('shows the status label in uppercase form', () => {
