@@ -36,7 +36,7 @@ test('Maya creates a new Forge in Engineering and sees it on the dashboard', asy
   await page.getByRole('dialog').getByRole('button', { name: /^delete$/i }).click();
 });
 
-test('Maya edits Forge Labs (her own) and sees the new name', async ({ page }) => {
+test('edit dialog renders the Forge name as immutable text, not an input', async ({ page }) => {
   await devLogin(page, SEED_USERS.maya);
   await page.goto('/dashboard');
 
@@ -44,17 +44,14 @@ test('Maya edits Forge Labs (her own) and sees the new name', async ({ page }) =
   await card.getByRole('button', { name: /^edit forge labs$/i }).click();
 
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel(/^name$/i).fill('Forge Labs (E2E)');
-  await dialog.getByRole('button', { name: /save changes/i }).click();
+  await expect(dialog).toBeVisible();
 
-  await expect(page.getByText(/forge updated/i)).toBeVisible();
-  await expect(page.getByText('Forge Labs (E2E)')).toBeVisible();
+  // Name is rendered as static text — there is no form control associated with the "Name" label.
+  await expect(dialog.getByLabel(/^name$/i)).toHaveCount(0);
+  await expect(dialog.getByText(/forge names are immutable/i)).toBeVisible();
+  await expect(dialog.getByText('Forge Labs', { exact: true })).toBeVisible();
 
-  // restore so subsequent runs (without re-seed) still find it
-  await page.locator('article', { hasText: 'Forge Labs (E2E)' }).getByRole('button', { name: /^edit/i }).click();
-  await page.getByRole('dialog').getByLabel(/^name$/i).fill('Forge Labs');
-  await page.getByRole('dialog').getByRole('button', { name: /save changes/i }).click();
-  await expect(page.getByText(/forge updated/i)).toBeVisible();
+  await dialog.getByRole('button', { name: /cancel/i }).click();
 });
 
 test('Maya deletes a Forge and the card disappears', async ({ page }) => {
@@ -101,4 +98,51 @@ test('Direct DELETE on a forge the user cannot write returns 403', async ({ page
   await devLogin(page, SEED_USERS.admin);
   const cleanup = await page.request.delete(`/api/forges/${forge.id}`);
   expect(cleanup.status()).toBe(204);
+});
+
+test('seeded Forge cards expose a "View on GitHub" link with the expected slug', async ({ page }) => {
+  await devLogin(page, SEED_USERS.maya);
+  await page.goto('/dashboard');
+
+  // Forge Labs is created by Maya in the seed.
+  const card = page.locator('article', { hasText: 'Forge Labs' });
+  const link = card.getByRole('link', { name: /view on github: forge labs/i });
+  await expect(link).toBeVisible();
+  const href = await link.getAttribute('href');
+  expect(href).toMatch(/\/bmodi-cf\/forge-labs$/);
+});
+
+test('newly-created Forge surfaces a GitHub link with the slugified name', async ({ page }) => {
+  await devLogin(page, SEED_USERS.maya);
+  await page.goto('/dashboard');
+
+  await page.getByRole('button', { name: /new forge/i }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel(/^name$/i).fill('GH Link Probe');
+  await dialog.getByRole('button', { name: /^engineering$/i }).click();
+  await dialog.getByRole('button', { name: /^create$/i }).click();
+  await expect(page.getByText(/forge created/i)).toBeVisible();
+
+  const newCard = page.locator('article', { hasText: 'GH Link Probe' });
+  const link = newCard.getByRole('link', { name: /view on github: gh link probe/i });
+  await expect(link).toBeVisible();
+  expect(await link.getAttribute('href')).toMatch(/\/bmodi-cf\/gh-link-probe$/);
+
+  // cleanup
+  await newCard.getByRole('button', { name: /^delete gh link probe$/i }).click();
+  await page.getByRole('dialog').getByRole('button', { name: /^delete$/i }).click();
+  await expect(page.getByText(/deleted/i)).toBeVisible();
+});
+
+test('Forge name with illegal characters surfaces a validation message', async ({ page }) => {
+  await devLogin(page, SEED_USERS.maya);
+  await page.goto('/dashboard');
+  await page.getByRole('button', { name: /new forge/i }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel(/^name$/i).fill('Bad!Name');
+  await dialog.getByRole('button', { name: /^engineering$/i }).click();
+  await dialog.getByRole('button', { name: /^create$/i }).click();
+  await expect(
+    dialog.getByText(/letters, numbers, spaces, underscores and dashes/i),
+  ).toBeVisible();
 });
