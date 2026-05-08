@@ -33,7 +33,7 @@ export function LoginPanel({ devUsers }: { devUsers: DevUser[] }) {
   return (
     <div
       className="flex flex-col items-center gap-3.5 opacity-0"
-      style={{ animation: 'fadeUp 800ms ease-out 5300ms forwards' }}
+      style={{ animation: 'fadeUp 400ms ease-out 100ms forwards' }}
     >
       <div className="text-[11px] font-medium uppercase tracking-[0.32em] text-[#969696]">Sign in to continue</div>
 

@@ -16,15 +16,17 @@ export default async function LoginPage() {
       }}
     >
       <section className="z-10 flex flex-col items-center gap-7 p-8" aria-labelledby="signin-title">
-        <div
-          className="relative aspect-square w-[min(340px,48vh,70vw)] opacity-0"
-          style={{ animation: 'logoIn 5000ms cubic-bezier(.2,.65,.25,1) 200ms forwards' }}
-        >
+        <div className="relative aspect-square w-[min(340px,48vh,70vw)]">
+          <div
+            className="absolute inset-0 bg-black"
+            style={{ animation: 'fadeOut 20000ms ease-out 1500ms forwards' }}
+          />
           <Image
             src="/crystal-forge-logo.png"
             alt="Crystal Forge"
             fill
-            className="object-contain mix-blend-screen drop-shadow-[0_22px_40px_rgba(0,0,0,0.6)]"
+            className="object-contain opacity-0 mix-blend-screen drop-shadow-[0_22px_40px_rgba(0,0,0,0.6)]"
+            style={{ animation: 'logoIn 20000ms cubic-bezier(.2,.65,.25,1) 1500ms forwards' }}
             priority
           />
         </div>
