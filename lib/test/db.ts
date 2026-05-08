@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import type { SessionUser } from '@/lib/services/types';
+import { slugifyForgeName } from '@/lib/github/slug';
 
 let _prisma: PrismaClient | null = null;
 
@@ -76,8 +77,11 @@ export async function makeForge(
     createdById: string;
     groups?: string[];
     status?: 'active' | 'draft' | 'archived';
+    repoFullName?: string; // override for tests that care about value
   },
 ) {
+  const slug = slugifyForgeName(data.name);
+  const repoFullName = data.repoFullName ?? `test-owner/${slug}`;
   const forge = await prisma.forge.create({
     data: {
       name: data.name,
@@ -85,6 +89,7 @@ export async function makeForge(
       tone: 'navy',
       status: data.status ?? 'active',
       createdById: data.createdById,
+      repoFullName,
     },
   });
   for (const name of data.groups ?? []) {
