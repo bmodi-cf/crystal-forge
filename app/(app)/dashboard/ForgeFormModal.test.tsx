@@ -21,6 +21,8 @@ const FORGE: Forge = {
   createdBy: { id: 'u1', name: 'Tom' },
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-05-01T00:00:00Z',
+  repoFullName: 'bmodi-cf/aquaflow',
+  repoUrl: 'https://github.com/bmodi-cf/aquaflow',
 };
 
 const originalFetch = global.fetch;
@@ -33,7 +35,7 @@ afterEach(() => {
 });
 
 describe('ForgeFormModal', () => {
-  it('shows "New Forge" title and empty fields in create mode', () => {
+  it('shows "New Forge" title and an editable Name input in create mode', () => {
     render(
       <ForgeFormModal
         open
@@ -45,9 +47,10 @@ describe('ForgeFormModal', () => {
     );
     expect(screen.getByRole('heading', { name: /new forge/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/name/i)).toHaveValue('');
+    expect(screen.getByLabelText(/name/i)).not.toHaveAttribute('readonly');
   });
 
-  it('shows "Edit Forge" title and pre-fills fields in edit mode', () => {
+  it('shows "Edit Forge" title and renders Name as a non-editable display row', () => {
     render(
       <ForgeFormModal
         open
@@ -59,7 +62,9 @@ describe('ForgeFormModal', () => {
       />,
     );
     expect(screen.getByRole('heading', { name: /edit forge/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/name/i)).toHaveValue('Aquaflow');
+    // Name is visible as text, not as an input
+    expect(screen.getByText('Aquaflow')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^name$/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/description/i)).toHaveValue('Hydraulics');
   });
 
@@ -77,6 +82,26 @@ describe('ForgeFormModal', () => {
     await userEvent.click(screen.getByRole('button', { name: /create/i }));
     expect(await screen.findByText(/name is required/i)).toBeInTheDocument();
     expect(global.fetch).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('blocks submit when name has illegal characters', async () => {
+    const onSaved = vi.fn();
+    render(
+      <ForgeFormModal
+        open
+        mode="create"
+        allGroups={ALL_GROUPS}
+        onCancel={vi.fn()}
+        onSaved={onSaved}
+      />,
+    );
+    await userEvent.type(screen.getByLabelText(/name/i), 'Bad!Name');
+    await userEvent.click(screen.getByRole('button', { name: /^engineering$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create/i }));
+    expect(
+      await screen.findByText(/letters, numbers, spaces, underscores and dashes/i),
+    ).toBeInTheDocument();
     expect(onSaved).not.toHaveBeenCalled();
   });
 
@@ -122,6 +147,36 @@ describe('ForgeFormModal', () => {
       '/api/forges',
       expect.objectContaining({ method: 'POST' }),
     );
+    expect(onSaved).toHaveBeenCalled();
+  });
+
+  it('PATCHes WITHOUT a name field in edit mode', async () => {
+    const onSaved = vi.fn();
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ forge: FORGE }),
+    } as Response);
+
+    render(
+      <ForgeFormModal
+        open
+        mode="edit"
+        forge={FORGE}
+        allGroups={ALL_GROUPS}
+        onCancel={vi.fn()}
+        onSaved={onSaved}
+      />,
+    );
+    await userEvent.clear(screen.getByLabelText(/description/i));
+    await userEvent.type(screen.getByLabelText(/description/i), 'Updated copy');
+    await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(global.fetch).toHaveBeenCalled();
+    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body).not.toHaveProperty('name');
+    expect(body.description).toBe('Updated copy');
     expect(onSaved).toHaveBeenCalled();
   });
 });

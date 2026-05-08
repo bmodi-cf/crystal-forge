@@ -20,13 +20,29 @@ import { cn } from '@/lib/utils';
 import type { Forge } from '@/lib/services/types';
 import type { GroupDto } from '@/lib/services/groups';
 
-const formSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(120, 'Max 120 characters'),
+const NAME_REGEX = /^[A-Za-z0-9 _-]+$/;
+
+const createSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Name is required')
+    .max(120, 'Max 120 characters')
+    .regex(
+      NAME_REGEX,
+      'Name may contain letters, numbers, spaces, underscores and dashes only',
+    ),
   description: z.string().trim().max(500, 'Max 500 characters').optional().or(z.literal('')),
   groups: z.array(z.string().min(1)).min(1, 'Pick at least one group'),
 });
 
-type FormValues = z.infer<typeof formSchema>;
+const editSchema = z.object({
+  description: z.string().trim().max(500, 'Max 500 characters').optional().or(z.literal('')),
+  groups: z.array(z.string().min(1)).min(1, 'Pick at least one group'),
+});
+
+type CreateValues = z.infer<typeof createSchema>;
+type EditValues = z.infer<typeof editSchema>;
 
 type Props =
   | {
@@ -47,11 +63,15 @@ type Props =
     };
 
 export function ForgeFormModal(props: Props) {
-  const { open, mode, allGroups, onCancel, onSaved } = props;
-  const initial: FormValues =
-    mode === 'edit'
-      ? { name: props.forge.name, description: props.forge.description ?? '', groups: props.forge.groups }
-      : { name: '', description: '', groups: [] };
+  if (props.mode === 'create') return <CreateModal {...props} />;
+  return <EditModal {...props} />;
+}
+
+function CreateModal(
+  props: Extract<Props, { mode: 'create' }>,
+): React.ReactElement {
+  const { open, allGroups, onCancel, onSaved } = props;
+  const initial: CreateValues = { name: '', description: '', groups: [] };
 
   const {
     register,
@@ -59,8 +79,8 @@ export function ForgeFormModal(props: Props) {
     control,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+  } = useForm<CreateValues>({
+    resolver: zodResolver(createSchema),
     defaultValues: initial,
   });
 
@@ -69,17 +89,19 @@ export function ForgeFormModal(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  async function onSubmit(values: FormValues) {
-    const url = mode === 'edit' ? `/api/forges/${props.forge.id}` : '/api/forges';
-    const method = mode === 'edit' ? 'PATCH' : 'POST';
+  async function onSubmit(values: CreateValues) {
     const body = JSON.stringify({
       name: values.name,
-      description: mode === 'edit' ? (values.description || null) : (values.description || ''),
+      description: values.description || '',
       groups: values.groups,
     });
     let res: Response;
     try {
-      res = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body });
+      res = await fetch('/api/forges', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+      });
     } catch {
       toast.error('Network error — please try again.');
       return;
@@ -90,7 +112,7 @@ export function ForgeFormModal(props: Props) {
       toast.error(msg);
       return;
     }
-    toast.success(mode === 'edit' ? 'Forge updated.' : 'Forge created.');
+    toast.success('Forge created.');
     onSaved();
   }
 
@@ -98,7 +120,7 @@ export function ForgeFormModal(props: Props) {
     <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{mode === 'edit' ? 'Edit Forge' : 'New Forge'}</DialogTitle>
+          <DialogTitle>New Forge</DialogTitle>
         </DialogHeader>
 
         <form className="flex flex-col gap-4" onSubmit={handleSubmit(onSubmit)} noValidate>
@@ -114,56 +136,165 @@ export function ForgeFormModal(props: Props) {
             {errors.description && <p className="text-xs text-[#ff9f9f]">{errors.description.message}</p>}
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label>Groups</Label>
-            <Controller
-              control={control}
-              name="groups"
-              render={({ field }) => {
-                const selected = new Set(field.value);
-                function toggle(name: string) {
-                  const next = new Set(selected);
-                  if (next.has(name)) next.delete(name); else next.add(name);
-                  field.onChange(Array.from(next));
-                }
-                return (
-                  <div className="flex flex-wrap gap-1.5">
-                    {allGroups.map((g) => {
-                      const isOn = selected.has(g.name);
-                      return (
-                        <button
-                          key={g.id}
-                          type="button"
-                          onClick={() => toggle(g.name)}
-                          aria-pressed={isOn}
-                          className={cn(
-                            'rounded-md border px-2 py-1 text-[11px] font-medium transition',
-                            isOn
-                              ? 'border-gold/40 bg-gold/[0.15] text-gold-soft'
-                              : 'border-border bg-white/[0.04] text-ink-dim hover:border-border-strong',
-                          )}
-                        >
-                          {g.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              }}
-            />
-            {errors.groups && <p className="text-xs text-[#ff9f9f]">{errors.groups.message}</p>}
-          </div>
+          <GroupChips control={control} allGroups={allGroups} error={errors.groups?.message} />
 
           <DialogFooter className="mt-2">
             <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : mode === 'edit' ? 'Save changes' : 'Create'}
+              {isSubmitting ? 'Saving…' : 'Create'}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function EditModal(
+  props: Extract<Props, { mode: 'edit' }>,
+): React.ReactElement {
+  const { open, allGroups, forge, onCancel, onSaved } = props;
+  const initial: EditValues = {
+    description: forge.description ?? '',
+    groups: forge.groups,
+  };
+
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<EditValues>({
+    resolver: zodResolver(editSchema),
+    defaultValues: initial,
+  });
+
+  useEffect(() => {
+    if (open) reset(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  async function onSubmit(values: EditValues) {
+    const body = JSON.stringify({
+      description: values.description || null,
+      groups: values.groups,
+    });
+    let res: Response;
+    try {
+      res = await fetch(`/api/forges/${forge.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body,
+      });
+    } catch {
+      toast.error('Network error — please try again.');
+      return;
+    }
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      const msg = payload?.error ?? `Request failed (${res.status})`;
+      toast.error(msg);
+      return;
+    }
+    toast.success('Forge updated.');
+    onSaved();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit Forge</DialogTitle>
+        </DialogHeader>
+
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit(onSubmit)} noValidate>
+          <div className="flex flex-col gap-1.5">
+            <Label>Name</Label>
+            <div className="rounded-md border border-border bg-white/[0.02] px-3 py-2 text-sm text-ink-dim">
+              {forge.name}
+            </div>
+            <p className="text-[11px] text-ink-faint">Forge names are immutable.</p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="forge-description">Description</Label>
+            <Textarea
+              id="forge-description"
+              rows={3}
+              {...register('description')}
+              aria-invalid={!!errors.description}
+            />
+            {errors.description && <p className="text-xs text-[#ff9f9f]">{errors.description.message}</p>}
+          </div>
+
+          <GroupChips control={control} allGroups={allGroups} error={errors.groups?.message} />
+
+          <DialogFooter className="mt-2">
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Saving…' : 'Save changes'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Shared chip selector for both create and edit forms.
+function GroupChips({
+  control,
+  allGroups,
+  error,
+}: {
+  control: ReturnType<typeof useForm<{ groups: string[] }>>['control'] | any;
+  allGroups: GroupDto[];
+  error: string | undefined;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>Groups</Label>
+      <Controller
+        control={control}
+        name="groups"
+        render={({ field }) => {
+          const selected = new Set(field.value as string[]);
+          function toggle(name: string) {
+            const next = new Set(selected);
+            if (next.has(name)) next.delete(name); else next.add(name);
+            field.onChange(Array.from(next));
+          }
+          return (
+            <div className="flex flex-wrap gap-1.5">
+              {allGroups.map((g) => {
+                const isOn = selected.has(g.name);
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => toggle(g.name)}
+                    aria-pressed={isOn}
+                    className={cn(
+                      'rounded-md border px-2 py-1 text-[11px] font-medium transition',
+                      isOn
+                        ? 'border-gold/40 bg-gold/[0.15] text-gold-soft'
+                        : 'border-border bg-white/[0.04] text-ink-dim hover:border-border-strong',
+                    )}
+                  >
+                    {g.name}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        }}
+      />
+      {error && <p className="text-xs text-[#ff9f9f]">{error}</p>}
+    </div>
   );
 }
