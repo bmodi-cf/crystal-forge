@@ -21,6 +21,8 @@ export type Forge = {
   createdBy: { id: string; name: string };
   createdAt: string; // ISO
   updatedAt: string; // ISO
+  repoFullName: string;
+  repoUrl: string;
 };
 
 export type Conversation = {
