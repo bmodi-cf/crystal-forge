@@ -41,7 +41,7 @@ export function DashboardClient({ initialForges, allGroups }: Props) {
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   const counts = useMemo(() => {
-    const acc = { all: 0, active: 0, draft: 0, archived: 0 };
+    const acc: { all: number } & Record<Forge['status'], number> = { all: 0, active: 0, draft: 0, archived: 0 };
     for (const f of forges) {
       acc.all++;
       acc[f.status]++;
