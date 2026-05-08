@@ -41,6 +41,8 @@ describe('ForgeFormModal', () => {
         open
         mode="create"
         allGroups={ALL_GROUPS}
+        myGroups={['Engineering', 'Operations', 'Sales']}
+        isAdmin={false}
         onCancel={vi.fn()}
         onSaved={vi.fn()}
       />,
@@ -57,6 +59,8 @@ describe('ForgeFormModal', () => {
         mode="edit"
         forge={FORGE}
         allGroups={ALL_GROUPS}
+        myGroups={['Engineering', 'Operations', 'Sales']}
+        isAdmin={false}
         onCancel={vi.fn()}
         onSaved={vi.fn()}
       />,
@@ -75,6 +79,8 @@ describe('ForgeFormModal', () => {
         open
         mode="create"
         allGroups={ALL_GROUPS}
+        myGroups={['Engineering', 'Operations', 'Sales']}
+        isAdmin={false}
         onCancel={vi.fn()}
         onSaved={onSaved}
       />,
@@ -92,6 +98,8 @@ describe('ForgeFormModal', () => {
         open
         mode="create"
         allGroups={ALL_GROUPS}
+        myGroups={['Engineering', 'Operations', 'Sales']}
+        isAdmin={false}
         onCancel={vi.fn()}
         onSaved={onSaved}
       />,
@@ -112,6 +120,8 @@ describe('ForgeFormModal', () => {
         open
         mode="create"
         allGroups={ALL_GROUPS}
+        myGroups={['Engineering', 'Operations', 'Sales']}
+        isAdmin={false}
         onCancel={vi.fn()}
         onSaved={onSaved}
       />,
@@ -135,6 +145,8 @@ describe('ForgeFormModal', () => {
         open
         mode="create"
         allGroups={ALL_GROUPS}
+        myGroups={['Engineering', 'Operations', 'Sales']}
+        isAdmin={false}
         onCancel={vi.fn()}
         onSaved={onSaved}
       />,
@@ -148,6 +160,61 @@ describe('ForgeFormModal', () => {
       expect.objectContaining({ method: 'POST' }),
     );
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it('disables groups the non-admin user is not a member of (create mode)', () => {
+    render(
+      <ForgeFormModal
+        open
+        mode="create"
+        allGroups={ALL_GROUPS}
+        myGroups={['Engineering']}
+        isAdmin={false}
+        onCancel={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /^engineering$/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /^operations$/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^sales$/i })).toBeDisabled();
+  });
+
+  it('keeps a foreign already-selected group deselectable in edit mode (non-admin)', () => {
+    render(
+      <ForgeFormModal
+        open
+        mode="edit"
+        forge={{ ...FORGE, groups: ['Sales'] }}
+        allGroups={ALL_GROUPS}
+        myGroups={['Engineering']}
+        isAdmin={false}
+        onCancel={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    // Sales is selected → clickable so it can be removed.
+    const sales = screen.getByRole('button', { name: /^sales$/i });
+    expect(sales).not.toBeDisabled();
+    expect(sales).toHaveAttribute('aria-pressed', 'true');
+    // Operations is not selected and not in user's groups → disabled.
+    expect(screen.getByRole('button', { name: /^operations$/i })).toBeDisabled();
+  });
+
+  it('admin sees every group as clickable, regardless of membership', () => {
+    render(
+      <ForgeFormModal
+        open
+        mode="create"
+        allGroups={ALL_GROUPS}
+        myGroups={[]}
+        isAdmin
+        onCancel={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /^engineering$/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /^operations$/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /^sales$/i })).not.toBeDisabled();
   });
 
   it('PATCHes WITHOUT a name field in edit mode', async () => {
@@ -164,6 +231,8 @@ describe('ForgeFormModal', () => {
         mode="edit"
         forge={FORGE}
         allGroups={ALL_GROUPS}
+        myGroups={['Engineering', 'Operations', 'Sales']}
+        isAdmin={false}
         onCancel={vi.fn()}
         onSaved={onSaved}
       />,

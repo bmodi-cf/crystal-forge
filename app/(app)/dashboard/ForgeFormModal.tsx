@@ -49,6 +49,8 @@ type Props =
       open: boolean;
       mode: 'create';
       allGroups: GroupDto[];
+      myGroups: string[];
+      isAdmin: boolean;
       onCancel: () => void;
       onSaved: () => void;
       forge?: never;
@@ -57,6 +59,8 @@ type Props =
       open: boolean;
       mode: 'edit';
       allGroups: GroupDto[];
+      myGroups: string[];
+      isAdmin: boolean;
       forge: Forge;
       onCancel: () => void;
       onSaved: () => void;
@@ -70,7 +74,7 @@ export function ForgeFormModal(props: Props) {
 function CreateModal(
   props: Extract<Props, { mode: 'create' }>,
 ): React.ReactElement {
-  const { open, allGroups, onCancel, onSaved } = props;
+  const { open, allGroups, myGroups, isAdmin, onCancel, onSaved } = props;
   const initial: CreateValues = { name: '', description: '', groups: [] };
 
   const {
@@ -136,7 +140,13 @@ function CreateModal(
             {errors.description && <p className="text-xs text-[#ff9f9f]">{errors.description.message}</p>}
           </div>
 
-          <GroupChips control={control} allGroups={allGroups} error={errors.groups?.message} />
+          <GroupChips
+            control={control}
+            allGroups={allGroups}
+            myGroups={myGroups}
+            isAdmin={isAdmin}
+            error={errors.groups?.message}
+          />
 
           <DialogFooter className="mt-2">
             <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
@@ -155,7 +165,7 @@ function CreateModal(
 function EditModal(
   props: Extract<Props, { mode: 'edit' }>,
 ): React.ReactElement {
-  const { open, allGroups, forge, onCancel, onSaved } = props;
+  const { open, allGroups, myGroups, isAdmin, forge, onCancel, onSaved } = props;
   const initial: EditValues = {
     description: forge.description ?? '',
     groups: forge.groups,
@@ -230,7 +240,13 @@ function EditModal(
             {errors.description && <p className="text-xs text-[#ff9f9f]">{errors.description.message}</p>}
           </div>
 
-          <GroupChips control={control} allGroups={allGroups} error={errors.groups?.message} />
+          <GroupChips
+            control={control}
+            allGroups={allGroups}
+            myGroups={myGroups}
+            isAdmin={isAdmin}
+            error={errors.groups?.message}
+          />
 
           <DialogFooter className="mt-2">
             <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
@@ -249,12 +265,17 @@ function EditModal(
 function GroupChips<T extends { groups: string[] }>({
   control,
   allGroups,
+  myGroups,
+  isAdmin,
   error,
 }: {
   control: Control<T>;
   allGroups: GroupDto[];
+  myGroups: string[];
+  isAdmin: boolean;
   error: string | undefined;
 }) {
+  const memberOf = new Set(myGroups);
   return (
     <div className="flex flex-col gap-1.5">
       <Label>Groups</Label>
@@ -272,17 +293,24 @@ function GroupChips<T extends { groups: string[] }>({
             <div className="flex flex-wrap gap-1.5">
               {allGroups.map((g) => {
                 const isOn = selected.has(g.name);
+                // Non-admins may only assign groups they belong to. A foreign
+                // group already on the forge stays clickable so it can be
+                // removed; once removed it cannot be re-added.
+                const isDisabled = !isAdmin && !memberOf.has(g.name) && !isOn;
                 return (
                   <button
                     key={g.id}
                     type="button"
                     onClick={() => toggle(g.name)}
                     aria-pressed={isOn}
+                    disabled={isDisabled}
+                    title={isDisabled ? 'You are not a member of this group' : undefined}
                     className={cn(
                       'rounded-md border px-2 py-1 text-[11px] font-medium transition',
                       isOn
                         ? 'border-gold/40 bg-gold/[0.15] text-gold-soft'
                         : 'border-border bg-white/[0.04] text-ink-dim hover:border-border-strong',
+                      isDisabled && 'cursor-not-allowed opacity-40 hover:border-border',
                     )}
                   >
                     {g.name}

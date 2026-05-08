@@ -19,9 +19,11 @@ type Filter = (typeof FILTERS)[number];
 type Props = {
   initialForges: Forge[];
   allGroups: GroupDto[];
+  myGroups: string[];
+  isAdmin: boolean;
 };
 
-export function DashboardClient({ initialForges, allGroups }: Props) {
+export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin }: Props) {
   const router = useRouter();
   const [forges, setForges] = useState<Forge[]>(initialForges);
   const [seenInitial, setSeenInitial] = useState(initialForges);
@@ -156,6 +158,8 @@ export function DashboardClient({ initialForges, allGroups }: Props) {
         open={createOpen}
         mode="create"
         allGroups={allGroups}
+        myGroups={myGroups}
+        isAdmin={isAdmin}
         onCancel={() => setCreateOpen(false)}
         onSaved={() => {
           setCreateOpen(false);
@@ -169,6 +173,8 @@ export function DashboardClient({ initialForges, allGroups }: Props) {
           mode="edit"
           forge={editing}
           allGroups={allGroups}
+          myGroups={myGroups}
+          isAdmin={isAdmin}
           onCancel={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);

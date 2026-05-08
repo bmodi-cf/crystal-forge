@@ -9,6 +9,7 @@ type ForgeForAcl = {
 
 export function canReadForge(user: SessionUser, forge: ForgeForAcl): boolean {
   if (user.isAdmin) return true;
+  if (user.id === forge.createdById) return true;
   return forge.groups.some((g) => user.groups.includes(g));
 }
 
@@ -20,6 +21,9 @@ export function canWriteForge(user: SessionUser, forge: ForgeForAcl): boolean {
 export function forgeReadFilter(user: SessionUser): Prisma.ForgeWhereInput {
   if (user.isAdmin) return {};
   return {
-    groups: { some: { group: { name: { in: user.groups } } } },
+    OR: [
+      { groups: { some: { group: { name: { in: user.groups } } } } },
+      { createdById: user.id },
+    ],
   };
 }

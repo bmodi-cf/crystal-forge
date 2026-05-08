@@ -100,6 +100,17 @@ export async function createForge(
     throw new ValidationError('Unknown group(s)', { groups: unknown });
   }
 
+  // Non-admins may only assign groups they are members of.
+  if (!currentUser.isAdmin) {
+    const userGroups = new Set(currentUser.groups);
+    const foreign = input.groups.filter((g) => !userGroups.has(g));
+    if (foreign.length > 0) {
+      throw new ValidationError('Cannot assign groups you are not a member of', {
+        groups: foreign,
+      });
+    }
+  }
+
   // 3. Compute slug + create the GitHub repo. Errors here surface unchanged.
   const description = input.description?.trim() ? input.description.trim() : null;
   const slug = slugifyForgeName(input.name);
@@ -170,6 +181,15 @@ export async function updateForge(
         const known = new Set(groupRows.map((g) => g.name));
         const unknown = input.groups.filter((g) => !known.has(g));
         throw new ValidationError('Unknown group(s)', { groups: unknown });
+      }
+      if (!currentUser.isAdmin) {
+        const userGroups = new Set(currentUser.groups);
+        const foreign = input.groups.filter((g) => !userGroups.has(g));
+        if (foreign.length > 0) {
+          throw new ValidationError('Cannot assign groups you are not a member of', {
+            groups: foreign,
+          });
+        }
       }
       await tx.forgeGroup.deleteMany({ where: { forgeId: id } });
       await tx.forgeGroup.createMany({

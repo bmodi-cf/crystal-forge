@@ -31,6 +31,10 @@ describe('canReadForge', () => {
   it('always allows admins', () => {
     expect(canReadForge(admin, forge)).toBe(true);
   });
+  it('allows the creator even with no group overlap', () => {
+    const orphan = { ...forge, createdById: stranger.id, groups: ['HR'] };
+    expect(canReadForge(stranger, orphan)).toBe(true);
+  });
 });
 
 describe('canWriteForge', () => {
@@ -49,17 +53,23 @@ describe('forgeReadFilter', () => {
   it('admin → no filter (empty where)', () => {
     expect(forgeReadFilter(admin)).toEqual({});
   });
-  it('non-admin → groups-overlap predicate', () => {
+  it('non-admin → groups-overlap OR creator predicate', () => {
     const filter = forgeReadFilter(member);
     expect(filter).toEqual({
-      groups: { some: { group: { name: { in: ['Engineering', 'R&D'] } } } },
+      OR: [
+        { groups: { some: { group: { name: { in: ['Engineering', 'R&D'] } } } } },
+        { createdById: member.id },
+      ],
     });
   });
-  it('member of zero groups → impossible predicate (returns no rows)', () => {
+  it('member of zero groups → still matches forges they created', () => {
     const noGroups = { ...member, groups: [] };
     const filter = forgeReadFilter(noGroups);
     expect(filter).toEqual({
-      groups: { some: { group: { name: { in: [] } } } },
+      OR: [
+        { groups: { some: { group: { name: { in: [] } } } } },
+        { createdById: noGroups.id },
+      ],
     });
   });
 });

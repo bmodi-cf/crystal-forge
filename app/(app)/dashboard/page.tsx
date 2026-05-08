@@ -15,5 +15,12 @@ export default async function DashboardPage() {
     listGroups(),
   ]);
 
-  return <DashboardClient initialForges={forges} allGroups={allGroups} />;
+  return (
+    <DashboardClient
+      initialForges={forges}
+      allGroups={allGroups}
+      myGroups={session.user.groups}
+      isAdmin={session.user.isAdmin}
+    />
+  );
 }

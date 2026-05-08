@@ -14,11 +14,14 @@ beforeEach(() => {
 describe('listForges', () => {
   it('returns only Forges whose groups overlap with the user', async () => {
     await withCleanDb(async (prisma) => {
+      // Forges are created by a third user so the "creator can read" clause
+      // does not mask the group-overlap behavior under test.
+      const author = await makeUser(prisma, { email: 'auth@x', name: 'Author', groups: [], isAdmin: true });
       const tom   = await makeUser(prisma, { email: 't@x', name: 'Tom Reed',   groups: ['Operations'] });
       const maya  = await makeUser(prisma, { email: 'm@x', name: 'Maya Chen',  groups: ['Engineering'] });
-      await makeForge(prisma, { name: 'Aquaflow', createdById: tom.id, groups: ['Engineering'] });
-      await makeForge(prisma, { name: 'Site Survey', createdById: tom.id, groups: ['Operations'] });
-      await makeForge(prisma, { name: 'BrandKit', createdById: tom.id, groups: ['Marketing'] });
+      await makeForge(prisma, { name: 'Aquaflow', createdById: author.id, groups: ['Engineering'] });
+      await makeForge(prisma, { name: 'Site Survey', createdById: author.id, groups: ['Operations'] });
+      await makeForge(prisma, { name: 'BrandKit', createdById: author.id, groups: ['Marketing'] });
 
       const tomList  = await listForges(tom);
       const mayaList = await listForges(maya);
@@ -49,6 +52,22 @@ describe('listForges', () => {
     });
   });
 
+  it('returns forges the user created even when their groups do not overlap', async () => {
+    await withCleanDb(async (prisma) => {
+      // Alice is in Marketing only, but created a forge tagged HR.
+      // She must still see her own forge.
+      await prisma.group.create({ data: { name: 'HR' } });
+      const alice = await makeUser(prisma, {
+        email: 'a@x', name: 'Alice', groups: ['Marketing'],
+      });
+      await makeForge(prisma, {
+        name: 'orphan-by-group', createdById: alice.id, groups: ['HR'],
+      });
+      const list = await listForges(alice);
+      expect(list.map((f) => f.name)).toEqual(['orphan-by-group']);
+    });
+  });
+
   it('exposes repoFullName and repoUrl on the DTO', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
@@ -76,6 +95,20 @@ describe('getForge', () => {
       const result = await getForge(maya, forge.id);
       expect(result.name).toBe('Aquaflow');
       expect(result.groups).toEqual(['Engineering']);
+    });
+  });
+
+  it('returns the Forge to its creator even with no group overlap', async () => {
+    await withCleanDb(async (prisma) => {
+      await prisma.group.create({ data: { name: 'HR' } });
+      const alice = await makeUser(prisma, {
+        email: 'a@x', name: 'Alice', groups: ['Marketing'],
+      });
+      const forge = await makeForge(prisma, {
+        name: 'orphan-by-group', createdById: alice.id, groups: ['HR'],
+      });
+      const result = await getForge(alice, forge.id);
+      expect(result.name).toBe('orphan-by-group');
     });
   });
 
@@ -126,6 +159,30 @@ describe('createForge', () => {
       await createForge(tom, { name: 'A', description: '', groups: ['Engineering'] }, fake);
       const list = await listForges(maya);
       expect(list.map((f) => f.name)).toEqual(['A']);
+    });
+  });
+
+  it('non-admin cannot assign a group they are not a member of — and does NOT create a GitHub repo', async () => {
+    await withCleanDb(async (prisma) => {
+      // HR exists, Marketing exists. Alice is in Marketing only.
+      await prisma.group.create({ data: { name: 'HR' } });
+      await prisma.group.create({ data: { name: 'Marketing' } });
+      const alice = await makeUser(prisma, { email: 'a@x', name: 'Alice', groups: ['Marketing'] });
+      await expect(
+        createForge(alice, { name: 'X', description: '', groups: ['HR'] }, fake),
+      ).rejects.toBeInstanceOf(ValidationError);
+      expect(fake.listRepos()).toHaveLength(0);
+    });
+  });
+
+  it('admin can assign any group, even one they are not in', async () => {
+    await withCleanDb(async (prisma) => {
+      await prisma.group.create({ data: { name: 'HR' } });
+      const admin = await makeUser(prisma, {
+        email: 'a@x', name: 'Admin', groups: [], isAdmin: true,
+      });
+      const forge = await createForge(admin, { name: 'X', description: '', groups: ['HR'] }, fake);
+      expect(forge.groups).toEqual(['HR']);
     });
   });
 
@@ -197,8 +254,9 @@ describe('createForge', () => {
 describe('updateForge', () => {
   it('creator can update description and groups', async () => {
     await withCleanDb(async (prisma) => {
-      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
-      await prisma.group.create({ data: { name: 'Operations' } });
+      const tom = await makeUser(prisma, {
+        email: 't@x', name: 'Tom', groups: ['Engineering', 'Operations'],
+      });
       const forge = await makeForge(prisma, { name: 'Old', createdById: tom.id, groups: ['Engineering'] });
       const updated = await updateForge(tom, forge.id, {
         description: 'desc',
@@ -253,6 +311,28 @@ describe('updateForge', () => {
       await expect(
         updateForge(tom, forge.id, { groups: ['Engineering', 'Imaginary'] }),
       ).rejects.toBeInstanceOf(ValidationError);
+    });
+  });
+
+  it('non-admin cannot reassign a forge to a group they are not a member of', async () => {
+    await withCleanDb(async (prisma) => {
+      await prisma.group.create({ data: { name: 'HR' } });
+      const alice = await makeUser(prisma, { email: 'a@x', name: 'Alice', groups: ['Marketing'] });
+      const forge = await makeForge(prisma, { name: 'A', createdById: alice.id, groups: ['Marketing'] });
+      await expect(
+        updateForge(alice, forge.id, { groups: ['HR'] }),
+      ).rejects.toBeInstanceOf(ValidationError);
+    });
+  });
+
+  it('admin can reassign a forge to any group', async () => {
+    await withCleanDb(async (prisma) => {
+      await prisma.group.create({ data: { name: 'HR' } });
+      const tom   = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const admin = await makeUser(prisma, { email: 'ad@x', name: 'Admin', groups: [], isAdmin: true });
+      const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
+      const updated = await updateForge(admin, forge.id, { groups: ['HR'] });
+      expect(updated.groups).toEqual(['HR']);
     });
   });
 });
