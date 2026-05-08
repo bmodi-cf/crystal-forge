@@ -80,15 +80,16 @@ enum ForgeTone {
 }
 
 model Forge {
-  id          String       @id @default(uuid()) @db.Uuid
-  name        String
-  description String?
-  status      ForgeStatus  @default(draft)
-  tone        ForgeTone    @default(navy)
-  initials    String
-  createdById String       @map("created_by") @db.Uuid
-  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+  id           String      @id @default(uuid()) @db.Uuid
+  name         String      @unique
+  description  String?
+  status       ForgeStatus @default(draft)
+  tone         ForgeTone   @default(navy)
+  initials     String
+  repoFullName String      @unique @map("repo_full_name")
+  createdById  String      @map("created_by") @db.Uuid
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz
 
   createdBy     User           @relation(fields: [createdById], references: [id], onDelete: Restrict)
   groups        ForgeGroup[]
