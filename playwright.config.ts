@@ -22,7 +22,13 @@ export default defineConfig({
     command: 'pnpm dev -p 80',
     url: 'http://localhost',
     reuseExistingServer: !process.env.CI,
-    env: { AUTH_DEV_USERS_ENABLED: 'true' },
+    env: {
+      AUTH_DEV_USERS_ENABLED: 'true',
+      GITHUB_CLIENT_MODE: 'fake',
+      GITHUB_REPO_OWNER: 'bmodi-cf',
+      GITHUB_TEMPLATE_REPO: 'bmodi-cf/crystal-forge-template-webapp',
+      GITHUB_BASE_URL: 'https://github.com',
+    },
     timeout: 120_000,
   },
 });
