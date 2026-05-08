@@ -10,6 +10,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    globalSetup: ['./vitest.global-setup.ts'],
     setupFiles: ['./vitest.setup.ts'],
     exclude: ['**/node_modules/**', '**/tests/e2e/**', '**/.next/**'],
     // Service tests share one Postgres instance and call withCleanDb to truncate.

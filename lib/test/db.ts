@@ -11,6 +11,18 @@ export function getTestPrisma(): PrismaClient {
     if (!connectionString) {
       throw new Error('DATABASE_URL is not set');
     }
+    // Defense-in-depth: refuse to run destructive test helpers against any
+    // database that isn't explicitly named "*_test". vitest.setup.ts rewrites
+    // DATABASE_URL automatically; if this guard fires, the override did not
+    // run and withCleanDb would otherwise nuke real data.
+    const dbName = new URL(connectionString).pathname.replace(/^\//, '');
+    if (!dbName.endsWith('_test')) {
+      throw new Error(
+        `Refusing to use database "${dbName}" for integration tests. ` +
+          `Database name must end with "_test". Tests must run via vitest ` +
+          `so vitest.setup.ts can rewrite DATABASE_URL.`,
+      );
+    }
     const adapter = new PrismaPg({ connectionString });
     _prisma = new PrismaClient({ adapter, log: ['error'] });
   }
