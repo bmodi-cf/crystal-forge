@@ -5,6 +5,9 @@
 # docker-compose.yml, applies any pending Prisma migrations, then runs the
 # Next.js dev server in the foreground. Postgres keeps running between
 # launches; the dev server stops when you Ctrl+C.
+#
+# Pass --seed to also run 'pnpm db:seed' after migrations to repopulate
+# dev users, groups, and sample Forges (destructive — wipes seeded tables).
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -15,6 +18,26 @@ URL="http://localhost:${DEV_PORT}"
 
 step() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+# --- args ------------------------------------------------------------------
+SEED=0
+for arg in "$@"; do
+  case "$arg" in
+    --seed) SEED=1 ;;
+    -h|--help)
+      cat <<EOF
+Usage: $(basename "$0") [--seed]
+
+  --seed   After applying migrations, run 'pnpm db:seed' to repopulate
+           dev users, groups, and sample Forges. The seed wipes the
+           seeded tables before re-inserting, so any in-progress data
+           in those tables will be lost.
+EOF
+      exit 0
+      ;;
+    *) fail "Unknown argument: $arg (try --help)" ;;
+  esac
+done
 
 # --- preflight -------------------------------------------------------------
 [[ -f docker-compose.yml && -d prisma ]] \
@@ -75,6 +98,12 @@ fi
 # --- phase 4: apply pending migrations -------------------------------------
 step "Applying any pending Prisma migrations"
 pnpm prisma migrate deploy
+
+# --- phase 4b: optional seed -----------------------------------------------
+if [[ $SEED -eq 1 ]]; then
+  step "Seeding dev users, groups, and sample Forges (--seed)"
+  pnpm db:seed
+fi
 
 # --- phase 5: banner + dev server ------------------------------------------
 WIDTH=42

@@ -51,7 +51,13 @@ The script will:
 
 Open http://localhost:3000 once the dev server prints `Ready in …`. Press Ctrl+C to stop the dev server; the Postgres container keeps running between launches.
 
-> First launch only: after the dev server is up, run `pnpm db:seed` in another terminal to populate dev users, groups, and a few sample Forges.
+Pass `--seed` to also (re)populate dev users, groups, and sample Forges after migrations:
+
+```bash
+./forge-launch.sh --seed
+```
+
+This is destructive — the seed wipes the seeded tables before re-inserting — so use it on first launch or when you want a clean slate.
 
 ## Useful scripts
 
