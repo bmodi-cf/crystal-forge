@@ -58,7 +58,9 @@ describe('listForges', () => {
         groups: ['Engineering'],
         repoFullName: 'test-owner/aquaflow',
       });
-      const [f] = await listForges(tom);
+      const list = await listForges(tom);
+      expect(list).toHaveLength(1);
+      const f = list[0]!;
       expect(f.repoFullName).toBe('test-owner/aquaflow');
       expect(f.repoUrl).toMatch(/\/test-owner\/aquaflow$/);
     });

@@ -173,7 +173,9 @@ describe('ForgeFormModal', () => {
     await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
 
     expect(global.fetch).toHaveBeenCalled();
-    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const [, init] = calls[0]!;
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body).not.toHaveProperty('name');
     expect(body.description).toBe('Updated copy');
