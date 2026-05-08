@@ -1,7 +1,11 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { canReadForge, canWriteForge, forgeReadFilter } from '@/lib/acl';
+import { env } from '@/lib/env';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
+import { getGitHubClient } from '@/lib/github/client';
+import type { GitHubClient } from '@/lib/github/client';
+import { slugifyForgeName } from '@/lib/github/slug';
 import type { Forge, SessionUser } from './types';
 import type { CreateForgeInput, UpdateForgeInput } from './forges-schema';
 
@@ -24,6 +28,8 @@ function toDto(row: ForgeWithRelations): Forge {
     createdBy: { id: row.createdBy.id, name: row.createdBy.name },
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    repoFullName: row.repoFullName,
+    repoUrl: `${env.GITHUB_BASE_URL.replace(/\/$/, '')}/${row.repoFullName}`,
   };
 }
 
@@ -66,30 +72,72 @@ function deriveInitials(name: string): string {
   return cleaned || 'F';
 }
 
+/**
+ * Create a Forge atomically with its GitHub repo. If the DB write fails after
+ * the repo was created, the just-created repo is deleted (compensating action).
+ *
+ * `client` is injectable for tests; in production the default factory returns
+ * the singleton chosen by GITHUB_CLIENT_MODE.
+ */
 export async function createForge(
   currentUser: SessionUser,
   input: CreateForgeInput,
+  client: GitHubClient = getGitHubClient(),
 ): Promise<Forge> {
-  return prisma.$transaction(async (tx) => {
-    const groupRows = await tx.group.findMany({ where: { name: { in: input.groups } } });
-    if (groupRows.length !== input.groups.length) {
-      const known = new Set(groupRows.map((g) => g.name));
-      const unknown = input.groups.filter((g) => !known.has(g));
-      throw new ValidationError('Unknown group(s)', { groups: unknown });
-    }
-    const description = input.description?.trim() ? input.description.trim() : null;
-    const created = await tx.forge.create({
-      data: {
-        name: input.name,
-        description,
-        initials: deriveInitials(input.name),
-        createdById: currentUser.id,
-        groups: { create: groupRows.map((g) => ({ groupId: g.id })) },
-      },
-      include: forgeInclude,
+  // 1. Pre-check name uniqueness in DB (cheaper than going to GitHub first).
+  const dup = await prisma.forge.findUnique({ where: { name: input.name } });
+  if (dup) {
+    throw new ValidationError('Forge name already in use', {
+      name: ['A Forge with this name already exists'],
     });
-    return toDto(created);
+  }
+
+  // 2. Validate group names exist before any external call.
+  const groupRows = await prisma.group.findMany({ where: { name: { in: input.groups } } });
+  if (groupRows.length !== input.groups.length) {
+    const known = new Set(groupRows.map((g) => g.name));
+    const unknown = input.groups.filter((g) => !known.has(g));
+    throw new ValidationError('Unknown group(s)', { groups: unknown });
+  }
+
+  // 3. Compute slug + create the GitHub repo. Errors here surface unchanged.
+  const description = input.description?.trim() ? input.description.trim() : null;
+  const slug = slugifyForgeName(input.name);
+  const created = await client.createRepoFromTemplate({
+    name: slug,
+    description,
+    private: true,
   });
+
+  // 4. Insert the Forge row. If this fails, compensate by deleting the GitHub repo.
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const row = await tx.forge.create({
+        data: {
+          name: input.name,
+          description,
+          initials: deriveInitials(input.name),
+          createdById: currentUser.id,
+          repoFullName: created.fullName,
+          groups: { create: groupRows.map((g) => ({ groupId: g.id })) },
+        },
+        include: forgeInclude,
+      });
+      return toDto(row);
+    });
+  } catch (err) {
+    // Best-effort compensating delete. Failure of compensation is logged loudly
+    // but the original error is what propagates to the caller.
+    try {
+      await client.deleteRepo(created.fullName);
+    } catch (cleanupErr) {
+      console.error(
+        '[createForge] orphaned repo — cleanup failed',
+        { repo: created.fullName, cleanupErr },
+      );
+    }
+    throw err;
+  }
 }
 
 export async function updateForge(
@@ -111,10 +159,6 @@ export async function updateForge(
     }
 
     const data: Prisma.ForgeUpdateInput = {};
-    if (input.name !== undefined) {
-      data.name = input.name;
-      data.initials = deriveInitials(input.name);
-    }
     if (input.description !== undefined) {
       const trimmed = input.description?.trim() ?? null;
       data.description = trimmed && trimmed.length > 0 ? trimmed : null;
@@ -142,9 +186,15 @@ export async function updateForge(
   });
 }
 
+/**
+ * Delete a Forge. The GitHub repo is archived first; if archive fails, the
+ * Forge row is preserved (better to leave a usable Forge than a broken
+ * repo<->row link).
+ */
 export async function deleteForge(
   currentUser: SessionUser,
   id: string,
+  client: GitHubClient = getGitHubClient(),
 ): Promise<void> {
   const existing = await prisma.forge.findUnique({
     where: { id },
@@ -160,6 +210,9 @@ export async function deleteForge(
   if (!canWriteForge(currentUser, aclShape)) {
     throw new ForbiddenError(`Cannot delete forge ${id}`);
   }
+
+  // Archive on GitHub BEFORE the DB delete. If archive fails, abort.
+  await client.archiveRepo(existing.repoFullName);
 
   await prisma.forge.delete({ where: { id } }); // ON DELETE CASCADE wipes forge_groups
 }
