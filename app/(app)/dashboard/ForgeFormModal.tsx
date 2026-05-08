@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, type Control, type Path } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -246,13 +246,12 @@ function EditModal(
   );
 }
 
-// Shared chip selector for both create and edit forms.
-function GroupChips({
+function GroupChips<T extends { groups: string[] }>({
   control,
   allGroups,
   error,
 }: {
-  control: ReturnType<typeof useForm<{ groups: string[] }>>['control'] | any;
+  control: Control<T>;
   allGroups: GroupDto[];
   error: string | undefined;
 }) {
@@ -261,7 +260,7 @@ function GroupChips({
       <Label>Groups</Label>
       <Controller
         control={control}
-        name="groups"
+        name={'groups' as Path<T>}
         render={({ field }) => {
           const selected = new Set(field.value as string[]);
           function toggle(name: string) {
