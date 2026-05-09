@@ -5,9 +5,25 @@ import { env } from '@/lib/env';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { getGitHubClient } from '@/lib/github/client';
 import type { GitHubClient } from '@/lib/github/client';
-import { slugifyForgeName } from '@/lib/github/slug';
+import { getDatabaseProvisioner } from '@/lib/db/provisioner';
+import type { DatabaseProvisioner } from '@/lib/db/provisioner';
+import { slugifyForgeName, slugToDbName } from '@/lib/github/slug';
 import type { Forge, SessionUser } from './types';
 import type { CreateForgeInput, UpdateForgeInput } from './forges-schema';
+
+/**
+ * Renders the .env.example body the harness writes into each cloned forge
+ * repo. The connection target points at the harness's shared pg container;
+ * only the database name varies per forge.
+ */
+export function renderEnvExample(dbName: string): string {
+  return [
+    "# Postgres connection. Points at the harness's crystal-forge-pg container.",
+    '# Copy this file to .env.local before running ./forge-launch.sh.',
+    `DATABASE_URL=postgres://${env.HARNESS_PG_USER}:${env.HARNESS_PG_PASSWORD}@${env.HARNESS_PG_HOST}:${env.HARNESS_PG_PORT}/${dbName}`,
+    '',
+  ].join('\n');
+}
 
 const forgeInclude = {
   groups: { include: { group: true } },
@@ -137,16 +153,7 @@ export async function createForge(
       return toDto(row);
     });
   } catch (err) {
-    // Best-effort compensating delete. Failure of compensation is logged loudly
-    // but the original error is what propagates to the caller.
-    try {
-      await client.deleteRepo(created.fullName);
-    } catch (cleanupErr) {
-      console.error(
-        '[createForge] orphaned repo — cleanup failed',
-        { repo: created.fullName, cleanupErr },
-      );
-    }
+    await safeDeleteRepo(client, created.fullName);
     throw err;
   }
 }
@@ -235,4 +242,29 @@ export async function deleteForge(
   await client.archiveRepo(existing.repoFullName);
 
   await prisma.forge.delete({ where: { id } }); // ON DELETE CASCADE wipes forge_groups
+}
+
+async function safeDeleteRepo(client: GitHubClient, fullName: string): Promise<void> {
+  try {
+    await client.deleteRepo(fullName);
+  } catch (cleanupErr) {
+    console.error(
+      '[createForge] orphaned repo — cleanup failed',
+      { repo: fullName, cleanupErr },
+    );
+  }
+}
+
+async function safeDropDatabase(
+  provisioner: DatabaseProvisioner,
+  dbName: string,
+): Promise<void> {
+  try {
+    await provisioner.dropDatabase(dbName);
+  } catch (cleanupErr) {
+    console.error(
+      '[createForge] orphaned database — cleanup failed',
+      { dbName, cleanupErr },
+    );
+  }
 }
