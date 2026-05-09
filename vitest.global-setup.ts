@@ -47,7 +47,13 @@ export default async function setup(): Promise<void> {
   // its own rewrite for tests).
   const testUrl = new URL(original);
   testUrl.pathname = `/${testDbName}`;
-  const testEnv = { ...process.env, DATABASE_URL: testUrl.toString() };
+  const testEnv = {
+    ...process.env,
+    DATABASE_URL: testUrl.toString(),
+    // Always use the fake GitHub client in tests — the seed uses it to build
+    // deterministic repoFullName strings without real GitHub calls.
+    GITHUB_CLIENT_MODE: 'fake',
+  };
 
   execSync('pnpm prisma migrate deploy', { env: testEnv, stdio: 'inherit' });
   execSync('pnpm db:seed', { env: testEnv, stdio: 'inherit' });
