@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { FakeGitHubClient } from './fake-client';
+import type { ForgeFiles } from './types';
 
 describe('FakeGitHubClient', () => {
   let fake: FakeGitHubClient;
@@ -72,5 +73,67 @@ describe('FakeGitHubClient', () => {
       'bmodi-cf/a',
       'bmodi-cf/b',
     ]);
+  });
+});
+
+const exampleFiles = (): ForgeFiles => ({
+  forgeConfig: {
+    name: 'Aquaflow',
+    description: 'Hydraulics tool',
+    slug: 'aquaflow',
+    dbName: 'aquaflow',
+    createdAt: '2026-05-09T01:34:47.000Z',
+  },
+  envExample: 'DATABASE_URL=postgres://crystal:crystal@localhost:5433/aquaflow\n',
+});
+
+describe('FakeGitHubClient.writeForgeFiles', () => {
+  let fake: FakeGitHubClient;
+
+  beforeEach(() => {
+    fake = new FakeGitHubClient({ owner: 'bmodi-cf', baseUrl: 'https://github.com' });
+  });
+
+  it('records the two files against the repo full name', async () => {
+    await fake.createRepoFromTemplate({ name: 'aquaflow', description: null, private: true });
+    const files = exampleFiles();
+    await fake.writeForgeFiles('bmodi-cf/aquaflow', files);
+    expect(fake.getFiles('bmodi-cf/aquaflow')).toEqual(files);
+  });
+
+  it('throws when the repo does not exist', async () => {
+    await expect(
+      fake.writeForgeFiles('bmodi-cf/missing', exampleFiles()),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it('a second call overwrites the recorded files', async () => {
+    await fake.createRepoFromTemplate({ name: 'aquaflow', description: null, private: true });
+    const first = exampleFiles();
+    await fake.writeForgeFiles('bmodi-cf/aquaflow', first);
+    const second: ForgeFiles = {
+      ...first,
+      forgeConfig: { ...first.forgeConfig, description: 'changed' },
+    };
+    await fake.writeForgeFiles('bmodi-cf/aquaflow', second);
+    expect(fake.getFiles('bmodi-cf/aquaflow')).toEqual(second);
+  });
+
+  it('failNextCall makes the next writeForgeFiles throw, then resumes', async () => {
+    await fake.createRepoFromTemplate({ name: 'aquaflow', description: null, private: true });
+    fake.failNextCall('writeForgeFiles', new Error('rate limited'));
+    await expect(
+      fake.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles()),
+    ).rejects.toThrow('rate limited');
+    // Subsequent call works.
+    await fake.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles());
+    expect(fake.getFiles('bmodi-cf/aquaflow')).toBeDefined();
+  });
+
+  it('deleteRepo also clears any recorded files for that repo', async () => {
+    await fake.createRepoFromTemplate({ name: 'aquaflow', description: null, private: true });
+    await fake.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles());
+    await fake.deleteRepo('bmodi-cf/aquaflow');
+    expect(fake.getFiles('bmodi-cf/aquaflow')).toBeUndefined();
   });
 });

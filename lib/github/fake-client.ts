@@ -1,4 +1,9 @@
-import type { CreatedRepo, CreateRepoOptions, GitHubClient } from './types';
+import type {
+  CreatedRepo,
+  CreateRepoOptions,
+  ForgeFiles,
+  GitHubClient,
+} from './types';
 
 type Repo = {
   fullName: string;
@@ -7,12 +12,17 @@ type Repo = {
   description: string | null;
 };
 
-type Method = 'createRepoFromTemplate' | 'archiveRepo' | 'deleteRepo';
+type Method =
+  | 'createRepoFromTemplate'
+  | 'archiveRepo'
+  | 'deleteRepo'
+  | 'writeForgeFiles';
 
 export class FakeGitHubClient implements GitHubClient {
   private readonly owner: string;
   private readonly baseUrl: string;
   private readonly repos = new Map<string, Repo>();
+  private readonly files = new Map<string, ForgeFiles>();
   private readonly nextErrors = new Map<Method, Error>();
 
   constructor(config: { owner: string; baseUrl: string }) {
@@ -39,12 +49,21 @@ export class FakeGitHubClient implements GitHubClient {
     this.maybeFail('archiveRepo');
     const repo = this.repos.get(fullName);
     if (repo) repo.archived = true;
-    // Unknown repo: no-op success (matches spec §3 idempotency).
+    // Unknown repo: no-op success (matches spec idempotency).
   }
 
   async deleteRepo(fullName: string): Promise<void> {
     this.maybeFail('deleteRepo');
     this.repos.delete(fullName);
+    this.files.delete(fullName);
+  }
+
+  async writeForgeFiles(fullName: string, files: ForgeFiles): Promise<void> {
+    this.maybeFail('writeForgeFiles');
+    if (!this.repos.has(fullName)) {
+      throw new Error(`repo ${fullName} not found`);
+    }
+    this.files.set(fullName, files);
   }
 
   // Test helpers -----------------------------------------------------------
@@ -59,6 +78,10 @@ export class FakeGitHubClient implements GitHubClient {
 
   listRepos(): Repo[] {
     return [...this.repos.values()];
+  }
+
+  getFiles(fullName: string): ForgeFiles | undefined {
+    return this.files.get(fullName);
   }
 
   private maybeFail(method: Method): void {
