@@ -2,7 +2,9 @@ import { PrismaClient, ForgeStatus, ForgeTone } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { env } from '@/lib/env';
 import { getGitHubClient } from '@/lib/github/client';
-import { slugifyForgeName } from '@/lib/github/slug';
+import { slugifyForgeName, slugToDbName } from '@/lib/github/slug';
+import { getDatabaseProvisioner } from '@/lib/db/provisioner';
+import { renderEnvExample } from '@/lib/services/forges';
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -54,19 +56,53 @@ const FORGES: ForgeSeed[] = [
   { name: 'Showcase Gallery',  description: 'Public-facing project portfolio with case studies and renders.', status: 'archived', tone: 'grey', initials: 'SG', groups: ['Marketing', 'Sales'], createdByEmail: 'alice.green@crystalfountains.com' },
 ];
 
-async function provisionRepoFullName(name: string, description: string): Promise<string> {
+async function provisionForgeArtifacts(
+  name: string,
+  description: string,
+): Promise<{ repoFullName: string }> {
+  const slug = slugifyForgeName(name);
+  const dbName = slugToDbName(slug);
+
   if (env.GITHUB_CLIENT_MODE === 'fake') {
-    // Deterministic — no GitHub call. Fake state is per-process and doesn't
-    // persist anyway; the seed just needs a string to write.
-    return `${env.GITHUB_REPO_OWNER}/${slugifyForgeName(name)}`;
+    // Fake state is per-process and resets every seed run. Just hand back
+    // a deterministic repoFullName for the DB row.
+    return { repoFullName: `${env.GITHUB_REPO_OWNER}/${slug}` };
   }
+
   const client = getGitHubClient();
+  const provisioner = getDatabaseProvisioner();
+
   const repo = await client.createRepoFromTemplate({
-    name: slugifyForgeName(name),
+    name: slug,
     description,
     private: true,
   });
-  return repo.fullName;
+
+  try {
+    await client.writeForgeFiles(repo.fullName, {
+      forgeConfig: {
+        name,
+        description: description.length > 0 ? description : null,
+        slug,
+        dbName,
+        createdAt: new Date().toISOString(),
+      },
+      envExample: renderEnvExample(dbName),
+    });
+    await provisioner.createDatabase(dbName);
+  } catch (err) {
+    // Best-effort compensation so a re-run isn't blocked by orphans.
+    try { await client.deleteRepo(repo.fullName); } catch { /* logged below */ }
+    console.error(
+      `❌ Failed to write files / provision database for "${name}". ` +
+        `If a repo with slug "${slug}" already exists under ${env.GITHUB_REPO_OWNER}, ` +
+        `or a database "${dbName}" already exists in the harness pg, archive/delete ` +
+        `it manually and re-run the seed.`,
+    );
+    throw err;
+  }
+
+  return { repoFullName: repo.fullName };
 }
 
 async function main() {
@@ -112,16 +148,7 @@ async function main() {
     const creator = userByEmail.get(f.createdByEmail);
     if (!creator) throw new Error(`Unknown creator: ${f.createdByEmail}`);
 
-    let repoFullName: string;
-    try {
-      repoFullName = await provisionRepoFullName(f.name, f.description);
-    } catch (err) {
-      console.error(
-        `❌ Failed to provision repo for "${f.name}". If a repo with this slug already exists ` +
-          `under ${env.GITHUB_REPO_OWNER}, archive or delete it on GitHub first, then re-run the seed.`,
-      );
-      throw err;
-    }
+    const { repoFullName } = await provisionForgeArtifacts(f.name, f.description);
 
     const forge = await prisma.forge.create({
       data: {
