@@ -2,13 +2,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { FakeGitHubClient } from '@/lib/github/fake-client';
+import { FakeDatabaseProvisioner } from '@/lib/db/fake-provisioner';
 import { listForges, getForge, createForge, updateForge, deleteForge } from './forges';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 
 let fake: FakeGitHubClient;
+let fakeDb: FakeDatabaseProvisioner;
 
 beforeEach(() => {
   fake = new FakeGitHubClient({ owner: 'test-owner', baseUrl: 'https://github.com' });
+  fakeDb = new FakeDatabaseProvisioner();
 });
 
 describe('listForges', () => {
@@ -130,7 +133,7 @@ describe('getForge', () => {
 });
 
 describe('createForge', () => {
-  it('creates a Forge AND a GitHub repo, with derived initials and defaults', async () => {
+  it('creates a Forge AND a GitHub repo AND writes forge.config.json + .env.example AND provisions the per-forge database', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom Reed', groups: ['Engineering'] });
 
@@ -138,17 +141,27 @@ describe('createForge', () => {
         tom,
         { name: 'Aquaflow Designer', description: 'Hydraulics tool', groups: ['Engineering'] },
         fake,
+        fakeDb,
       );
 
       expect(forge.name).toBe('Aquaflow Designer');
-      expect(forge.initials).toBe('AD');
-      expect(forge.status).toBe('draft');
-      expect(forge.tone).toBe('navy');
-      expect(forge.groups).toEqual(['Engineering']);
       expect(forge.repoFullName).toBe('test-owner/aquaflow-designer');
-      expect(forge.createdBy.id).toBe(tom.id);
       // Repo recorded in the fake.
       expect(fake.getRepo('test-owner/aquaflow-designer')?.private).toBe(true);
+      // Files written to the repo.
+      const files = fake.getFiles('test-owner/aquaflow-designer');
+      expect(files).toBeDefined();
+      expect(files!.forgeConfig).toMatchObject({
+        name: 'Aquaflow Designer',
+        description: 'Hydraulics tool',
+        slug: 'aquaflow-designer',
+        dbName: 'aquaflow_designer',
+      });
+      expect(files!.forgeConfig.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(files!.envExample).toContain('DATABASE_URL=postgres://');
+      expect(files!.envExample).toContain('/aquaflow_designer');
+      // Database provisioned.
+      expect(fakeDb.has('aquaflow_designer')).toBe(true);
     });
   });
 
@@ -156,7 +169,7 @@ describe('createForge', () => {
     await withCleanDb(async (prisma) => {
       const tom  = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
       const maya = await makeUser(prisma, { email: 'm@x', name: 'Maya', groups: ['Engineering'] });
-      await createForge(tom, { name: 'A', description: '', groups: ['Engineering'] }, fake);
+      await createForge(tom, { name: 'A', description: '', groups: ['Engineering'] }, fake, fakeDb);
       const list = await listForges(maya);
       expect(list.map((f) => f.name)).toEqual(['A']);
     });
@@ -169,7 +182,7 @@ describe('createForge', () => {
       await prisma.group.create({ data: { name: 'Marketing' } });
       const alice = await makeUser(prisma, { email: 'a@x', name: 'Alice', groups: ['Marketing'] });
       await expect(
-        createForge(alice, { name: 'X', description: '', groups: ['HR'] }, fake),
+        createForge(alice, { name: 'X', description: '', groups: ['HR'] }, fake, fakeDb),
       ).rejects.toBeInstanceOf(ValidationError);
       expect(fake.listRepos()).toHaveLength(0);
     });
@@ -181,7 +194,7 @@ describe('createForge', () => {
       const admin = await makeUser(prisma, {
         email: 'a@x', name: 'Admin', groups: [], isAdmin: true,
       });
-      const forge = await createForge(admin, { name: 'X', description: '', groups: ['HR'] }, fake);
+      const forge = await createForge(admin, { name: 'X', description: '', groups: ['HR'] }, fake, fakeDb);
       expect(forge.groups).toEqual(['HR']);
     });
   });
@@ -190,7 +203,7 @@ describe('createForge', () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
       await expect(
-        createForge(tom, { name: 'X', description: '', groups: ['NoSuch'] }, fake),
+        createForge(tom, { name: 'X', description: '', groups: ['NoSuch'] }, fake, fakeDb),
       ).rejects.toBeInstanceOf(ValidationError);
       expect(fake.listRepos()).toHaveLength(0);
     });
@@ -199,9 +212,9 @@ describe('createForge', () => {
   it('throws ValidationError if name is already in use — and does NOT create a GitHub repo', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
-      await createForge(tom, { name: 'Dup', description: '', groups: ['Engineering'] }, fake);
+      await createForge(tom, { name: 'Dup', description: '', groups: ['Engineering'] }, fake, fakeDb);
       await expect(
-        createForge(tom, { name: 'Dup', description: '', groups: ['Engineering'] }, fake),
+        createForge(tom, { name: 'Dup', description: '', groups: ['Engineering'] }, fake, fakeDb),
       ).rejects.toBeInstanceOf(ValidationError);
       expect(fake.listRepos()).toHaveLength(1);
     });
@@ -212,7 +225,7 @@ describe('createForge', () => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
       fake.failNextCall('createRepoFromTemplate', new Error('boom'));
       await expect(
-        createForge(tom, { name: 'A', description: '', groups: ['Engineering'] }, fake),
+        createForge(tom, { name: 'A', description: '', groups: ['Engineering'] }, fake, fakeDb),
       ).rejects.toThrow('boom');
       const rows = await prisma.forge.findMany();
       expect(rows).toHaveLength(0);
@@ -220,31 +233,55 @@ describe('createForge', () => {
     });
   });
 
-  it('compensates by deleting the just-created repo when the DB insert fails', async () => {
+  it('writeForgeFiles failure deletes the repo, drops nothing, and inserts no row', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
-      // Pre-create a Forge row holding the slug we'll collide on, by-passing
-      // the unique-name pre-check. Insert directly so the unique-index trips
-      // INSIDE the transaction (simulating a race).
+      fake.failNextCall('writeForgeFiles', new Error('rate limited'));
+      await expect(
+        createForge(tom, { name: 'A', description: '', groups: ['Engineering'] }, fake, fakeDb),
+      ).rejects.toThrow('rate limited');
+
+      expect(fake.listRepos()).toHaveLength(0);
+      expect(fakeDb.list()).toEqual([]);
+      const rows = await prisma.forge.findMany();
+      expect(rows).toHaveLength(0);
+    });
+  });
+
+  it('createDatabase failure deletes the repo and inserts no row', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      fakeDb.failNextCall('createDatabase', new Error('connection refused'));
+      await expect(
+        createForge(tom, { name: 'A', description: '', groups: ['Engineering'] }, fake, fakeDb),
+      ).rejects.toThrow('connection refused');
+
+      expect(fake.listRepos()).toHaveLength(0);
+      expect(fakeDb.list()).toEqual([]);
+      const rows = await prisma.forge.findMany();
+      expect(rows).toHaveLength(0);
+    });
+  });
+
+  it('compensates by dropping the database AND deleting the repo when the DB row write fails', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      // Pre-create a Forge row holding the repoFullName slug we'll collide on,
+      // so the unique-index trips inside the transaction.
       await makeForge(prisma, {
         name: 'Race Winner',
         createdById: tom.id,
         groups: ['Engineering'],
-        repoFullName: 'test-owner/aquaflow', // repo slug we'll compete for
+        repoFullName: 'test-owner/aquaflow',
       });
-      // Pre-seed the fake with that slug, so the second create finds it free
-      // (different forge name, same slug → fake will let it through, then DB
-      // collides on repoFullName unique index).
       await expect(
-        createForge(
-          tom,
-          { name: 'Aquaflow', description: '', groups: ['Engineering'] },
-          fake,
-        ),
+        createForge(tom, { name: 'Aquaflow', description: '', groups: ['Engineering'] }, fake, fakeDb),
       ).rejects.toThrow();
+
       // Compensating delete must have removed the repo from the fake.
       expect(fake.getRepo('test-owner/aquaflow')).toBeUndefined();
-      // No new Forge row exists with that name.
+      // Compensating drop must have removed the database from the fake.
+      expect(fakeDb.has('aquaflow')).toBe(false);
       const rows = await prisma.forge.findMany({ where: { name: 'Aquaflow' } });
       expect(rows).toHaveLength(0);
     });

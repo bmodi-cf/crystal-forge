@@ -89,16 +89,19 @@ function deriveInitials(name: string): string {
 }
 
 /**
- * Create a Forge atomically with its GitHub repo. If the DB write fails after
- * the repo was created, the just-created repo is deleted (compensating action).
+ * Create a Forge atomically with its GitHub repo, two committed files
+ * (forge.config.json + .env.example), and a per-forge Postgres database.
+ * Compensates with safeDeleteRepo / safeDropDatabase on later-stage failures.
  *
- * `client` is injectable for tests; in production the default factory returns
- * the singleton chosen by GITHUB_CLIENT_MODE.
+ * `client` and `provisioner` are injectable for tests; in production the
+ * default factories return the singletons chosen by GITHUB_CLIENT_MODE and
+ * DB_PROVISIONER_MODE.
  */
 export async function createForge(
   currentUser: SessionUser,
   input: CreateForgeInput,
   client: GitHubClient = getGitHubClient(),
+  provisioner: DatabaseProvisioner = getDatabaseProvisioner(),
 ): Promise<Forge> {
   // 1. Pre-check name uniqueness in DB (cheaper than going to GitHub first).
   const dup = await prisma.forge.findUnique({ where: { name: input.name } });
@@ -127,16 +130,39 @@ export async function createForge(
     }
   }
 
-  // 3. Compute slug + create the GitHub repo. Errors here surface unchanged.
+  // 3. Compute slug + dbName + payload.
   const description = input.description?.trim() ? input.description.trim() : null;
   const slug = slugifyForgeName(input.name);
+  const dbName = slugToDbName(slug);
+  const createdAt = new Date().toISOString();
+
+  // 4. Create the GitHub repo. Errors here surface unchanged.
   const created = await client.createRepoFromTemplate({
     name: slug,
     description,
     private: true,
   });
 
-  // 4. Insert the Forge row. If this fails, compensate by deleting the GitHub repo.
+  // 5. Write forge.config.json + .env.example. On failure, delete the repo.
+  try {
+    await client.writeForgeFiles(created.fullName, {
+      forgeConfig: { name: input.name, description, slug, dbName, createdAt },
+      envExample: renderEnvExample(dbName),
+    });
+  } catch (err) {
+    await safeDeleteRepo(client, created.fullName);
+    throw err;
+  }
+
+  // 6. Provision the per-forge database. On failure, delete the repo.
+  try {
+    await provisioner.createDatabase(dbName);
+  } catch (err) {
+    await safeDeleteRepo(client, created.fullName);
+    throw err;
+  }
+
+  // 7. Insert the Forge row. On failure, drop the database AND delete the repo.
   try {
     return await prisma.$transaction(async (tx) => {
       const row = await tx.forge.create({
@@ -153,6 +179,7 @@ export async function createForge(
       return toDto(row);
     });
   } catch (err) {
+    await safeDropDatabase(provisioner, dbName);
     await safeDeleteRepo(client, created.fullName);
     throw err;
   }
