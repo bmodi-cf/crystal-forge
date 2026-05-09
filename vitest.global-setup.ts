@@ -50,9 +50,10 @@ export default async function setup(): Promise<void> {
   const testEnv = {
     ...process.env,
     DATABASE_URL: testUrl.toString(),
-    // Always use the fake GitHub client in tests — the seed uses it to build
-    // deterministic repoFullName strings without real GitHub calls.
+    // Always use the fake GitHub client + fake DB provisioner in tests.
+    // Mirrors the e2e/global-setup.ts and playwright.config.ts env shapes.
     GITHUB_CLIENT_MODE: 'fake',
+    DB_PROVISIONER_MODE: 'fake',
   };
 
   execSync('pnpm prisma migrate deploy', { env: testEnv, stdio: 'inherit' });
