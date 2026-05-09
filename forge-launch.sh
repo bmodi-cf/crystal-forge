@@ -72,10 +72,18 @@ DEV_PID=$(lsof -nP -iTCP:${DEV_PORT} -sTCP:LISTEN -t 2>/dev/null || true)
   || fail "Port ${DEV_PORT} is already in use by PID ${DEV_PID}. Stop it first."
 
 # --- phase 3: postgres -----------------------------------------------------
+PG_STATE=$(docker inspect -f '{{.State.Status}}' "$PG_CONTAINER" 2>/dev/null || echo missing)
 PG_HEALTH=$(docker inspect -f '{{.State.Health.Status}}' "$PG_CONTAINER" 2>/dev/null || echo missing)
-if [[ "$PG_HEALTH" == "healthy" ]]; then
+if [[ "$PG_STATE" == "running" && "$PG_HEALTH" == "healthy" ]]; then
   step "Postgres (${PG_CONTAINER}) is already healthy -- reusing"
 else
+  # If a stopped/created container is sitting around, it'll block `compose up`
+  # with a name conflict. Data lives in the named volume, so removing the
+  # container is safe.
+  if [[ "$PG_STATE" != "missing" && "$PG_STATE" != "running" ]]; then
+    step "Removing stale Postgres container (state: ${PG_STATE})"
+    docker rm -f "$PG_CONTAINER" >/dev/null
+  fi
   step "Starting Postgres (${PG_CONTAINER})"
   docker compose up -d postgres >/dev/null
   printf '    waiting for healthcheck'
