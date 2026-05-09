@@ -11,6 +11,7 @@ export default async function globalSetup() {
       GITHUB_TEMPLATE_REPO:
         process.env.GITHUB_TEMPLATE_REPO ?? 'bmodi-cf/crystal-forge-template-webapp',
       GITHUB_BASE_URL: process.env.GITHUB_BASE_URL ?? 'https://github.com',
+      DB_PROVISIONER_MODE: 'fake',
     },
   });
 }

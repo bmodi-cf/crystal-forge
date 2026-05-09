@@ -28,6 +28,7 @@ export default defineConfig({
       GITHUB_REPO_OWNER: 'bmodi-cf',
       GITHUB_TEMPLATE_REPO: 'bmodi-cf/crystal-forge-template-webapp',
       GITHUB_BASE_URL: 'https://github.com',
+      DB_PROVISIONER_MODE: 'fake',
     },
     timeout: 120_000,
   },
