@@ -33,6 +33,9 @@ const baseSchema = z.object({
   HARNESS_PG_USER: z.string().default('crystal'),
   HARNESS_PG_PASSWORD: z.string().default('crystal'),
   DB_PROVISIONER_MODE: z.enum(['real', 'fake']).default('real'),
+
+  // Runtime orchestration root. Defaults to ~/.crystal-forge.
+  CRYSTAL_FORGE_HOME: z.string().optional(),
 });
 
 const schema = baseSchema.superRefine((val, ctx) => {
