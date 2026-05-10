@@ -38,6 +38,6 @@ export type Message = {
   id: string;
   conversationId: string;
   role: MessageRole;
-  content: string;
+  content: unknown;
   createdAt: string;
 };
