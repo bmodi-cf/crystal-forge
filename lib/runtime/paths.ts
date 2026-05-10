@@ -1,9 +1,9 @@
 import os from 'node:os';
 import path from 'node:path';
-import { env } from '@/lib/env';
 
 export function forgeHome(): string {
-  return env.CRYSTAL_FORGE_HOME ?? path.join(os.homedir(), '.crystal-forge');
+  // Read live from process.env so tests can override CRYSTAL_FORGE_HOME per-run.
+  return process.env.CRYSTAL_FORGE_HOME ?? path.join(os.homedir(), '.crystal-forge');
 }
 
 export function stateFilePath(): string {
