@@ -20,6 +20,7 @@ export const childProcessRunner: CommandRunner = {
       }
       child.once('error', (err) => {
         if (timer) clearTimeout(timer);
+        if (typeof fd === 'number') fs.closeSync(fd);
         reject(err);
       });
       child.once('exit', (code) => {
