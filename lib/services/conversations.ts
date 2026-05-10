@@ -97,6 +97,26 @@ export async function getConversation(currentUser: SessionUser, conversationId: 
   };
 }
 
+export async function assertCanConnect(
+  currentUser: SessionUser,
+  forgeId: string,
+  conversationId: string,
+): Promise<void> {
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    include: { forge: { include: { groups: { include: { group: true } } } } },
+  });
+  if (!conv || conv.forgeId !== forgeId) throw new NotFoundError('conversation', conversationId);
+  const acl = {
+    id: conv.forge.id,
+    createdById: conv.forge.createdById,
+    groups: conv.forge.groups.map((fg) => fg.group.name),
+  };
+  if (!canWriteForge(currentUser, acl)) {
+    throw new ForbiddenError(`Cannot connect to conversation ${conversationId}`);
+  }
+}
+
 export async function appendMessage(
   conversationId: string,
   payload: { role: 'user' | 'assistant'; content: unknown; createdAt?: Date },
