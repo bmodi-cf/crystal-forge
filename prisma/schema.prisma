@@ -117,8 +117,9 @@ model Conversation {
   id          String   @id @default(uuid()) @db.Uuid
   forgeId     String   @map("forge_id") @db.Uuid
   createdById String   @map("created_by") @db.Uuid
-  title       String   @default("New conversation")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  title           String   @default("New conversation")
+  claudeSessionId String?  @map("claude_session_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   forge     Forge     @relation(fields: [forgeId], references: [id], onDelete: Cascade)
@@ -138,7 +139,7 @@ model Message {
   id             String      @id @default(uuid()) @db.Uuid
   conversationId String      @map("conversation_id") @db.Uuid
   role           MessageRole
-  content        String
+  content        Json
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
