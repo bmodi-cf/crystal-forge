@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { ConversationList } from './ConversationList';
 import { ChatPanel } from './ChatPanel';
@@ -18,11 +18,34 @@ type Props = {
   onCreateConversation: () => Promise<ConversationDto>;
 };
 
+const POLL_MS = 2_000;
+
 export function ForgePageClient({
-  forge, runtime, canWrite, initialConversations, onCreateConversation,
+  forge, runtime: initialRuntime, canWrite, initialConversations, onCreateConversation,
 }: Props) {
   const [conversations, setConversations] = useState<ConversationDto[]>(initialConversations);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<RuntimeStateView | null>(initialRuntime);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopPoll() {
+    if (pollRef.current !== null) { clearInterval(pollRef.current); pollRef.current = null; }
+  }
+
+  async function fetchRuntime() {
+    try {
+      const res = await fetch('/api/forges/runtime');
+      if (!res.ok) return;
+      const body = (await res.json()) as { runtimes: Record<string, RuntimeStateView> };
+      const next = body.runtimes?.[forge.id] ?? null;
+      setRuntime(next);
+      if (next?.status === 'running' || next?.status === 'crashed' || next?.status === 'setup-failed' || next === null) {
+        stopPoll();
+      }
+    } catch { /* Network blip — leave previous state */ }
+  }
+
+  useEffect(() => () => stopPoll(), []);
 
   async function handleCreate() {
     const created = await onCreateConversation();
@@ -31,7 +54,11 @@ export function ForgePageClient({
   }
 
   async function handleStart() {
-    try { await fetch(`/api/forges/${forge.id}/start`, { method: 'POST' }); } catch { /* swallow */ }
+    try {
+      await fetch(`/api/forges/${forge.id}/start`, { method: 'POST' });
+      stopPoll();
+      pollRef.current = setInterval(fetchRuntime, POLL_MS);
+    } catch { /* swallow */ }
   }
 
   return (
