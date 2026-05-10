@@ -94,6 +94,11 @@ describe('conversations service', () => {
     });
   });
 
+  it('setClaudeSessionId rethrows non-P2025 errors', async () => {
+    // Pass a malformed UUID — Prisma throws P2023 (invalid uuid) which we should NOT swallow.
+    await expect(setClaudeSessionId('not-a-uuid', 'also-not-a-uuid')).rejects.toBeDefined();
+  });
+
   it('maybeBackfillTitle is a no-op when title is already custom', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });

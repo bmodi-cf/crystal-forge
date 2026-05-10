@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { canReadForge, canWriteForge } from '@/lib/acl';
 import { ForbiddenError, NotFoundError } from '@/lib/errors';
@@ -117,10 +117,15 @@ export async function appendMessage(
 }
 
 export async function setClaudeSessionId(conversationId: string, sessionId: string): Promise<void> {
-  await prisma.conversation.update({
-    where: { id: conversationId, claudeSessionId: null },
-    data: { claudeSessionId: sessionId },
-  }).catch(() => { /* already set — idempotent */ });
+  try {
+    await prisma.conversation.update({
+      where: { id: conversationId, claudeSessionId: null },
+      data: { claudeSessionId: sessionId },
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') return;
+    throw err;
+  }
 }
 
 export async function maybeBackfillTitle(conversationId: string): Promise<void> {
