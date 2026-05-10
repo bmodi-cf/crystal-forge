@@ -76,6 +76,7 @@ export function makeLivenessChecker(deps: LivenessDeps = {}): () => Promise<void
 let intervalHandle: NodeJS.Timeout | null = null;
 
 export function startLivenessLoop(deps: LivenessDeps = {}, intervalMs = 5000): { stop: () => void } {
+  if (intervalHandle) clearInterval(intervalHandle);
   const check = makeLivenessChecker(deps);
   intervalHandle = setInterval(() => {
     void check().catch((err) => console.error('[runtime/runner] check failed', err));

@@ -117,7 +117,19 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
     while (Date.now() < deadline) {
       if (await deps.probe(port)) {
         const final: RuntimeStateEntry = { ...baseEntry, pid, status: 'running' };
-        await mutateState((s) => { s[forgeId] = final; });
+        let written = false;
+        await mutateState((s) => {
+          if (s[forgeId]) {
+            s[forgeId] = final;
+            written = true;
+          }
+        });
+        if (!written) {
+          // Entry was deleted (probably by a concurrent stopForge). Kill the
+          // dev-server we just spawned so we don't leak it.
+          await deps.killProcess(pid).catch(() => {});
+          throw new RuntimeBusyError('Forge was stopped while starting');
+        }
         return final;
       }
       await sleep(PROBE_INTERVAL_MS);

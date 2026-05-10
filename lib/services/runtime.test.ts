@@ -161,4 +161,27 @@ describe('runtime service', () => {
       expect(readerList[0]?.pid).toBeUndefined();
     });
   });
+
+  it('startForge throws RuntimeBusyError if the entry is deleted (race with stopForge) before probe success', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const fakes = makeFakes();
+      const svc = makeRuntimeService({
+        ...fakes,
+        prisma,
+        probe: async () => {
+          // Simulate a concurrent stopForge wiping the entry between
+          // spawn and the probe-success state write.
+          const { mutateState } = await import('@/lib/runtime/state');
+          await mutateState((s) => { delete s[forge.id]; });
+          return true;
+        },
+      });
+      await expect(svc.startForge(tom, forge.id)).rejects.toThrow(/stopped while starting/i);
+      expect(await svc.getRuntime(tom, forge.id)).toBeNull();
+    });
+  });
 });
