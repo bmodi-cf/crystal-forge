@@ -1,7 +1,7 @@
 # Crystal Forge — Forge Orchestration (Start / Stop / Open) Design
 
-- **Date:** 2026-05-08
-- **Status:** Draft, awaiting user review
+- **Date:** 2026-05-08 (re-confirmed 2026-05-09)
+- **Status:** Approved — host child process model confirmed; ready for implementation plan.
 - **Author:** Bhadresh Modi (with Claude Code assistance)
 - **Slice:** Add Start / Stop / Open controls to each forge card. Harness clones, installs, and runs each forge as a host child process on its own port. Builds on `2026-05-08-template-webapp-and-forge-config-design.md` (a forge must be runnable before it can be orchestrated).
 
@@ -185,7 +185,11 @@ Per-forge lock: an in-memory `Map<forgeId, Promise<RuntimeState>>` ensures two s
 `startForge` flow:
 1. Auth check. Look up the forge by id; throw if not visible.
 2. Acquire the per-forge lock.
-3. If `state.json` already has an entry: return it (idempotent — clicking Start on something already running is a no-op).
+3. Inspect any existing `state.json` entry for this `forgeId`:
+   - `running` or `starting` → return it unchanged (idempotent — clicking Start on something already running is a no-op).
+   - `stopping` → throw `RuntimeBusyError` (Stop is in flight; user re-tries shortly).
+   - `crashed` or `setup-failed` → treat as Stopped: free the entry's port back into the pool and clear the entry, then continue to step 4. (This is the "Start (retry)" UI path.)
+   - No entry → continue to step 4.
 4. Allocate port. Write a `starting` entry to `state.json` immediately (so the UI sees Starting on the next poll).
 5. `await ensureClone(forge, githubClient)`. On failure, write `setup-failed` with the error message and release the port; throw.
 6. Spawn the dev server. Update entry with the `pid` (status remains `starting`).
@@ -272,6 +276,8 @@ The harness's existing tables (`forges`, etc.) are read-only from this slice's p
 | Dev server bound to a different port than allocated (user edits config?) | Probe on allocated port times out → marked `crashed`. (We pass `--port` so this only happens with deliberate config drift. Acceptable failure mode.) |
 | Allocated port becomes occupied externally between allocation and spawn | Dev server fails to bind → exits → probe times out → `crashed`. Rare; user retries. |
 | Two requests Start the same forge simultaneously | Per-forge lock collapses them — second await s the first's result, returns the same state. |
+| Start clicked while status is `crashed` or `setup-failed` | Existing entry is treated as Stopped (port freed, entry cleared) and a fresh Start runs. See `startForge` step 3. |
+| Start clicked while status is `stopping` | `RuntimeBusyError` returned; UI surfaces a brief "Stop in progress" toast and re-enables Start once polling shows the entry gone. |
 | Forge ACL changes mid-run (groups removed, user demoted) | Currently running forge keeps running. Read access on Open link is checked at status-poll time. `stopForge` requires write access. |
 | Harness crashes mid-Start | On next boot, orphan-cleanup kills any lingering child via pid. State is wiped for that forge. |
 | Harness force-killed (SIGKILL on parent) | Children outlive the parent briefly. Boot cleanup detects them and kills via pid in `state.json`. |
