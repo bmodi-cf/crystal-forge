@@ -87,7 +87,7 @@ describe('ws-server', () => {
     const { server } = await startServer({
       spawnPty: () => ({
         pid: 1, write: fakeWrite, resize: vi.fn(),
-        onData: (h) => { captured = h; },
+        onData: (h: (chunk: string) => void) => { captured = h; },
         onExit: vi.fn(), kill: vi.fn(),
       }),
     } as never);
