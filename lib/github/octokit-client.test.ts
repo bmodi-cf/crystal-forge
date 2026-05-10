@@ -189,3 +189,19 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
     expect(putCalls).toBe(2);
   });
 });
+
+describe('OctokitGitHubClient.getInstallationToken', () => {
+  it('delegates to octokit auth({ type: "installation" })', async () => {
+    const stub = {
+      auth: vi.fn().mockResolvedValue({ token: 'ghs_xyz' }),
+    } as unknown as Octokit;
+    const client = new OctokitGitHubClient({
+      owner: 'o', templateRepo: 't/r',
+      appId: '1', privateKey: 'k', installationId: 'i',
+      octokit: stub,
+    });
+    expect(await client.getInstallationToken()).toBe('ghs_xyz');
+    expect((stub as unknown as { auth: ReturnType<typeof vi.fn> }).auth)
+      .toHaveBeenCalledWith({ type: 'installation' });
+  });
+});

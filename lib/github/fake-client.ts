@@ -66,6 +66,10 @@ export class FakeGitHubClient implements GitHubClient {
     this.files.set(fullName, files);
   }
 
+  async getInstallationToken(): Promise<string> {
+    return 'fake-installation-token';
+  }
+
   // Test helpers -----------------------------------------------------------
 
   failNextCall(method: Method, error: Error): void {

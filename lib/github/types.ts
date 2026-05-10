@@ -64,4 +64,11 @@ export interface GitHubClient {
    * backoff (200/400/800/1600/3200ms). Any other status throws immediately.
    */
   writeForgeFiles(fullName: string, files: ForgeFiles): Promise<void>;
+
+  /**
+   * Mints an installation access token usable in `https://x-access-token:<token>@github.com/...`
+   * URLs (e.g. for `git clone`). Tokens are short-lived (~1h) and the caller is
+   * responsible for not persisting them. Throws on any auth failure.
+   */
+  getInstallationToken(): Promise<string>;
 }

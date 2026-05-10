@@ -98,6 +98,15 @@ export class OctokitGitHubClient implements GitHubClient {
     );
   }
 
+  async getInstallationToken(): Promise<string> {
+    // octokit-auth-app exposes this through the same client.auth() callable.
+    const auth = (this.client as unknown as {
+      auth: (opts: { type: 'installation' }) => Promise<{ token: string }>;
+    }).auth;
+    const result = await auth({ type: 'installation' });
+    return result.token;
+  }
+
   /**
    * PUT /repos/{owner}/{repo}/contents/{path}. Retries on 404 with bounded
    * backoff (template-cloned repo not yet visible). On 422 — which GitHub

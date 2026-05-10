@@ -137,3 +137,11 @@ describe('FakeGitHubClient.writeForgeFiles', () => {
     expect(fake.getFiles('bmodi-cf/aquaflow')).toBeUndefined();
   });
 });
+
+describe('FakeGitHubClient.getInstallationToken', () => {
+  it('returns a deterministic stub token', async () => {
+    const fake = new FakeGitHubClient({ owner: 'o', baseUrl: 'https://github.com' });
+    const tok = await fake.getInstallationToken();
+    expect(tok).toBe('fake-installation-token');
+  });
+});
