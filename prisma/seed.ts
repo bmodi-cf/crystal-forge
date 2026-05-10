@@ -72,14 +72,27 @@ async function provisionForgeArtifacts(
   const client = getGitHubClient();
   const provisioner = getDatabaseProvisioner();
 
-  const repo = await client.createRepoFromTemplate({
-    name: slug,
-    description,
-    private: true,
-  });
+  // Adopt-on-conflict: if the repo or per-forge DB already exist (e.g. left
+  // over from a prior seed), reuse them instead of failing. We never delete
+  // an adopted repo on later failure — only repos this run actually created.
+  let repoFullName: string;
+  let adoptedRepo = false;
+  try {
+    const repo = await client.createRepoFromTemplate({
+      name: slug,
+      description,
+      private: true,
+    });
+    repoFullName = repo.fullName;
+  } catch (err) {
+    if (!isRepoAlreadyExistsError(err)) throw err;
+    repoFullName = `${env.GITHUB_REPO_OWNER}/${slug}`;
+    adoptedRepo = true;
+    console.log(`   ↪ adopting existing repo ${repoFullName}`);
+  }
 
   try {
-    await client.writeForgeFiles(repo.fullName, {
+    await client.writeForgeFiles(repoFullName, {
       forgeConfig: {
         name,
         description: description.length > 0 ? description : null,
@@ -89,20 +102,41 @@ async function provisionForgeArtifacts(
       },
       envExample: renderEnvExample(dbName),
     });
-    await provisioner.createDatabase(dbName);
+
+    try {
+      await provisioner.createDatabase(dbName);
+    } catch (err) {
+      if (!isPgAlreadyExistsError(err)) throw err;
+      console.log(`   ↪ adopting existing database ${dbName}`);
+    }
   } catch (err) {
-    // Best-effort compensation so a re-run isn't blocked by orphans.
-    try { await client.deleteRepo(repo.fullName); } catch { /* logged below */ }
+    if (!adoptedRepo) {
+      try { await client.deleteRepo(repoFullName); } catch { /* logged below */ }
+    }
     console.error(
-      `❌ Failed to write files / provision database for "${name}". ` +
-        `If a repo with slug "${slug}" already exists under ${env.GITHUB_REPO_OWNER}, ` +
-        `or a database "${dbName}" already exists in the harness pg, archive/delete ` +
-        `it manually and re-run the seed.`,
+      `❌ Failed to provision forge artefacts for "${name}". ` +
+        `Investigate the error above before re-running the seed.`,
     );
     throw err;
   }
 
-  return { repoFullName: repo.fullName };
+  return { repoFullName };
+}
+
+function isRepoAlreadyExistsError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { status?: number; response?: { data?: { message?: string } } };
+  return (
+    e.status === 422 &&
+    typeof e.response?.data?.message === 'string' &&
+    e.response.data.message.includes('Name already exists')
+  );
+}
+
+// Postgres SQLSTATE 42P04 = duplicate_database.
+function isPgAlreadyExistsError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  return (err as { code?: string }).code === '42P04';
 }
 
 async function main() {
