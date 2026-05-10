@@ -36,6 +36,20 @@ describe('bootCleanup', () => {
     expect(s).toEqual({});
     expect(killed).toEqual([1]);
   });
+
+  it('does not call kill for entries with pid <= 0', async () => {
+    await saveState({
+      a: { forgeId: 'a', slug: 'a', status: 'setup-failed', pid: 0, port: 3001, startedAt: 'x', logPath: '', setupError: 'boom' },
+      b: { forgeId: 'b', slug: 'b', status: 'running',      pid: -1, port: 3002, startedAt: 'x', logPath: '' },
+    });
+    const killed: number[] = [];
+    await bootCleanup({
+      isAlive: () => true,                              // pretend everything is alive
+      kill: async (pid) => { killed.push(pid); },
+    });
+    expect(killed).toEqual([]);                         // pid 0 / -1 never reach kill
+    expect(await loadState()).toEqual({});
+  });
 });
 
 describe('makeLivenessChecker', () => {

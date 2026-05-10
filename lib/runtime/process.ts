@@ -24,6 +24,7 @@ export function spawnLongLived(cmd: string, args: string[], opts: SpawnOpts): nu
 }
 
 export function isAlive(pid: number): boolean {
+  if (pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -36,6 +37,7 @@ export async function killProcess(
   pid: number,
   opts: { graceMs?: number } = {},
 ): Promise<void> {
+  if (pid <= 0) return;
   const grace = opts.graceMs ?? 5000;
   if (!isAlive(pid)) return;
   try { process.kill(pid, 'SIGTERM'); } catch { return; }

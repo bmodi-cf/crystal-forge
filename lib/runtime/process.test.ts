@@ -49,4 +49,25 @@ describe('process helpers', () => {
   it('isAlive returns false for an unknown pid', () => {
     expect(isAlive(999_999_999)).toBe(false);
   });
+
+  it('isAlive returns false for pid 0 (process-group sentinel)', () => {
+    expect(isAlive(0)).toBe(false);
+  });
+
+  it('isAlive returns false for negative pid (process-group sentinel)', () => {
+    expect(isAlive(-1)).toBe(false);
+    expect(isAlive(-9999)).toBe(false);
+  });
+
+  it('killProcess is a no-op for pid 0 (does NOT signal the process group)', async () => {
+    // If this were broken, it would SIGTERM the test runner itself —
+    // the test would never reach the expect.
+    await killProcess(0, { graceMs: 50 });
+    expect(true).toBe(true); // sentinel: we got here without dying
+  });
+
+  it('killProcess is a no-op for negative pid', async () => {
+    await killProcess(-9999, { graceMs: 50 });
+    expect(true).toBe(true);
+  });
 });

@@ -12,7 +12,7 @@ export async function bootCleanup(deps: BootCleanupDeps = {}): Promise<void> {
   const kill = deps.kill ?? ((pid: number) => defaultKill(pid));
   const state = await loadState();
   for (const entry of Object.values(state)) {
-    if (isAlive(entry.pid)) {
+    if (entry.pid > 0 && isAlive(entry.pid)) {
       try { await kill(entry.pid); } catch (err) {
         console.error('[runtime/bootCleanup] kill failed', { pid: entry.pid, err });
       }
@@ -45,7 +45,7 @@ export function makeLivenessChecker(deps: LivenessDeps = {}): () => Promise<void
       if (entry.status === 'starting') {
         const ageMs = now().getTime() - new Date(entry.startedAt).getTime();
         if (ageMs > startingTimeoutMs) {
-          await kill(entry.pid).catch(() => {});
+          if (entry.pid > 0) await kill(entry.pid).catch(() => {});
           await mutateState((s) => {
             const e = s[entry.forgeId];
             if (e) e.status = 'crashed';
@@ -63,7 +63,7 @@ export function makeLivenessChecker(deps: LivenessDeps = {}): () => Promise<void
       failureCounts.set(entry.forgeId, next);
       if (next >= failureThreshold) {
         failureCounts.delete(entry.forgeId);
-        await kill(entry.pid).catch(() => {});
+        if (entry.pid > 0) await kill(entry.pid).catch(() => {});
         await mutateState((s) => {
           const e = s[entry.forgeId];
           if (e) e.status = 'crashed';
