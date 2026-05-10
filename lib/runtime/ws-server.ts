@@ -3,12 +3,9 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { verifyTicket } from '@/lib/auth/ws-ticket';
 import { spawnClaudeSession, type Session, type SpawnOpts } from './pty-session';
 import { startTranscriptWatcher, type WatcherDeps } from './transcript-watcher';
-import { appendMessage as defaultAppend, setClaudeSessionId as defaultSet } from '@/lib/services/conversations';
+import { appendMessage as defaultAppend, setClaudeSessionId as defaultSet, loadConversationLite } from '@/lib/services/conversations';
+import type { ConversationLite } from '@/lib/services/conversations';
 import { forgeClonePath as defaultForgeClonePath } from './paths';
-import { prisma as defaultPrisma } from '@/lib/prisma';
-import { slugifyForgeName } from '@/lib/github/slug';
-
-type ConversationLite = { id: string; slug: string; claudeSessionId: string | null };
 
 export type WsServerOpts = {
   port: number;
@@ -30,18 +27,7 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
   const forgeClonePath = opts.forgeClonePath ?? defaultForgeClonePath;
   const appendMessage = opts.appendMessage ?? defaultAppend;
   const setClaudeSessionId = opts.setClaudeSessionId ?? defaultSet;
-  const loadConversation = opts.loadConversation ?? (async (id) => {
-    const row = await defaultPrisma.conversation.findUnique({
-      where: { id },
-      include: { forge: true },
-    });
-    if (!row) return null;
-    return {
-      id: row.id,
-      slug: slugifyForgeName(row.forge.name),
-      claudeSessionId: row.claudeSessionId,
-    };
-  });
+  const loadConversation = opts.loadConversation ?? loadConversationLite;
 
   const sessions = new Map<string, ActiveSession>();
   const http: HttpServer = createServer();

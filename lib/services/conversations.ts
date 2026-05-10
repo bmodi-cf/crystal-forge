@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { canReadForge, canWriteForge } from '@/lib/acl';
 import { ForbiddenError, NotFoundError } from '@/lib/errors';
 import type { SessionUser } from './types';
+import { slugifyForgeName } from '@/lib/github/slug';
 
 const TITLE_MAX = 80;
 const DEFAULT_TITLE = 'New conversation';
@@ -160,6 +161,31 @@ export async function maybeBackfillTitle(conversationId: string): Promise<void> 
   if (!text) return;
   const truncated = text.length > TITLE_MAX ? text.slice(0, TITLE_MAX - 1).trimEnd() + '…' : text;
   await prisma.conversation.update({ where: { id: conversationId }, data: { title: truncated } });
+}
+
+export type ConversationLite = {
+  id: string;
+  slug: string;
+  claudeSessionId: string | null;
+};
+
+/**
+ * Internal helper for the WS server. Fetches the minimum a PTY-spawn needs
+ * to know about a conversation: slug (for cwd), claudeSessionId (for --resume).
+ * No ACL check — the WS server gates connections via the signed ticket
+ * (ACL is enforced when the ticket is issued).
+ */
+export async function loadConversationLite(conversationId: string): Promise<ConversationLite | null> {
+  const row = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    include: { forge: true },
+  });
+  if (!row) return null;
+  return {
+    id: row.id,
+    slug: slugifyForgeName(row.forge.name),
+    claudeSessionId: row.claudeSessionId,
+  };
 }
 
 function flattenContentText(content: unknown): string {
