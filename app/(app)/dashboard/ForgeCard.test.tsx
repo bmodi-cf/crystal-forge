@@ -21,7 +21,7 @@ const forge: Forge = {
 
 describe('ForgeCard', () => {
   it('renders name, description, initials, and groups', () => {
-    render(<ForgeCard forge={forge} />);
+    render(<ForgeCard forge={forge} canWrite runtime={null} onRuntimeAction={() => {}} />);
     expect(screen.getByText('Aquaflow Designer')).toBeInTheDocument();
     expect(screen.getByText('Hydraulic modeling toolkit.')).toBeInTheDocument();
     expect(screen.getByText('AD')).toBeInTheDocument();
@@ -30,33 +30,33 @@ describe('ForgeCard', () => {
   });
 
   it('renders a "View on GitHub" link pointing at repoUrl', () => {
-    render(<ForgeCard forge={forge} />);
+    render(<ForgeCard forge={forge} canWrite runtime={null} onRuntimeAction={() => {}} />);
     const link = screen.getByRole('link', { name: /view on github/i });
     expect(link).toHaveAttribute('href', 'https://github.com/bmodi-cf/aquaflow-designer');
     expect(link).toHaveAttribute('target', '_blank');
   });
 
   it('shows the status label in uppercase form', () => {
-    render(<ForgeCard forge={forge} />);
+    render(<ForgeCard forge={forge} canWrite runtime={null} onRuntimeAction={() => {}} />);
     expect(screen.getByText(/ACTIVE/i)).toBeInTheDocument();
   });
 
   it('does not render edit / delete buttons when callbacks are absent', () => {
-    render(<ForgeCard forge={forge} />);
+    render(<ForgeCard forge={forge} canWrite runtime={null} onRuntimeAction={() => {}} />);
     expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
   });
 
   it('calls onEdit when the edit button is clicked', async () => {
     const onEdit = vi.fn();
-    render(<ForgeCard forge={forge} onEdit={onEdit} onDelete={vi.fn()} />);
+    render(<ForgeCard forge={forge} canWrite runtime={null} onRuntimeAction={() => {}} onEdit={onEdit} onDelete={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: /edit/i }));
     expect(onEdit).toHaveBeenCalledWith(forge);
   });
 
   it('calls onDelete when the delete button is clicked', async () => {
     const onDelete = vi.fn();
-    render(<ForgeCard forge={forge} onEdit={vi.fn()} onDelete={onDelete} />);
+    render(<ForgeCard forge={forge} canWrite runtime={null} onRuntimeAction={() => {}} onEdit={vi.fn()} onDelete={onDelete} />);
     await userEvent.click(screen.getByRole('button', { name: /delete/i }));
     expect(onDelete).toHaveBeenCalledWith(forge);
   });

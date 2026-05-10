@@ -2,6 +2,8 @@
 
 import { GitBranch, Pencil, Trash2 } from 'lucide-react';
 import type { Forge } from '@/lib/services/types';
+import { ForgeCardRuntime, type RuntimeAction } from './ForgeCardRuntime';
+import type { RuntimeStateView } from '@/lib/runtime/types';
 
 const TONE_CLASSES: Record<Forge['tone'], string> = {
   navy: 'bg-gradient-to-br from-[rgba(0,46,92,0.9)] to-[rgba(0,28,56,0.9)] text-[#9ec6ee] border-[rgba(60,110,170,0.4)]',
@@ -23,11 +25,14 @@ const STATUS_LABEL: Record<Forge['status'], string> = {
 
 type Props = {
   forge: Forge;
+  canWrite: boolean;
+  runtime: RuntimeStateView | null;
+  onRuntimeAction: (forge: Forge, action: RuntimeAction) => void | Promise<void>;
   onEdit?: (forge: Forge) => void;
   onDelete?: (forge: Forge) => void;
 };
 
-export function ForgeCard({ forge, onEdit, onDelete }: Props) {
+export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, onDelete }: Props) {
   const updated = new Date(forge.updatedAt).toLocaleDateString();
   const showActions = Boolean(onEdit || onDelete);
   return (
@@ -95,6 +100,13 @@ export function ForgeCard({ forge, onEdit, onDelete }: Props) {
           </div>
         </div>
       </div>
+      <ForgeCardRuntime
+        forgeId={forge.id}
+        forgeName={forge.name}
+        canWrite={canWrite}
+        runtime={runtime}
+        onAction={(action) => onRuntimeAction(forge, action)}
+      />
     </article>
   );
 }

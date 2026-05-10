@@ -21,6 +21,7 @@ export default async function DashboardPage() {
       allGroups={allGroups}
       myGroups={session.user.groups}
       isAdmin={session.user.isAdmin}
+      currentUserId={session.user.id}
     />
   );
 }

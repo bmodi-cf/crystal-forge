@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ForgeCard } from './ForgeCard';
+import { useForgeRuntimes } from './useForgeRuntimes';
+import type { RuntimeAction } from './ForgeCardRuntime';
 import { ForgeFormModal } from './ForgeFormModal';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { cn } from '@/lib/utils';
@@ -21,9 +23,10 @@ type Props = {
   allGroups: GroupDto[];
   myGroups: string[];
   isAdmin: boolean;
+  currentUserId: string;
 };
 
-export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin }: Props) {
+export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin, currentUserId }: Props) {
   const router = useRouter();
   const [forges, setForges] = useState<Forge[]>(initialForges);
   const [seenInitial, setSeenInitial] = useState(initialForges);
@@ -32,6 +35,21 @@ export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin }:
   if (seenInitial !== initialForges) {
     setSeenInitial(initialForges);
     setForges(initialForges);
+  }
+
+  const { runtimes, refetch: refetchRuntimes } = useForgeRuntimes();
+
+  async function handleRuntimeAction(forge: Forge, action: RuntimeAction): Promise<void> {
+    try {
+      const res = await fetch(`/api/forges/${forge.id}/${action}`, { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error ?? `${action} failed (${res.status})`);
+      }
+      void refetchRuntimes();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `${action} failed`);
+    }
   }
 
   const [filter, setFilter] = useState<Filter>('all');
@@ -147,6 +165,9 @@ export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin }:
             <ForgeCard
               key={f.id}
               forge={f}
+              canWrite={isAdmin || f.createdBy.id === currentUserId}
+              runtime={runtimes[f.id] ?? null}
+              onRuntimeAction={handleRuntimeAction}
               onEdit={(forge) => setEditing(forge)}
               onDelete={(forge) => setDeleting(forge)}
             />
