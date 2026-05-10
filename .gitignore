@@ -49,3 +49,6 @@ prisma/migrations/*/migration_lock.toml.local
 
 # OS
 Thumbs.db
+
+# E2E runtime state / clone fixtures
+.test-forge-home/
