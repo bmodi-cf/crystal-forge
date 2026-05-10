@@ -11,18 +11,26 @@ function status(code: number) {
   return e;
 }
 
+type PutArgs = {
+  owner: string;
+  repo: string;
+  path: string;
+  message: string;
+  content: string;
+  sha?: string;
+};
+type GetContentArgs = { owner: string; repo: string; path: string };
+
 function makeOctokitWith(
-  putBehavior: (args: {
-    owner: string;
-    repo: string;
-    path: string;
-    message: string;
-    content: string;
-  }) => Promise<unknown>,
+  putBehavior: (args: PutArgs) => Promise<unknown>,
+  getContentBehavior?: (args: GetContentArgs) => Promise<unknown>,
 ): Octokit {
   return {
     repos: {
       createOrUpdateFileContents: vi.fn(putBehavior),
+      getContent: vi.fn(
+        getContentBehavior ?? (async () => { throw status(404); }),
+      ),
     },
   } as unknown as Octokit;
 }
@@ -117,17 +125,67 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
     expect(calls).toBe(1);
   });
 
-  it('does not retry on 422', async () => {
-    let calls = 0;
-    const octokit = makeOctokitWith(async () => {
-      calls++;
-      throw status(422);
-    });
+  it('on 422 with existing file, fetches SHA and retries the PUT as an update (adopted repo)', async () => {
+    const putCalls: PutArgs[] = [];
+    let putAttempt = 0;
+    const octokit = makeOctokitWith(
+      async (args) => {
+        putCalls.push(args);
+        putAttempt++;
+        // First PUT (forge.config.json, no sha): pretend file already exists.
+        if (putAttempt === 1) throw status(422);
+        return { data: {} };
+      },
+      async ({ path }) => ({
+        data: { type: 'file', sha: `sha-of-${path}` },
+      }),
+    );
+    const client = newClient(octokit);
+
+    await client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles);
+
+    // Initial PUT (no sha) → 422 → GET → retry PUT (with sha) → success → second PUT (no sha) → success
+    expect(putCalls).toHaveLength(3);
+    expect(putCalls[0]?.path).toBe('forge.config.json');
+    expect(putCalls[0]?.sha).toBeUndefined();
+    expect(putCalls[1]?.path).toBe('forge.config.json');
+    expect(putCalls[1]?.sha).toBe('sha-of-forge.config.json');
+    expect(putCalls[2]?.path).toBe('.env.example');
+    expect(putCalls[2]?.sha).toBeUndefined();
+  });
+
+  it('on 422 with no existing file (GET 404), throws the original 422', async () => {
+    let putCalls = 0;
+    const octokit = makeOctokitWith(
+      async () => {
+        putCalls++;
+        throw status(422);
+      },
+      async () => { throw status(404); },
+    );
     const client = newClient(octokit);
 
     await expect(
       client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles),
     ).rejects.toMatchObject({ status: 422 });
-    expect(calls).toBe(1);
+    expect(putCalls).toBe(1);
+  });
+
+  it('does not retry forever: a second 422 (with sha) propagates', async () => {
+    let putCalls = 0;
+    const octokit = makeOctokitWith(
+      async () => {
+        putCalls++;
+        throw status(422);
+      },
+      async ({ path }) => ({ data: { type: 'file', sha: `sha-of-${path}` } }),
+    );
+    const client = newClient(octokit);
+
+    await expect(
+      client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles),
+    ).rejects.toMatchObject({ status: 422 });
+    // First PUT (no sha) + second PUT (with sha) = 2 attempts on the first file.
+    expect(putCalls).toBe(2);
   });
 });

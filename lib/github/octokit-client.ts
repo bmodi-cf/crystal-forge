@@ -99,9 +99,11 @@ export class OctokitGitHubClient implements GitHubClient {
   }
 
   /**
-   * PUT /repos/{owner}/{repo}/contents/{path}. Retries on 404 only with
-   * bounded exponential backoff. Any other error (401/403/422/5xx) throws
-   * immediately.
+   * PUT /repos/{owner}/{repo}/contents/{path}. Retries on 404 with bounded
+   * backoff (template-cloned repo not yet visible). On 422 — which GitHub
+   * returns when the file already exists and `sha` is required — fetch the
+   * existing SHA and retry once as an update, so the call is idempotent for
+   * adopted repos.
    */
   private async putContents(
     owner: string,
@@ -111,6 +113,7 @@ export class OctokitGitHubClient implements GitHubClient {
     message: string,
   ): Promise<void> {
     let attempt = 0;
+    let sha: string | undefined;
     while (true) {
       try {
         await this.client.repos.createOrUpdateFileContents({
@@ -119,6 +122,7 @@ export class OctokitGitHubClient implements GitHubClient {
           path,
           message,
           content: Buffer.from(content, 'utf8').toString('base64'),
+          ...(sha ? { sha } : {}),
         });
         return;
       } catch (err: unknown) {
@@ -127,8 +131,33 @@ export class OctokitGitHubClient implements GitHubClient {
           attempt++;
           continue;
         }
+        if (isStatus(err, 422) && sha === undefined) {
+          const existing = await this.fetchFileSha(owner, repo, path);
+          if (existing !== null) {
+            sha = existing;
+            continue;
+          }
+        }
         throw err;
       }
+    }
+  }
+
+  /** Returns the file SHA if it exists, null on 404, throws on other errors. */
+  private async fetchFileSha(
+    owner: string,
+    repo: string,
+    path: string,
+  ): Promise<string | null> {
+    try {
+      const { data } = await this.client.repos.getContent({ owner, repo, path });
+      if (Array.isArray(data) || (data as { type?: string }).type !== 'file') {
+        return null;
+      }
+      return (data as { sha: string }).sha;
+    } catch (err: unknown) {
+      if (isStatus(err, 404)) return null;
+      throw err;
     }
   }
 }
