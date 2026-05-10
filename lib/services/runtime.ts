@@ -18,7 +18,7 @@ export type RuntimeDeps = {
   prisma: PrismaClient;
   githubClient: GitHubClient;
   clone: (forge: { slug: string; repoFullName: string }, gh: GitHubClient) => Promise<void>;
-  spawnLongLived: (cmd: string, args: string[], opts: { cwd: string; logPath: string; env?: NodeJS.ProcessEnv }) => number;
+  spawnLongLived: (cmd: string, args: string[], opts: { cwd: string; logPath: string; env?: Record<string, string> }) => number;
   killProcess: (pid: number) => Promise<void>;
   isAlive: (pid: number) => boolean;
   probe: (port: number) => Promise<boolean>;

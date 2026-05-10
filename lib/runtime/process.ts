@@ -4,7 +4,7 @@ import fs from 'node:fs';
 export type SpawnOpts = {
   cwd: string;
   logPath: string;
-  env?: NodeJS.ProcessEnv;
+  env?: Record<string, string>;
 };
 
 export function spawnLongLived(cmd: string, args: string[], opts: SpawnOpts): number {
