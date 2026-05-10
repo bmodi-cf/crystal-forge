@@ -36,6 +36,10 @@ const baseSchema = z.object({
 
   // Runtime orchestration root. Defaults to ~/.crystal-forge.
   CRYSTAL_FORGE_HOME: z.string().optional(),
+
+  // Runtime WebSocket server (for the embedded Claude Code session).
+  CRYSTAL_FORGE_WS_PORT: z.coerce.number().int().min(1).max(65535).default(3100),
+  CRYSTAL_FORGE_WS_SECRET: z.string().optional(),
 });
 
 const schema = baseSchema.superRefine((val, ctx) => {
@@ -54,6 +58,17 @@ const schema = baseSchema.superRefine((val, ctx) => {
       }
     }
   }
+
+  if (val.NODE_ENV === 'production') {
+    const sec = val.CRYSTAL_FORGE_WS_SECRET;
+    if (!sec || sec.length < 16) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CRYSTAL_FORGE_WS_SECRET'],
+        message: 'CRYSTAL_FORGE_WS_SECRET must be at least 16 chars in production',
+      });
+    }
+  }
 });
 
 const parsed = schema.safeParse(process.env);
@@ -66,4 +81,8 @@ if (!parsed.success) {
   throw new Error('Invalid environment configuration');
 }
 
-export const env = parsed.data;
+const data = parsed.data;
+if (!data.CRYSTAL_FORGE_WS_SECRET) {
+  data.CRYSTAL_FORGE_WS_SECRET = 'dev-only-' + 'x'.repeat(16);
+}
+export const env = data as typeof data & { CRYSTAL_FORGE_WS_SECRET: string };
