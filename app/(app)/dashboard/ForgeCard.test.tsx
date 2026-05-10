@@ -4,6 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { ForgeCard } from './ForgeCard';
 import type { Forge } from '@/lib/services/types';
 
+vi.mock('next/link', () => ({
+  default: ({ children, href }: { children: React.ReactNode; href: string }) =>
+    <a href={href}>{children}</a>,
+}));
+
 const forge: Forge = {
   id: 'forge-1',
   name: 'Aquaflow Designer',

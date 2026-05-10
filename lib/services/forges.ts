@@ -271,6 +271,22 @@ export async function deleteForge(
   await prisma.forge.delete({ where: { id } }); // ON DELETE CASCADE wipes forge_groups
 }
 
+export async function canCurrentUserWriteForge(
+  currentUser: SessionUser,
+  forgeId: string,
+): Promise<boolean> {
+  const row = await prisma.forge.findUnique({
+    where: { id: forgeId },
+    include: { groups: { include: { group: true } } },
+  });
+  if (!row) return false;
+  return canWriteForge(currentUser, {
+    id: row.id,
+    createdById: row.createdById,
+    groups: row.groups.map((fg) => fg.group.name),
+  });
+}
+
 async function safeDeleteRepo(client: GitHubClient, fullName: string): Promise<void> {
   try {
     await client.deleteRepo(fullName);
