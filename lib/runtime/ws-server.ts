@@ -17,6 +17,8 @@ export type WsServerOpts = {
   startWatcher?: (conversationId: string, cloneDir: string, deps: WatcherDeps) => { stop: () => void };
   forgeClonePath?: (slug: string) => string;
   loadConversation?: (conversationId: string) => Promise<ConversationLite | null>;
+  appendMessage?: (conversationId: string, payload: { role: 'user' | 'assistant'; content: unknown; createdAt?: Date }) => Promise<void>;
+  setClaudeSessionId?: (conversationId: string, sessionId: string) => Promise<void>;
 };
 
 type ActiveSession = { ws: WebSocket; pty: Session; watcher: { stop: () => void } };
@@ -26,6 +28,8 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
   const startWatcher = opts.startWatcher
     ?? ((cid, dir, deps) => startTranscriptWatcher(cid, dir, deps));
   const forgeClonePath = opts.forgeClonePath ?? defaultForgeClonePath;
+  const appendMessage = opts.appendMessage ?? defaultAppend;
+  const setClaudeSessionId = opts.setClaudeSessionId ?? defaultSet;
   const loadConversation = opts.loadConversation ?? (async (id) => {
     const row = await defaultPrisma.conversation.findUnique({
       where: { id },
@@ -58,8 +62,8 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
       ...(conv.claudeSessionId ? { args: ['--resume', conv.claudeSessionId] } : {}),
     });
     const watcher = startWatcher(conv.id, cwd, {
-      appendMessage: defaultAppend,
-      setClaudeSessionId: defaultSet,
+      appendMessage,
+      setClaudeSessionId,
     });
     const active: ActiveSession = { ws, pty, watcher };
     sessions.set(conv.id, active);
@@ -68,6 +72,8 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
       try { ws.send(chunk, { binary: false }); } catch { /* socket closed */ }
     });
     pty.onExit((code) => {
+      watcher.stop();
+      sessions.delete(conv.id);
       try { ws.close(4000, `pty exit ${code}`); } catch { /* already closed */ }
     });
     ws.on('message', (raw, isBinary) => {

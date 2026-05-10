@@ -100,4 +100,26 @@ describe('ws-server', () => {
     ws.close();
     await new Promise((r) => setTimeout(r, 50));
   });
+
+  it('uses injected appendMessage and setClaudeSessionId for the watcher', async () => {
+    const customAppend = vi.fn(async () => {});
+    const customSet = vi.fn(async () => {});
+    let capturedDeps: { appendMessage: unknown; setClaudeSessionId: unknown } | null = null;
+    const { server } = await startServer({
+      startWatcher: (cid, dir, deps) => {
+        capturedDeps = { appendMessage: deps.appendMessage, setClaudeSessionId: deps.setClaudeSessionId };
+        return { stop: vi.fn() };
+      },
+      appendMessage: customAppend,
+      setClaudeSessionId: customSet,
+    });
+    const tok = signTicket({ conversationId: 'c1', userId: 'u1', exp: Date.now() + 60_000 }, SECRET);
+    const ws = new WebSocket(`ws://localhost:${server.port}/?token=${encodeURIComponent(tok)}`);
+    await new Promise<void>((resolve) => ws.once('open', resolve));
+    const deps = capturedDeps as { appendMessage: unknown; setClaudeSessionId: unknown } | null;
+    expect(deps?.appendMessage).toBe(customAppend);
+    expect(deps?.setClaudeSessionId).toBe(customSet);
+    ws.close();
+    await new Promise((r) => setTimeout(r, 50));
+  });
 });
