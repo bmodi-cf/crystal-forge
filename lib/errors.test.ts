@@ -24,3 +24,20 @@ describe('error classes', () => {
     expect(e.issues).toEqual({ name: ['Required'] });
   });
 });
+
+describe('runtime error classes', () => {
+  it('RuntimeBusyError carries name + message', async () => {
+    const { RuntimeBusyError } = await import('./errors');
+    const e = new RuntimeBusyError('x');
+    expect(e.name).toBe('RuntimeBusyError');
+    expect(e.message).toBe('x');
+    expect(e.code).toBe('RUNTIME_BUSY');
+  });
+
+  it('RuntimeCapacityError carries name + message', async () => {
+    const { RuntimeCapacityError } = await import('./errors');
+    const e = new RuntimeCapacityError('x');
+    expect(e.name).toBe('RuntimeCapacityError');
+    expect(e.code).toBe('RUNTIME_CAPACITY');
+  });
+});

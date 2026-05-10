@@ -28,3 +28,19 @@ describe('respondToServiceError', () => {
     expect(await res.json()).toMatchObject({ error: 'Internal Server Error' });
   });
 });
+
+describe('respondToServiceError — runtime errors', () => {
+  it('maps RuntimeBusyError to 409', async () => {
+    const { RuntimeBusyError } = await import('./errors');
+    const res = respondToServiceError(new RuntimeBusyError('busy'));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'busy' });
+  });
+
+  it('maps RuntimeCapacityError to 503', async () => {
+    const { RuntimeCapacityError } = await import('./errors');
+    const res = respondToServiceError(new RuntimeCapacityError('full'));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'full' });
+  });
+});

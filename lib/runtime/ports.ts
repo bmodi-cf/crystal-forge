@@ -1,12 +1,8 @@
 import net from 'node:net';
 import { loadState } from './state';
+import { RuntimeCapacityError } from '@/lib/errors';
 
-export class RuntimeCapacityError extends Error {
-  constructor(message = 'No free port in pool') {
-    super(message);
-    this.name = 'RuntimeCapacityError';
-  }
-}
+export { RuntimeCapacityError };
 
 export async function allocatePort(
   range: { start: number; end: number } = { start: 3001, end: 3099 },
