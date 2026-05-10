@@ -32,6 +32,7 @@ export async function ensureClone(
   const cloneDir = forgeClonePath(forge.slug);
   const log = logPathFor(forge.slug);
   await fs.mkdir(path.dirname(cloneDir), { recursive: true });
+  await fs.mkdir(path.dirname(log), { recursive: true });
 
   if (!(await exists(path.join(cloneDir, '.git')))) {
     const token = await githubClient.getInstallationToken();

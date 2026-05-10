@@ -19,5 +19,5 @@ export function forgeClonePath(slug: string): string {
 }
 
 export function logPath(slug: string): string {
-  return path.join(forgeClonePath(slug), '.forge.log');
+  return path.join(forgeHome(), 'logs', `${slug}.log`);
 }

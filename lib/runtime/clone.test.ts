@@ -99,4 +99,40 @@ describe('ensureClone', () => {
       ensureClone({ slug: 's', repoFullName: 'o/s' }, fakeGh, failing),
     ).rejects.toThrow(/exit/i);
   });
+
+  it('creates the log directory before any runner.run is invoked', async () => {
+    const fakeGh = new FakeGitHubClient({ owner: 'bmodi-cf', baseUrl: 'https://github.com' });
+    const accessChecks: { logPath: string; parentExists: boolean }[] = [];
+    const runner: CommandRunner = {
+      async run(cmd, args, opts) {
+        if (opts?.logPath) {
+          try {
+            await fs.access(path.dirname(opts.logPath));
+            accessChecks.push({ logPath: opts.logPath, parentExists: true });
+          } catch {
+            accessChecks.push({ logPath: opts.logPath, parentExists: false });
+          }
+        }
+        // Simulate `git clone` creating .git so subsequent steps run idempotently.
+        if (cmd === 'git' && args[0] === 'clone') {
+          const dest = args[args.length - 1]!;
+          await fs.mkdir(path.join(dest, '.git'), { recursive: true });
+        }
+        return { exitCode: 0 };
+      },
+    };
+
+    await ensureClone(
+      { slug: 'marketing-frufru', repoFullName: 'bmodi-cf/marketing-frufru' },
+      fakeGh,
+      runner,
+    );
+
+    expect(accessChecks.length).toBeGreaterThan(0);
+    for (const c of accessChecks) {
+      expect(c.parentExists).toBe(true); // log dir must exist when runner runs
+    }
+    // Belt-and-braces: log path must be under <home>/logs/, not inside clone dir.
+    expect(accessChecks[0]!.logPath).toMatch(/\/logs\/marketing-frufru\.log$/);
+  });
 });
