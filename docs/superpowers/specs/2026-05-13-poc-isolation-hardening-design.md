@@ -303,6 +303,10 @@ landed. After each phase, the user can pause and verify.
 - Investigation: who deleted the `Showcase Gallery` forge row in the
   2026-05-13 incident (causing cascade delete of 103 messages from
   conversation `81efa101`). Separate bug; not addressed by M1–M5.
+- Dashboard UX: a forge card in `crashed` state shows no restart action.
+  The user has to navigate to the forge page (or refresh) to recover.
+  Should expose a Restart / Start action directly on the card when
+  status is `crashed` or `setup-failed`.
 
 ## Testing strategy
 

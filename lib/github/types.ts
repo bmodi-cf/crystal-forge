@@ -53,15 +53,16 @@ export interface GitHubClient {
   deleteRepo(fullName: string): Promise<void>;
 
   /**
-   * Commits forge.config.json AND .env.example to the default branch of
-   * `fullName`. Two PUTs to /repos/{owner}/{repo}/contents/{path}, each
-   * producing one commit. Throws on any failure; caller is responsible
-   * for compensation.
+   * Waits for GitHub's async template populate to complete (poll
+   * `contents/package.json` until present), then commits forge.config.json
+   * AND .env.example to the default branch of `fullName`. Without the wait,
+   * GitHub's later populate commit silently overwrites our writes — the
+   * cloned forge ends up with the template's placeholder DATABASE_URL.
    *
-   * GitHub's template-clone is asynchronous — the new repo can return 404
-   * on contents writes for a few hundred ms after createUsingTemplate
-   * resolves. Each PUT retries on 404 only with bounded exponential
-   * backoff (200/400/800/1600/3200ms). Any other status throws immediately.
+   * Each commit uses an upsert PUT (on 422 the SHA is fetched and the
+   * PUT is retried as an update) so adopting an already-populated repo
+   * also works. PUTs retry on 404 with bounded exponential backoff
+   * (200/400/800/1600/3200ms). Throws on any other failure.
    */
   writeForgeFiles(fullName: string, files: ForgeFiles): Promise<void>;
 

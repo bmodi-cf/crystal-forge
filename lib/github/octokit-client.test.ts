@@ -25,12 +25,17 @@ function makeOctokitWith(
   putBehavior: (args: PutArgs) => Promise<unknown>,
   getContentBehavior?: (args: GetContentArgs) => Promise<unknown>,
 ): Octokit {
+  // Default: pretend the template populate is already complete (so
+  // waitForTemplatePopulate's package.json poll succeeds) and any other
+  // contents read 404s (no pre-existing forge files).
+  const defaultGetContent = async (args: GetContentArgs) => {
+    if (args.path === 'package.json') return { data: { type: 'file', sha: 'sha-pkg' } };
+    throw status(404);
+  };
   return {
     repos: {
       createOrUpdateFileContents: vi.fn(putBehavior),
-      getContent: vi.fn(
-        getContentBehavior ?? (async () => { throw status(404); }),
-      ),
+      getContent: vi.fn(getContentBehavior ?? defaultGetContent),
     },
   } as unknown as Octokit;
 }
@@ -161,7 +166,11 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
         putCalls++;
         throw status(422);
       },
-      async () => { throw status(404); },
+      // package.json exists (populate done) but the targeted forge files do not.
+      async ({ path }) => {
+        if (path === 'package.json') return { data: { type: 'file', sha: 'sha-pkg' } };
+        throw status(404);
+      },
     );
     const client = newClient(octokit);
 
@@ -169,6 +178,42 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
       client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles),
     ).rejects.toMatchObject({ status: 422 });
     expect(putCalls).toBe(1);
+  });
+
+  it('waits for template populate (package.json) before issuing PUTs', async () => {
+    let pkgGets = 0;
+    const putCalls: PutArgs[] = [];
+    const octokit = makeOctokitWith(
+      async (args) => { putCalls.push(args); return {}; },
+      async ({ path }) => {
+        if (path === 'package.json') {
+          pkgGets++;
+          // Simulate populate completing on the 3rd poll.
+          if (pkgGets < 3) throw status(404);
+          return { data: { type: 'file', sha: 'sha-pkg' } };
+        }
+        throw status(404);
+      },
+    );
+    const client = newClient(octokit);
+
+    await client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles);
+
+    expect(pkgGets).toBe(3);
+    // Writes only happen after populate confirms, in the canonical order.
+    expect(putCalls.map((c) => c.path)).toEqual(['forge.config.json', '.env.example']);
+  });
+
+  it('throws if template populate never completes within the retry budget', async () => {
+    const octokit = makeOctokitWith(
+      async () => ({}),
+      async () => { throw status(404); }, // populate never succeeds; package.json stays 404
+    );
+    const client = newClient(octokit);
+
+    await expect(
+      client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles),
+    ).rejects.toThrow(/template populate/i);
   });
 
   it('does not retry forever: a second 422 (with sha) propagates', async () => {

@@ -81,6 +81,7 @@ export class OctokitGitHubClient implements GitHubClient {
 
   async writeForgeFiles(fullName: string, files: ForgeFiles): Promise<void> {
     const [owner, repo] = parseFullName(fullName);
+    await this.waitForTemplatePopulate(owner, repo);
     const forgeConfigBody = JSON.stringify(files.forgeConfig, null, 2) + '\n';
     await this.putContents(
       owner,
@@ -149,6 +150,29 @@ export class OctokitGitHubClient implements GitHubClient {
         }
         throw err;
       }
+    }
+  }
+
+  /**
+   * GitHub's createUsingTemplate returns before the template files are
+   * actually copied. If we write our forge files first, the template
+   * populate's later commit overwrites them. Poll `package.json` (which
+   * the template ships) until present — then any subsequent writes stick.
+   */
+  private async waitForTemplatePopulate(owner: string, repo: string): Promise<void> {
+    let attempt = 0;
+    while (true) {
+      try {
+        const { data } = await this.client.repos.getContent({ owner, repo, path: 'package.json' });
+        if (!Array.isArray(data) && (data as { type?: string }).type === 'file') return;
+      } catch (err: unknown) {
+        if (!isStatus(err, 404)) throw err;
+      }
+      if (attempt >= this.retryDelaysMs.length) {
+        throw new Error(`Template populate for ${owner}/${repo} did not complete in time`);
+      }
+      await sleep(this.retryDelaysMs[attempt]!);
+      attempt++;
     }
   }
 
