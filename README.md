@@ -49,7 +49,7 @@ The script will:
 5. Apply any pending Prisma migrations (`prisma migrate deploy`).
 6. Print the local URL and exec `pnpm dev` in the foreground.
 
-Open http://localhost:3000 once the dev server prints `Ready in …`. Press Ctrl+C to stop the dev server; the Postgres container keeps running between launches.
+Open http://localhost:3030 once the dev server prints `Ready in …`. Press Ctrl+C to stop the dev server; the Postgres container keeps running between launches.
 
 Pass `--seed` to also (re)populate dev users, groups, and sample Forges after migrations:
 

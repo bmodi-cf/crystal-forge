@@ -14,10 +14,10 @@ Working directory must be `/Users/bmodi/work/crystal-forge`. If `forge-launch.sh
 Run in parallel before invoking the script:
 
 - **Postgres container**: `docker ps --filter name=crystal-forge-pg --format '{{.Names}} {{.Status}}'`
-- **Dev server on :3000**: `lsof -nP -iTCP:3000 -sTCP:LISTEN | tail -n +2`
+- **Dev server on :3030**: `lsof -nP -iTCP:3030 -sTCP:LISTEN | tail -n +2`
 
 Decide:
-- **Dev server already on :3000**: the script will hard-fail at its port-collision check (`forge-launch.sh:70-72`). Ask whether to (a) reuse the running server and just print the URL, or (b) stop it and re-launch. Default suggestion: reuse.
+- **Dev server already on :3030**: the script will hard-fail at its port-collision check (`forge-launch.sh:70-72`). Ask whether to (a) reuse the running server and just print the URL, or (b) stop it and re-launch. Default suggestion: reuse.
 - **Postgres up, dev server down**: fine — the script detects the healthy container and reuses it.
 - **Neither running**: proceed.
 
@@ -54,21 +54,21 @@ If the script exits early, read the output and surface the actual message verbat
 | Script error | Fix |
 |---|---|
 | `Docker daemon is not running` (non-mac) | User starts their runtime (OrbStack, Colima) manually. |
-| `Port 3000 is already in use by PID X` | Should have been caught in Phase 1 — re-do the detection. |
+| `Port 3030 is already in use by PID X` | Should have been caught in Phase 1 — re-do the detection. |
 | `.env.local missing` | Tell user to copy `.env.example` and fill in secrets. |
 | `node_modules missing` | Tell user to run `pnpm install`. |
 | `Postgres did not become healthy` | Surface the `docker logs --tail 50 crystal-forge-pg` output the script already printed. |
 
 ## Phase 4 — Announce the URL
 
-The script prints its own "starting dev server" banner before handing off to `pnpm dev`. Once `Ready in` appears in the dev-server output, print a separate **ready** banner. The script's port check guarantees the URL is `http://localhost:3000`:
+The script prints its own "starting dev server" banner before handing off to `pnpm dev`. Once `Ready in` appears in the dev-server output, print a separate **ready** banner. The script's port check guarantees the URL is `http://localhost:3030`:
 
 ```
 ╔══════════════════════════════════════════╗
 ║                                          ║
 ║   🔨  Crystal Forge is ready             ║
 ║                                          ║
-║   →  http://localhost:3000               ║
+║   →  http://localhost:3030               ║
 ║                                          ║
 ╚══════════════════════════════════════════╝
 ```

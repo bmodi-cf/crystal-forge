@@ -24,7 +24,7 @@ if [[ -z "${_FORGE_LAUNCH_FNM_PINNED:-}" ]] && [[ -f .node-version ]] && command
 fi
 
 PG_CONTAINER="crystal-forge-pg"
-DEV_PORT=3000
+DEV_PORT=3030
 URL="http://localhost:${DEV_PORT}"
 
 step() { printf '\n==> %s\n' "$*"; }
@@ -143,4 +143,5 @@ echo
 echo "Press Ctrl+C to stop the dev server. Postgres remains running."
 echo
 
+export PORT="${DEV_PORT}"
 exec pnpm dev
