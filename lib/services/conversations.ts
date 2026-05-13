@@ -165,6 +165,7 @@ export async function maybeBackfillTitle(conversationId: string): Promise<void> 
 
 export type ConversationLite = {
   id: string;
+  forgeId: string;
   slug: string;
   claudeSessionId: string | null;
 };
@@ -183,6 +184,7 @@ export async function loadConversationLite(conversationId: string): Promise<Conv
   if (!row) return null;
   return {
     id: row.id,
+    forgeId: row.forge.id,
     slug: slugifyForgeName(row.forge.name),
     claudeSessionId: row.claudeSessionId,
   };

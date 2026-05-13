@@ -6,6 +6,7 @@ import { startTranscriptWatcher, type WatcherDeps } from './transcript-watcher';
 import { appendMessage as defaultAppend, setClaudeSessionId as defaultSet, loadConversationLite } from '@/lib/services/conversations';
 import type { ConversationLite } from '@/lib/services/conversations';
 import { forgeClonePath as defaultForgeClonePath } from './paths';
+import { loadRuntimePort as defaultLoadForgePort } from './state';
 
 export type WsServerOpts = {
   port: number;
@@ -14,6 +15,7 @@ export type WsServerOpts = {
   startWatcher?: (conversationId: string, cloneDir: string, deps: WatcherDeps) => { stop: () => void };
   forgeClonePath?: (slug: string) => string;
   loadConversation?: (conversationId: string) => Promise<ConversationLite | null>;
+  loadForgePort?: (forgeId: string) => Promise<number | null>;
   appendMessage?: (conversationId: string, payload: { role: 'user' | 'assistant'; content: unknown; createdAt?: Date }) => Promise<void>;
   setClaudeSessionId?: (conversationId: string, sessionId: string) => Promise<void>;
 };
@@ -28,6 +30,7 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
   const appendMessage = opts.appendMessage ?? defaultAppend;
   const setClaudeSessionId = opts.setClaudeSessionId ?? defaultSet;
   const loadConversation = opts.loadConversation ?? loadConversationLite;
+  const loadForgePort = opts.loadForgePort ?? defaultLoadForgePort;
 
   const sessions = new Map<string, ActiveSession>();
   const http: HttpServer = createServer();
@@ -43,9 +46,13 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
     if (!conv) { ws.close(4404, 'Conversation not found'); return; }
 
     const cwd = forgeClonePath(conv.slug);
+    const port = await loadForgePort(conv.forgeId);
+    const env: Record<string, string> = {};
+    if (port !== null) env.PORT = String(port);
     const pty = spawnPty({
       cwd, cols: 80, rows: 24,
       ...(conv.claudeSessionId ? { args: ['--resume', conv.claudeSessionId] } : {}),
+      env,
     });
     const watcher = startWatcher(conv.id, cwd, {
       appendMessage,

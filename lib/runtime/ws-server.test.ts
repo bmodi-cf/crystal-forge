@@ -32,7 +32,8 @@ async function startServer(overrides: Partial<Parameters<typeof startWsServer>[0
     spawnPty: fakePty.spawn,
     startWatcher: fakeWatcher.start,
     forgeClonePath: () => '/tmp/clone',
-    loadConversation: async (id: string) => ({ id, slug: 'aquaflow-designer', claudeSessionId: null }),
+    loadConversation: async (id: string) => ({ id, forgeId: 'f1', slug: 'aquaflow-designer', claudeSessionId: null }),
+    loadForgePort: async () => 3002,
     ...overrides,
   });
   servers.push(server);
@@ -97,6 +98,31 @@ describe('ws-server', () => {
     ws.send(JSON.stringify({ type: 'input', data: 'hi' }));
     await new Promise((r) => setTimeout(r, 50));
     expect(fakeWrite).toHaveBeenCalledWith('hi');
+    ws.close();
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  it('injects PORT=<forge_port> into the PTY env', async () => {
+    const spawnArgs: Array<{ env?: Record<string, string> }> = [];
+    const fakeSpawn = (opts: { env?: Record<string, string> }) => {
+      spawnArgs.push(opts);
+      return {
+        pid: 1, write: vi.fn(), resize: vi.fn(),
+        onData: vi.fn(), onExit: vi.fn(), kill: vi.fn(),
+      };
+    };
+    const { server } = await startServer({
+      spawnPty: fakeSpawn as never,
+      loadForgePort: async (forgeId: string) => (forgeId === 'f1' ? 3007 : null),
+    });
+    const tok = signTicket({ conversationId: 'c1', userId: 'u1', exp: Date.now() + 60_000 }, SECRET);
+    const ws = new WebSocket(`ws://localhost:${server.port}/?token=${encodeURIComponent(tok)}`);
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+      setTimeout(() => reject(new Error('open timeout')), 2000);
+    });
+    expect(spawnArgs[0]?.env).toMatchObject({ PORT: '3007' });
     ws.close();
     await new Promise((r) => setTimeout(r, 50));
   });

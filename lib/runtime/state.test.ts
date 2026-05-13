@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { loadState, saveState, mutateState } from './state';
+import { loadState, saveState, mutateState, loadRuntimePort } from './state';
 
 let tmp: string;
 let prevHome: string | undefined;
@@ -51,6 +51,18 @@ describe('runtime state', () => {
     });
     const s = await loadState();
     expect(s['f1']?.status).toBe('starting');
+  });
+
+  it('loadRuntimePort returns the port for a known forge, null otherwise', async () => {
+    await saveState({
+      'forge-xyz': {
+        forgeId: 'forge-xyz', slug: 'demo', status: 'running',
+        pid: 1234, port: 3002, startedAt: '2026-05-13T00:00:00.000Z',
+        logPath: '/tmp/demo.log',
+      },
+    });
+    expect(await loadRuntimePort('forge-xyz')).toBe(3002);
+    expect(await loadRuntimePort('forge-missing')).toBeNull();
   });
 
   it('loadState backs up corrupt files and returns empty state', async () => {

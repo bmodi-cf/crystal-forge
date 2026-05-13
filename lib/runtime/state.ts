@@ -51,3 +51,12 @@ export async function mutateState(
   await saveState(state);
   return state;
 }
+
+/**
+ * No-ACL port lookup for trusted internal callers (e.g. the WS server).
+ * Returns null if the forge isn't currently in the runtime state.
+ */
+export async function loadRuntimePort(forgeId: string): Promise<number | null> {
+  const state = await loadState();
+  return state[forgeId]?.port ?? null;
+}
