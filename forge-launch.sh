@@ -12,6 +12,17 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Pin Node via fnm + .node-version. Re-exec under fnm so all child processes
+# (pnpm, node-pty, etc.) inherit the pinned version. Guard against recursion.
+# fnm's --using needs a concrete version string, so we read .node-version inline.
+if [[ -z "${_FORGE_LAUNCH_FNM_PINNED:-}" ]] && [[ -f .node-version ]] && command -v fnm >/dev/null 2>&1; then
+  NODE_VERSION="$(head -n1 .node-version | tr -d '[:space:]')"
+  if [[ -n "$NODE_VERSION" ]]; then
+    export _FORGE_LAUNCH_FNM_PINNED=1
+    exec fnm exec --using="$NODE_VERSION" -- "$0" "$@"
+  fi
+fi
+
 PG_CONTAINER="crystal-forge-pg"
 DEV_PORT=3000
 URL="http://localhost:${DEV_PORT}"
