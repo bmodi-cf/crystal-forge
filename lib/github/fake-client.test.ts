@@ -87,6 +87,7 @@ const exampleFiles = (): ForgeFiles => ({
   envExample: 'DATABASE_URL=postgres://crystal:crystal@localhost:5433/aquaflow\n',
   claudeSettings: '{"hooks":{}}\n',
   claudeBlockScript: '#!/usr/bin/env bash\nexit 0\n',
+  claudeMd: '# Forge: Aquaflow\n',
 });
 
 describe('FakeGitHubClient.writeForgeFiles', () => {

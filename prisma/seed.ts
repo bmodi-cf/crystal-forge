@@ -4,7 +4,7 @@ import { env } from '@/lib/env';
 import { getGitHubClient } from '@/lib/github/client';
 import { slugifyForgeName, slugToDbName } from '@/lib/github/slug';
 import { getDatabaseProvisioner } from '@/lib/db/provisioner';
-import { renderEnvExample, renderClaudeSettings, renderBlockScript } from '@/lib/services/forges';
+import { renderEnvExample, renderClaudeSettings, renderBlockScript, renderClaudeMd } from '@/lib/services/forges';
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -103,6 +103,7 @@ async function provisionForgeArtifacts(
       envExample: renderEnvExample(dbName),
       claudeSettings: renderClaudeSettings(),
       claudeBlockScript: renderBlockScript(),
+      claudeMd: renderClaudeMd(name, dbName),
     });
 
     try {

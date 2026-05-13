@@ -36,6 +36,8 @@ export type ForgeFiles = {
   claudeSettings: string;
   /** `.claude/hooks/block-dangerous-commands.sh` body — invoked by the hook. */
   claudeBlockScript: string;
+  /** Top-level `CLAUDE.md` body — sandbox rules for the in-forge agent. */
+  claudeMd: string;
 };
 
 export interface GitHubClient {

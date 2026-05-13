@@ -63,6 +63,7 @@ const exampleFiles: ForgeFiles = {
   envExample: 'DATABASE_URL=postgres://crystal:crystal@localhost:5433/aquaflow\n',
   claudeSettings: '{"hooks":{}}\n',
   claudeBlockScript: '#!/usr/bin/env bash\nexit 0\n',
+  claudeMd: '# Forge: Aquaflow\n',
 };
 
 describe('OctokitGitHubClient.writeForgeFiles', () => {
@@ -81,6 +82,7 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
       '.env.example',
       '.claude/settings.local.json',
       '.claude/hooks/block-dangerous-commands.sh',
+      'CLAUDE.md',
     ]);
     // Bodies round-trip through base64 unchanged.
     const decodedConfig = Buffer.from(calls[0]!.content, 'base64').toString('utf8');
@@ -88,6 +90,7 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
     expect(Buffer.from(calls[1]!.content, 'base64').toString('utf8')).toBe(exampleFiles.envExample);
     expect(Buffer.from(calls[2]!.content, 'base64').toString('utf8')).toBe(exampleFiles.claudeSettings);
     expect(Buffer.from(calls[3]!.content, 'base64').toString('utf8')).toBe(exampleFiles.claudeBlockScript);
+    expect(Buffer.from(calls[4]!.content, 'base64').toString('utf8')).toBe(exampleFiles.claudeMd);
   });
 
   it('retries on 404 and eventually succeeds', async () => {
@@ -103,8 +106,8 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
 
     await client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles);
 
-    // 2 failed retries + 1 success on file #1 + 1 success on each of files #2/#3/#4 = 6.
-    expect(calls).toBe(6);
+    // 2 failed retries + 1 success on file #1 + 1 success on each of files #2/#3/#4/#5 = 7.
+    expect(calls).toBe(7);
   });
 
   it('throws after exhausting all retries on 404', async () => {
@@ -157,8 +160,8 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
     await client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles);
 
     // File #1: initial PUT (no sha) → 422 → GET → retry PUT (with sha) → success.
-    // Files #2/#3/#4: PUT (no sha) → success.
-    expect(putCalls).toHaveLength(5);
+    // Files #2/#3/#4/#5: PUT (no sha) → success.
+    expect(putCalls).toHaveLength(6);
     expect(putCalls[0]?.path).toBe('forge.config.json');
     expect(putCalls[0]?.sha).toBeUndefined();
     expect(putCalls[1]?.path).toBe('forge.config.json');
@@ -167,6 +170,7 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
     expect(putCalls[2]?.sha).toBeUndefined();
     expect(putCalls[3]?.path).toBe('.claude/settings.local.json');
     expect(putCalls[4]?.path).toBe('.claude/hooks/block-dangerous-commands.sh');
+    expect(putCalls[5]?.path).toBe('CLAUDE.md');
   });
 
   it('on 422 with no existing file (GET 404), throws the original 422', async () => {
@@ -216,6 +220,7 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
       '.env.example',
       '.claude/settings.local.json',
       '.claude/hooks/block-dangerous-commands.sh',
+      'CLAUDE.md',
     ]);
   });
 

@@ -71,6 +71,34 @@ exit 0
 `;
 }
 
+/**
+ * Body of the top-level CLAUDE.md inside each forge clone. Tells the in-forge
+ * agent which DB to touch, that the dev port comes from env, and that kill
+ * commands are off-limits.
+ */
+export function renderClaudeMd(name: string, dbName: string): string {
+  return `# Forge: ${name}
+
+You are working inside a Crystal Forge sandbox cloned to this directory.
+
+## Sandbox rules
+
+- Your dev server's port is provided by the \`PORT\` environment variable
+  set by the host. Do not override it.
+- Your database is **${dbName}**. Never touch \`crystal_forge\` or any
+  database that isn't \`${dbName}\`.
+- Do not run \`kill\`, \`pkill\`, \`killall\`, or any other process-killing
+  command. If a port appears in use, start your server on a different
+  port instead.
+- Do not modify files outside this directory.
+
+## Forge identity
+
+See \`forge.config.json\` for \`name\`, \`description\`, \`slug\`, \`dbName\`,
+\`createdAt\`.
+`;
+}
+
 const forgeInclude = {
   groups: { include: { group: true } },
   createdBy: { select: { id: true, name: true } },
@@ -196,6 +224,7 @@ export async function createForge(
       envExample: renderEnvExample(dbName),
       claudeSettings: renderClaudeSettings(),
       claudeBlockScript: renderBlockScript(),
+      claudeMd: renderClaudeMd(input.name, dbName),
     });
   } catch (err) {
     await safeDeleteRepo(client, created.fullName);

@@ -111,6 +111,13 @@ export class OctokitGitHubClient implements GitHubClient {
       files.claudeBlockScript,
       'chore: write .claude block hook',
     );
+    await this.putContents(
+      owner,
+      repo,
+      'CLAUDE.md',
+      files.claudeMd,
+      'chore: write CLAUDE.md',
+    );
   }
 
   async getInstallationToken(): Promise<string> {
