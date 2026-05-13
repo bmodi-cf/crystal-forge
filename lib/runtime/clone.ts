@@ -59,6 +59,13 @@ export async function ensureClone(
     await fs.copyFile(envExample, envLocal);
   }
 
+  // GitHub's contents API doesn't preserve the executable bit; restore it on
+  // the PreToolUse hook script so Claude Code can run it.
+  const hookScript = path.join(cloneDir, '.claude', 'hooks', 'block-dangerous-commands.sh');
+  if (await exists(hookScript)) {
+    await fs.chmod(hookScript, 0o755);
+  }
+
   if (!(await exists(path.join(cloneDir, 'node_modules')))) {
     assertOk(
       await runner.run('pnpm', ['install'], {

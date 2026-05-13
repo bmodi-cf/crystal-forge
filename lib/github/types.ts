@@ -32,6 +32,10 @@ export type ForgeFiles = {
   forgeConfig: ForgeConfigPayload;
   /** Already-rendered .env.example body (UTF-8 text). */
   envExample: string;
+  /** `.claude/settings.local.json` body — PreToolUse hook config. */
+  claudeSettings: string;
+  /** `.claude/hooks/block-dangerous-commands.sh` body — invoked by the hook. */
+  claudeBlockScript: string;
 };
 
 export interface GitHubClient {

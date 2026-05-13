@@ -25,6 +25,52 @@ export function renderEnvExample(dbName: string): string {
   ].join('\n');
 }
 
+/**
+ * Body of `.claude/settings.local.json` — wires a PreToolUse hook on Bash that
+ * runs the block script for every shell command the in-forge agent attempts.
+ */
+export function renderClaudeSettings(): string {
+  return JSON.stringify({
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [
+            { type: 'command', command: '.claude/hooks/block-dangerous-commands.sh' },
+          ],
+        },
+      ],
+    },
+  }, null, 2) + '\n';
+}
+
+/**
+ * Body of `.claude/hooks/block-dangerous-commands.sh` — rejects kill/pkill/killall
+ * and any reference to the host `crystal_forge` database with exit 2 (Claude
+ * Code's "block this tool call" convention).
+ */
+export function renderBlockScript(): string {
+  return `#!/usr/bin/env bash
+set -e
+input=$(cat)
+cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
+
+# Block process kills — never legitimate inside a forge sandbox.
+if [[ "$cmd" =~ (^|[^A-Za-z0-9_])(kill|pkill|killall)([^A-Za-z0-9_]|$) ]]; then
+  printf 'Blocked: kill/pkill/killall not allowed inside a forge sandbox.\\n' >&2
+  exit 2
+fi
+
+# Block any reference to the host database.
+if [[ "$cmd" =~ (^|[^A-Za-z0-9_])crystal_forge([^A-Za-z0-9_]|$) ]]; then
+  printf 'Blocked: cannot reference the host crystal_forge database.\\n' >&2
+  exit 2
+fi
+
+exit 0
+`;
+}
+
 const forgeInclude = {
   groups: { include: { group: true } },
   createdBy: { select: { id: true, name: true } },
@@ -143,11 +189,13 @@ export async function createForge(
     private: true,
   });
 
-  // 5. Write forge.config.json + .env.example. On failure, delete the repo.
+  // 5. Write forge identity, env, and Claude sandbox config. On failure, delete the repo.
   try {
     await client.writeForgeFiles(created.fullName, {
       forgeConfig: { name: input.name, description, slug, dbName, createdAt },
       envExample: renderEnvExample(dbName),
+      claudeSettings: renderClaudeSettings(),
+      claudeBlockScript: renderBlockScript(),
     });
   } catch (err) {
     await safeDeleteRepo(client, created.fullName);

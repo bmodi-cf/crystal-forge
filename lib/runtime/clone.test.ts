@@ -92,6 +92,34 @@ describe('ensureClone', () => {
     expect(await fs.readFile(path.join(cloneDir, '.env.local'), 'utf8')).toBe('X=existing\n');
   });
 
+  it('chmods .claude/hooks/block-dangerous-commands.sh executable after clone', async () => {
+    const fakeGh = new FakeGitHubClient({ owner: 'bmodi-cf', baseUrl: 'https://github.com' });
+    const { runner } = makeFakeRunner(async ({ cmd, args }) => {
+      if (cmd === 'git' && args[0] === 'clone') {
+        const dest = args[args.length - 1]!;
+        await fs.mkdir(path.join(dest, '.git'), { recursive: true });
+        await fs.mkdir(path.join(dest, '.claude', 'hooks'), { recursive: true });
+        // GitHub contents API does NOT preserve the executable bit, so the
+        // file lands as 0o644 in a fresh clone.
+        await fs.writeFile(
+          path.join(dest, '.claude', 'hooks', 'block-dangerous-commands.sh'),
+          '#!/usr/bin/env bash\nexit 0\n',
+          { mode: 0o644 },
+        );
+      }
+    });
+
+    await ensureClone(
+      { slug: 'marketing-frufru', repoFullName: 'bmodi-cf/marketing-frufru' },
+      fakeGh,
+      runner,
+    );
+
+    const hook = path.join(tmp, 'clones', 'marketing-frufru', '.claude', 'hooks', 'block-dangerous-commands.sh');
+    const stat = await fs.stat(hook);
+    expect(stat.mode & 0o111).not.toBe(0);
+  });
+
   it('throws if a runner step exits non-zero', async () => {
     const fakeGh = new FakeGitHubClient({ owner: 'bmodi-cf', baseUrl: 'https://github.com' });
     const failing: CommandRunner = { async run() { return { exitCode: 1 }; } };

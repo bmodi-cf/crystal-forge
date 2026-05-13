@@ -61,10 +61,12 @@ const exampleFiles: ForgeFiles = {
     createdAt: '2026-05-09T01:34:47.000Z',
   },
   envExample: 'DATABASE_URL=postgres://crystal:crystal@localhost:5433/aquaflow\n',
+  claudeSettings: '{"hooks":{}}\n',
+  claudeBlockScript: '#!/usr/bin/env bash\nexit 0\n',
 };
 
 describe('OctokitGitHubClient.writeForgeFiles', () => {
-  it('issues two PUTs (forge.config.json then .env.example) on the happy path', async () => {
+  it('issues PUTs for all four forge files on the happy path', async () => {
     const calls: Array<{ path: string; content: string }> = [];
     const octokit = makeOctokitWith(async ({ path, content }) => {
       calls.push({ path, content });
@@ -74,13 +76,18 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
 
     await client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles);
 
-    expect(calls.map((c) => c.path)).toEqual(['forge.config.json', '.env.example']);
-    // forge.config.json body is the JSON we passed in, base64-encoded
-    const decoded = Buffer.from(calls[0]!.content, 'base64').toString('utf8');
-    expect(JSON.parse(decoded)).toEqual(exampleFiles.forgeConfig);
-    expect(Buffer.from(calls[1]!.content, 'base64').toString('utf8')).toBe(
-      exampleFiles.envExample,
-    );
+    expect(calls.map((c) => c.path)).toEqual([
+      'forge.config.json',
+      '.env.example',
+      '.claude/settings.local.json',
+      '.claude/hooks/block-dangerous-commands.sh',
+    ]);
+    // Bodies round-trip through base64 unchanged.
+    const decodedConfig = Buffer.from(calls[0]!.content, 'base64').toString('utf8');
+    expect(JSON.parse(decodedConfig)).toEqual(exampleFiles.forgeConfig);
+    expect(Buffer.from(calls[1]!.content, 'base64').toString('utf8')).toBe(exampleFiles.envExample);
+    expect(Buffer.from(calls[2]!.content, 'base64').toString('utf8')).toBe(exampleFiles.claudeSettings);
+    expect(Buffer.from(calls[3]!.content, 'base64').toString('utf8')).toBe(exampleFiles.claudeBlockScript);
   });
 
   it('retries on 404 and eventually succeeds', async () => {
@@ -88,7 +95,7 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
     const octokit = makeOctokitWith(async () => {
       calls++;
       // Fail on the first two attempts of the first PUT (forge.config.json).
-      // Third attempt of the first PUT succeeds, then the second PUT (.env.example) succeeds first try.
+      // Third attempt succeeds, then the remaining three PUTs succeed first try.
       if (calls < 3) throw status(404);
       return { data: {} };
     });
@@ -96,8 +103,8 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
 
     await client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles);
 
-    // 2 failed retries on the first PUT + 1 successful first PUT + 1 successful second PUT = 4.
-    expect(calls).toBe(4);
+    // 2 failed retries + 1 success on file #1 + 1 success on each of files #2/#3/#4 = 6.
+    expect(calls).toBe(6);
   });
 
   it('throws after exhausting all retries on 404', async () => {
@@ -149,14 +156,17 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
 
     await client.writeForgeFiles('bmodi-cf/aquaflow', exampleFiles);
 
-    // Initial PUT (no sha) → 422 → GET → retry PUT (with sha) → success → second PUT (no sha) → success
-    expect(putCalls).toHaveLength(3);
+    // File #1: initial PUT (no sha) → 422 → GET → retry PUT (with sha) → success.
+    // Files #2/#3/#4: PUT (no sha) → success.
+    expect(putCalls).toHaveLength(5);
     expect(putCalls[0]?.path).toBe('forge.config.json');
     expect(putCalls[0]?.sha).toBeUndefined();
     expect(putCalls[1]?.path).toBe('forge.config.json');
     expect(putCalls[1]?.sha).toBe('sha-of-forge.config.json');
     expect(putCalls[2]?.path).toBe('.env.example');
     expect(putCalls[2]?.sha).toBeUndefined();
+    expect(putCalls[3]?.path).toBe('.claude/settings.local.json');
+    expect(putCalls[4]?.path).toBe('.claude/hooks/block-dangerous-commands.sh');
   });
 
   it('on 422 with no existing file (GET 404), throws the original 422', async () => {
@@ -201,7 +211,12 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
 
     expect(pkgGets).toBe(3);
     // Writes only happen after populate confirms, in the canonical order.
-    expect(putCalls.map((c) => c.path)).toEqual(['forge.config.json', '.env.example']);
+    expect(putCalls.map((c) => c.path)).toEqual([
+      'forge.config.json',
+      '.env.example',
+      '.claude/settings.local.json',
+      '.claude/hooks/block-dangerous-commands.sh',
+    ]);
   });
 
   it('throws if template populate never completes within the retry budget', async () => {

@@ -97,6 +97,20 @@ export class OctokitGitHubClient implements GitHubClient {
       files.envExample,
       'chore: write .env.example',
     );
+    await this.putContents(
+      owner,
+      repo,
+      '.claude/settings.local.json',
+      files.claudeSettings,
+      'chore: write .claude/settings.local.json',
+    );
+    await this.putContents(
+      owner,
+      repo,
+      '.claude/hooks/block-dangerous-commands.sh',
+      files.claudeBlockScript,
+      'chore: write .claude block hook',
+    );
   }
 
   async getInstallationToken(): Promise<string> {
