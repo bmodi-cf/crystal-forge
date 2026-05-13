@@ -12,8 +12,7 @@ export type SetClaudeSessionIdFn = (conversationId: string, sessionId: string) =
 export type WatcherDeps = {
   appendMessage: AppendMessageFn;
   setClaudeSessionId: SetClaudeSessionIdFn;
-  /** Defaults: claim 30s, poll 250ms. Tests override to be brisk. */
-  claimWindowMs?: number;
+  /** Poll interval; default 250ms. */
   pollIntervalMs?: number;
 };
 
@@ -78,7 +77,6 @@ export function startTranscriptWatcher(
   cloneDir: string,
   deps: WatcherDeps,
 ): { stop: () => void } {
-  const claimWindowMs = deps.claimWindowMs ?? 30_000;
   const pollIntervalMs = deps.pollIntervalMs ?? 250;
   const projectDir = path.join(os.homedir(), '.claude', 'projects', encodedCwd(cloneDir));
   const t0 = Date.now();
@@ -118,7 +116,6 @@ export function startTranscriptWatcher(
       }, pollIntervalMs);
       return;
     }
-    if (Date.now() - t0 > claimWindowMs) return; // give up silently
     claimTimer = setTimeout(tryClaim, pollIntervalMs);
   }
   claimTimer = setTimeout(tryClaim, pollIntervalMs);

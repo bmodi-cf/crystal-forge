@@ -68,7 +68,6 @@ describe('startTranscriptWatcher', () => {
       appendMessage: append,
       setClaudeSessionId: setSession,
       pollIntervalMs: 30,
-      claimWindowMs: 1000,
     });
 
     // Wait briefly, then create the JSONL with a session header line.
@@ -99,6 +98,36 @@ describe('startTranscriptWatcher', () => {
     watcher.stop();
   });
 
+  it('keeps polling until stopped and claims a JSONL file that appears late', async () => {
+    const cloneDir = '/home/x/clone';
+    const projectDir = path.join(tmp, '.claude', 'projects', encodedCwd(cloneDir));
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    const append = vi.fn();
+    const setSession = vi.fn();
+    const watcher = startTranscriptWatcher('conv-late', cloneDir, {
+      appendMessage: append,
+      setClaudeSessionId: setSession,
+      pollIntervalMs: 30,
+    });
+
+    // Simulate a user who takes a while to send the first message — Claude
+    // doesn't create its transcript file until well after the watcher starts.
+    await new Promise((r) => setTimeout(r, 600));
+    const file = path.join(projectDir, 'sid-late.jsonl');
+    fs.writeFileSync(file, JSON.stringify({
+      type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'late' }] },
+      sessionId: 'sid-late',
+    }) + '\n');
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(setSession).toHaveBeenCalledWith('conv-late', 'sid-late');
+    expect(append).toHaveBeenCalled();
+
+    watcher.stop();
+  });
+
   it('ignores stale JSONL files whose mtime is older than spawn time', async () => {
     const cloneDir = '/home/x/clone';
     const projectDir = path.join(tmp, '.claude', 'projects', encodedCwd(cloneDir));
@@ -116,7 +145,6 @@ describe('startTranscriptWatcher', () => {
       appendMessage: append,
       setClaudeSessionId: vi.fn(),
       pollIntervalMs: 30,
-      claimWindowMs: 200,
     });
     await new Promise((r) => setTimeout(r, 350));
     expect(append).not.toHaveBeenCalled();
