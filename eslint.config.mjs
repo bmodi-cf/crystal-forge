@@ -20,6 +20,18 @@ const eslintConfig = defineConfig([
     rules: {
       "crystal-forge/no-prisma-outside-services": "error",
       "crystal-forge/no-octokit-outside-github": "error",
+      // React 19's new rule is over-aggressive for legitimate patterns
+      // (e.g. setting "connecting" state at the top of a connect effect).
+      // Keep it as a signal but don't block CI on it.
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
+  {
+    // E2E test fixtures are intentionally CommonJS Node scripts that get
+    // exec'd as subprocesses. Allow require() inside them.
+    files: ["tests/e2e/fixtures/**/*.js"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
     },
   },
   globalIgnores([
