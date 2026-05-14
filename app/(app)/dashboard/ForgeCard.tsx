@@ -34,7 +34,8 @@ type Props = {
 };
 
 export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, onDelete }: Props) {
-  const updated = new Date(forge.updatedAt).toLocaleDateString();
+  // Locale-neutral ISO date so SSR and CSR render identically (no hydration mismatch).
+  const updated = new Date(forge.updatedAt).toISOString().slice(0, 10);
   const showActions = Boolean(onEdit || onDelete);
   return (
     <article className="relative flex min-h-[220px] flex-col gap-4 overflow-hidden rounded-[14px] border border-border bg-panel p-5 transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-panel-2">
