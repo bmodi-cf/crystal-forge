@@ -17,6 +17,12 @@ jobs:
   ci:
     runs-on: ubuntu-latest
 
+    # dorny/test-reporter publishes a Checks-tab report — needs write access.
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -83,3 +89,24 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
+
+      - name: Publish test report
+        # Runs even when the tests step failed so failing tests still appear
+        # in the Checks tab.
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: Unit tests
+          path: test-results/junit.xml
+          reporter: jest-junit
+          # On failure, fail-on-error: false so the workflow result is
+          # decided by the test step itself (this step is just publishing).
+          fail-on-error: false
+
+      - name: Upload JUnit XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-xml
+          path: test-results/junit.xml
+          if-no-files-found: ignore
