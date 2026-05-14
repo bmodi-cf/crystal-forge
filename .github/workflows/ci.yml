@@ -17,6 +17,12 @@ jobs:
   ci:
     runs-on: ubuntu-latest
 
+    # dorny/test-reporter publishes a Checks-tab report — needs write access.
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -35,6 +41,9 @@ jobs:
           --health-retries 10
 
     env:
+      # Run JS-based actions on Node 24 to silence the Node 20 deprecation
+      # banner (GitHub forces this by 2026-06-02 anyway).
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       DATABASE_URL: postgresql://crystal:crystal@localhost:5433/crystal_forge?schema=public
       AUTH_SECRET: ci-secret-not-for-real-use-1234567890abcdef
       NEXTAUTH_URL: http://localhost
@@ -80,3 +89,24 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
+
+      - name: Publish test report
+        # Runs even when the tests step failed so failing tests still appear
+        # in the Checks tab.
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: Unit tests
+          path: test-results/junit.xml
+          reporter: jest-junit
+          # On failure, fail-on-error: false so the workflow result is
+          # decided by the test step itself (this step is just publishing).
+          fail-on-error: false
+
+      - name: Upload JUnit XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-xml
+          path: test-results/junit.xml
+          if-no-files-found: ignore

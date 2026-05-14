@@ -18,6 +18,13 @@ export default defineConfig({
     // intermittent FK violations. Serialise via a single fork.
     pool: 'forks',
     fileParallelism: false,
+    // In CI emit a JUnit XML (consumed by dorny/test-reporter for the
+    // Checks-tab drill-down) and use the github-actions reporter for
+    // inline failure annotations. Local runs keep the default reporter only.
+    reporters: process.env.CI ? ['default', 'junit', 'github-actions'] : ['default'],
+    outputFile: {
+      junit: './test-results/junit.xml',
+    },
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, '.') },
