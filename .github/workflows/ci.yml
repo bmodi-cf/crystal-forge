@@ -59,6 +59,12 @@ jobs:
       - name: Prisma generate
         run: pnpm prisma generate
 
+      - name: Next typegen
+        # Generates next-env.d.ts and .next/types/* (RouteContext, etc.)
+        # without doing a full build. Required for typecheck to find the
+        # generated route helpers.
+        run: pnpm exec next typegen
+
       - name: Lint
         run: pnpm lint
 
