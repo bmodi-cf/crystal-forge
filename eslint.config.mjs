@@ -24,6 +24,17 @@ const eslintConfig = defineConfig([
       // (e.g. setting "connecting" state at the top of a connect effect).
       // Keep it as a signal but don't block CI on it.
       "react-hooks/set-state-in-effect": "warn",
+      // Honor the standard "_"-prefix convention for intentionally unused
+      // identifiers (e.g. rest-destructure throwaways, unused props).
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
     },
   },
   {

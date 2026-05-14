@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import {
   listConversations, createConversation, getConversation,
-  appendMessage, setClaudeSessionId, maybeBackfillTitle,
+  appendMessage, setClaudeSessionId,
 } from './conversations';
 import { ForbiddenError, NotFoundError } from '@/lib/errors';
 

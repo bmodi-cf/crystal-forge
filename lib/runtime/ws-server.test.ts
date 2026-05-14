@@ -83,13 +83,11 @@ describe('ws-server', () => {
   });
 
   it('forwards client messages to the PTY', async () => {
-    let captured: ((s: string) => void) | null = null;
     const fakeWrite = vi.fn();
     const { server } = await startServer({
       spawnPty: () => ({
         pid: 1, write: fakeWrite, resize: vi.fn(),
-        onData: (h: (chunk: string) => void) => { captured = h; },
-        onExit: vi.fn(), kill: vi.fn(),
+        onData: vi.fn(), onExit: vi.fn(), kill: vi.fn(),
       }),
     } as never);
     const tok = signTicket({ conversationId: 'c1', userId: 'u1', exp: Date.now() + 60_000 }, SECRET);

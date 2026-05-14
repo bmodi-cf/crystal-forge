@@ -35,6 +35,9 @@ jobs:
           --health-retries 10
 
     env:
+      # Run JS-based actions on Node 24 to silence the Node 20 deprecation
+      # banner (GitHub forces this by 2026-06-02 anyway).
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       DATABASE_URL: postgresql://crystal:crystal@localhost:5433/crystal_forge?schema=public
       AUTH_SECRET: ci-secret-not-for-real-use-1234567890abcdef
       NEXTAUTH_URL: http://localhost
