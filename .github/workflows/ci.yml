@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel any in-progress run on the same ref when a new commit arrives —
+# during fast TDD bursts only the latest commit gets a full run, the rest
+# get cancelled so we don't burn the free-tier minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest
