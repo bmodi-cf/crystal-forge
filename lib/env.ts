@@ -40,6 +40,11 @@ const baseSchema = z.object({
   // Runtime WebSocket server (for the embedded Claude Code session).
   CRYSTAL_FORGE_WS_PORT: z.coerce.number().int().min(1).max(65535).default(3100),
   CRYSTAL_FORGE_WS_SECRET: z.string().optional(),
+  // Public WebSocket URL advertised to browsers. When set (e.g. behind a TLS
+  // reverse proxy that exposes the WS on the same origin under a path), the
+  // connect route returns this verbatim instead of building a host:port URL.
+  // Should be the externally reachable wss:// origin + trailing-slash path.
+  CRYSTAL_FORGE_WS_PUBLIC_URL: z.string().url().optional(),
 });
 
 const schema = baseSchema.superRefine((val, ctx) => {

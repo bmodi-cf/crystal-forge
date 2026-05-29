@@ -22,7 +22,12 @@ export async function POST(
     );
     const httpUrl = new URL(req.url);
     const wsProto = httpUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProto}//${httpUrl.hostname}:${env.CRYSTAL_FORGE_WS_PORT}/`;
+    // Behind a TLS reverse proxy the WS is exposed on the same origin under a
+    // path (CRYSTAL_FORGE_WS_PUBLIC_URL). Otherwise (local dev) connect directly
+    // to the runtime WS port, where app and WS run as separate plaintext servers.
+    const wsUrl =
+      env.CRYSTAL_FORGE_WS_PUBLIC_URL ??
+      `${wsProto}//${httpUrl.hostname}:${env.CRYSTAL_FORGE_WS_PORT}/`;
     return NextResponse.json({ wsUrl, token, conversationId });
   } catch (err) { return respondToServiceError(err); }
 }
