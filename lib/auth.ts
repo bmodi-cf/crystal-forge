@@ -18,6 +18,13 @@ const providers: NextAuthConfig['providers'] = [
     clientId: env.AUTH_MICROSOFT_ENTRA_ID_ID,
     clientSecret: env.AUTH_MICROSOFT_ENTRA_ID_SECRET,
     issuer: env.AUTH_MICROSOFT_ENTRA_ID_ISSUER,
+    // The `signIn` callback below provisions the user row (with our custom
+    // non-null `initials` field) via `provisionFromEntra` before the adapter
+    // runs. The adapter then finds that row by email but with no linked
+    // Account, and would throw `OAuthAccountNotLinked`. Linking by email is
+    // safe here because Entra ID (single-tenant) issues verified, authoritative
+    // email addresses, so a user cannot claim a colleague's address.
+    allowDangerousEmailAccountLinking: true,
   }),
 ];
 
