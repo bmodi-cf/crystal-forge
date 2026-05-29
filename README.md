@@ -89,6 +89,40 @@ Set `GITHUB_CLIENT_MODE` in `.env.local`:
 
 The App needs `Repository → Administration: Read & Write` and `Contents: Read` permissions, and must be installed on the owner from `GITHUB_REPO_OWNER`.
 
+## Microsoft Entra ID (authentication)
+
+Sign-in uses Auth.js with the Microsoft Entra ID provider. The credentials
+(`AUTH_MICROSOFT_ENTRA_ID_ID` / `_SECRET` / `_ISSUER`) come from your app
+registration, and each origin the app is served from must have a matching
+**redirect URI** registered in Azure or sign-in fails.
+
+The redirect URI is always the app's origin plus the Auth.js callback path:
+
+```
+<origin>/api/auth/callback/microsoft-entra-id
+```
+
+For example, the `forge-pilot` deployment registers:
+
+```
+https://forge-pilot.crystalfountains.com/api/auth/callback/microsoft-entra-id
+```
+
+To configure it: Entra admin center → **App registrations** → your app →
+**Authentication** → **Add a platform** → **Web** → add the URL under
+**Redirect URIs** → Save.
+
+- Use the **Web** platform type (this is a confidential, server-side app that
+  uses a client secret), not "SPA".
+- The URI must match exactly — scheme, host, and path, no trailing slash. It
+  has to line up with `NEXTAUTH_URL` in `.env.local` (e.g.
+  `https://forge-pilot.crystalfountains.com`).
+- Multiple redirect URIs are allowed, so you can keep a local
+  `http://localhost:3030/api/auth/callback/microsoft-entra-id` entry alongside
+  the deployed one for development.
+- Optional: set the **Front-channel logout URL** to
+  `<origin>/api/auth/signout` for clean SSO logout.
+
 ## Project layout
 
 - `app/` — Next.js app router (pages and route handlers)
