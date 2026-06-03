@@ -55,3 +55,4 @@ agent needs to work in the codebase correctly.
 - **DB access** goes through `lib/prisma.ts`. Postgres binds host port `5433` (not 5432) to avoid colliding with a system Postgres.
 - **Don't run `db:reset` / `forge-launch.sh --seed`** unless you intend to wipe local data.
 - After schema changes, create a migration with `pnpm db:migrate` — don't hand-edit migration SQL.
+- **Deleting files inside this repo is pre-approved** — git history is sufficient backup, so remove dead code freely without stopping to ask. Deleting anything **outside** the repo still requires explicit approval.

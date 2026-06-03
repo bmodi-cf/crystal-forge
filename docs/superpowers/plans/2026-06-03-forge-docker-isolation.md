@@ -1935,7 +1935,10 @@ git commit -m "feat(runtime): run the agent PTY inside the forge container"
 - [ ] **Step 1: Full unit suite + lint + typecheck**
 
 Run: `pnpm typecheck && pnpm lint && pnpm test`
-Expected: all PASS. Confirm no remaining references to `spawnLongLived`, `isAlive`, `killProcess`, `loadRuntimePort`, `forgeClonePath`, or `startTranscriptWatcher` in the runtime path (`grep -rn` to verify; delete now-dead host-clone code in `clone.ts`/`process.ts`/`transcript-watcher.ts` only if nothing references them — **ask before deleting files**, per repo policy).
+Expected: all PASS. Then remove the now-dead host-process runtime path (deleting in-repo files is pre-approved — see AGENTS.md):
+- **Delete** `lib/runtime/process.ts` + `lib/runtime/process.test.ts` and `lib/runtime/clone.ts` + `lib/runtime/clone.test.ts` — fully unreferenced after Tasks 17–18 (the only importer was `runtime.ts`/`runner.ts`, now rewritten). Verify first: `grep -rn --include="*.ts" -E "runtime/process'|runtime/clone'|ensureClone|spawnLongLived" lib app` returns nothing.
+- **Keep** `lib/runtime/transcript-watcher.ts` — its `parseTranscriptLine`, `encodedCwd`, and `WatcherDeps` exports are reused by `container-transcript-watcher.ts`. Trim only the now-unused `startTranscriptWatcher`/`tailJsonl` from it (and drop their cases from `transcript-watcher.test.ts`), keeping the reused exports and their tests.
+- Re-run `pnpm typecheck && pnpm lint && pnpm test` after the deletions and commit: `git commit -am "refactor(runtime): remove dead host-process runtime path"`.
 
 - [ ] **Step 2: E2E (fake mode, no daemon)**
 
