@@ -3,7 +3,13 @@ import { z } from 'zod';
 const baseSchema = z.object({
   DATABASE_URL: z.string().url(),
   AUTH_SECRET: z.string().min(16),
-  NEXTAUTH_URL: z.string().url(),
+  // Optional. When set, Auth.js pins every redirect (e.g. post-logout) to this
+  // origin, overriding the per-request host. Leave it unset so `trustHost: true`
+  // infers the origin from the request — correct on any local port (:3030, :80)
+  // and behind the TLS reverse proxy (via X-Forwarded-Host). Only set it to
+  // force a fixed public origin. Read directly by next-auth from process.env;
+  // declared here only so env validation doesn't reject it.
+  NEXTAUTH_URL: z.string().url().optional(),
   AUTH_MICROSOFT_ENTRA_ID_ID: z.string().default(''),
   AUTH_MICROSOFT_ENTRA_ID_SECRET: z.string().default(''),
   AUTH_MICROSOFT_ENTRA_ID_ISSUER: z

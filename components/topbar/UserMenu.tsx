@@ -38,7 +38,7 @@ export function UserMenu({ user }: { user: SessionUser }) {
         <DropdownMenuGroup>
           <DropdownMenuItem
             className="gap-2.5 text-[#e89393] focus:bg-[rgba(217,104,104,0.12)] focus:text-[#ff9f9f]"
-            onSelect={() => signOut({ callbackUrl: '/login' })}
+            onClick={() => signOut({ callbackUrl: '/login' })}
           >
             <LogOut className="h-3.5 w-3.5" /> Logout
           </DropdownMenuItem>
