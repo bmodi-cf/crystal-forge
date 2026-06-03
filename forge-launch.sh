@@ -24,8 +24,12 @@ if [[ -z "${_FORGE_LAUNCH_FNM_PINNED:-}" ]] && [[ -f .node-version ]] && command
 fi
 
 PG_CONTAINER="crystal-forge-pg"
-DEV_PORT=3030
-URL="http://localhost:${DEV_PORT}"
+DEV_PORT="${DEV_PORT:-3030}"
+if [[ "$DEV_PORT" == "80" ]]; then
+  URL="http://localhost"
+else
+  URL="http://localhost:${DEV_PORT}"
+fi
 
 step() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
