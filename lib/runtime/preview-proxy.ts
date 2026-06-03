@@ -82,9 +82,23 @@ export async function handlePreviewProxy(
   if (hasBody) init.duplex = 'half'; // required by undici when streaming a body
 
   const upstream = await deps.fetch(target, init);
+  const headers = filterHeaders(upstream.headers);
+
+  // A forge app may emit an absolute redirect back to its own loopback origin.
+  // Rewrite those to a relative path so the browser stays on the dashboard
+  // origin (and re-enters this proxy) instead of being sent to a dead
+  // 127.0.0.1 URL that also leaks the internal origin.
+  const location = headers.get('location');
+  if (location) {
+    const origin = runtimeOrigin(entry.port);
+    if (location.startsWith(origin)) {
+      headers.set('location', location.slice(origin.length) || '/');
+    }
+  }
+
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
-    headers: filterHeaders(upstream.headers),
+    headers,
   });
 }

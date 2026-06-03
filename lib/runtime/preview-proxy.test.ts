@@ -125,4 +125,35 @@ describe('handlePreviewProxy', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('set-cookie')).toBeNull();
   });
+
+  it('rewrites an upstream redirect to the loopback origin into a relative path', async () => {
+    const res = await handlePreviewProxy(
+      new Request('http://localhost:3000/app/bmodi-test1/old'),
+      'bmodi-test1',
+      makeDeps({
+        fetch: (async () =>
+          new Response(null, {
+            status: 302,
+            headers: { location: 'http://127.0.0.1:3001/app/bmodi-test1/new' },
+          })) as unknown as typeof fetch,
+      }),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/app/bmodi-test1/new');
+  });
+
+  it('leaves an external redirect Location untouched', async () => {
+    const res = await handlePreviewProxy(
+      new Request('http://localhost:3000/app/bmodi-test1/out'),
+      'bmodi-test1',
+      makeDeps({
+        fetch: (async () =>
+          new Response(null, {
+            status: 302,
+            headers: { location: 'https://example.com/elsewhere' },
+          })) as unknown as typeof fetch,
+      }),
+    );
+    expect(res.headers.get('location')).toBe('https://example.com/elsewhere');
+  });
 });
