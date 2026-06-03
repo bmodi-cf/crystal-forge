@@ -1,9 +1,15 @@
 import type { DatabaseProvisioner } from './types';
 
-type Method = 'createDatabase' | 'dropDatabase';
+type Method =
+  | 'createDatabase'
+  | 'dropDatabase'
+  | 'provisionRole'
+  | 'setRolePassword'
+  | 'dropRole';
 
 export class FakeDatabaseProvisioner implements DatabaseProvisioner {
   private readonly databases = new Set<string>();
+  private readonly roles = new Map<string, string>();
   private readonly nextErrors = new Map<Method, Error>();
 
   async createDatabase(name: string): Promise<void> {
@@ -19,11 +25,29 @@ export class FakeDatabaseProvisioner implements DatabaseProvisioner {
     this.databases.delete(name);
   }
 
+  async provisionRole(_database: string, role: string): Promise<void> {
+    this.maybeFail('provisionRole');
+    if (!this.roles.has(role)) this.roles.set(role, '');
+  }
+
+  async setRolePassword(role: string, password: string): Promise<void> {
+    this.maybeFail('setRolePassword');
+    this.roles.set(role, password);
+  }
+
+  async dropRole(role: string): Promise<void> {
+    this.maybeFail('dropRole');
+    this.roles.delete(role);
+  }
+
   // Test helpers -----------------------------------------------------------
 
   has(name: string): boolean {
     return this.databases.has(name);
   }
+
+  hasRole(role: string): boolean { return this.roles.has(role); }
+  passwordOf(role: string): string | undefined { return this.roles.get(role); }
 
   list(): string[] {
     return [...this.databases];

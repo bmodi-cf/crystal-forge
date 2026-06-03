@@ -43,3 +43,16 @@ describe('FakeDatabaseProvisioner', () => {
     expect(fake.list()).toEqual(['a', 'b']);
   });
 });
+
+describe('FakeDatabaseProvisioner roles', () => {
+  it('provisions, password-rotates, and drops a role', async () => {
+    const p = new FakeDatabaseProvisioner();
+    await p.createDatabase('forge_x');
+    await p.provisionRole('forge_x', 'forge_x_app');
+    expect(p.hasRole('forge_x_app')).toBe(true);
+    await p.setRolePassword('forge_x_app', 'deadbeef');
+    expect(p.passwordOf('forge_x_app')).toBe('deadbeef');
+    await p.dropRole('forge_x_app');
+    expect(p.hasRole('forge_x_app')).toBe(false);
+  });
+});

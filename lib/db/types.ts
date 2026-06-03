@@ -16,4 +16,17 @@ export interface DatabaseProvisioner {
    * (no-op on missing).
    */
   dropDatabase(name: string): Promise<void>;
+
+  /**
+   * Idempotently create a LOGIN role, grant it privileges on `database`, and
+   * REVOKE CONNECT on that database FROM PUBLIC so only this role (and
+   * superusers) can connect. Safe to call repeatedly.
+   */
+  provisionRole(database: string, role: string): Promise<void>;
+
+  /** Set (rotate) the login password for an existing role. */
+  setRolePassword(role: string, password: string): Promise<void>;
+
+  /** Drop the role if it exists (compensating action / on forge delete). */
+  dropRole(role: string): Promise<void>;
 }
