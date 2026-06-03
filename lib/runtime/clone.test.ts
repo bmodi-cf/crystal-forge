@@ -128,6 +128,66 @@ describe('ensureClone', () => {
     ).rejects.toThrow(/exit/i);
   });
 
+  it('wraps next.config.ts to inject basePath, idempotently', async () => {
+    const fakeGh = new FakeGitHubClient({ owner: 'bmodi-cf', baseUrl: 'https://github.com' });
+    const { runner } = makeFakeRunner(async ({ cmd, args }) => {
+      if (cmd === 'git' && args[0] === 'clone') {
+        const dest = args[args.length - 1]!;
+        await fs.mkdir(path.join(dest, '.git'), { recursive: true });
+        await fs.writeFile(
+          path.join(dest, 'next.config.ts'),
+          "import type { NextConfig } from 'next';\nconst nextConfig: NextConfig = {};\nexport default nextConfig;\n",
+        );
+      }
+    });
+
+    await ensureClone(
+      { slug: 'marketing-frufru', repoFullName: 'bmodi-cf/marketing-frufru' },
+      fakeGh,
+      runner,
+    );
+
+    const cloneDir = path.join(tmp, 'clones', 'marketing-frufru');
+    const base = await fs.readFile(path.join(cloneDir, 'next.config.base.ts'), 'utf8');
+    expect(base).toContain('const nextConfig: NextConfig = {}');
+    const cfg = await fs.readFile(path.join(cloneDir, 'next.config.ts'), 'utf8');
+    expect(cfg).toContain("import base from './next.config.base'");
+    expect(cfg).toContain('process.env.FORGE_BASE_PATH');
+
+    // Second run must not double-wrap (idempotent via the base-file marker).
+    await ensureClone(
+      { slug: 'marketing-frufru', repoFullName: 'bmodi-cf/marketing-frufru' },
+      fakeGh,
+      runner,
+    );
+    expect(await fs.readFile(path.join(cloneDir, 'next.config.base.ts'), 'utf8')).toBe(base);
+    expect(await fs.readFile(path.join(cloneDir, 'next.config.ts'), 'utf8')).toBe(cfg);
+  });
+
+  it('skips basePath injection when next.config.ts default export is a function', async () => {
+    const fakeGh = new FakeGitHubClient({ owner: 'bmodi-cf', baseUrl: 'https://github.com' });
+    const { runner } = makeFakeRunner(async ({ cmd, args }) => {
+      if (cmd === 'git' && args[0] === 'clone') {
+        const dest = args[args.length - 1]!;
+        await fs.mkdir(path.join(dest, '.git'), { recursive: true });
+        await fs.writeFile(
+          path.join(dest, 'next.config.ts'),
+          'export default function config() { return {}; }\n',
+        );
+      }
+    });
+
+    await ensureClone(
+      { slug: 'fn-config', repoFullName: 'bmodi-cf/fn-config' },
+      fakeGh,
+      runner,
+    );
+
+    const cloneDir = path.join(tmp, 'clones', 'fn-config');
+    await expect(fs.stat(path.join(cloneDir, 'next.config.base.ts'))).rejects.toThrow();
+    expect(await fs.readFile(path.join(cloneDir, 'next.config.ts'), 'utf8')).toContain('export default function config');
+  });
+
   it('creates the log directory before any runner.run is invoked', async () => {
     const fakeGh = new FakeGitHubClient({ owner: 'bmodi-cf', baseUrl: 'https://github.com' });
     const accessChecks: { logPath: string; parentExists: boolean }[] = [];

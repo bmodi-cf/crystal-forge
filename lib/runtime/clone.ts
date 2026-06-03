@@ -24,6 +24,32 @@ function assertOk(result: { exitCode: number }, label: string): void {
   }
 }
 
+const BASE_PATH_WRAPPER = `// crystal-forge: basePath injected for path-based reverse proxy. Do not edit.
+import base from './next.config.base';
+const basePath = process.env.FORGE_BASE_PATH || undefined;
+export default { ...base, basePath };
+`;
+
+/**
+ * Make the cloned Next.js app serve itself under basePath=/app/<slug> so it
+ * works behind the dashboard's path-based reverse proxy. Idempotent: the
+ * presence of next.config.base.ts is the marker that the patch already ran.
+ */
+async function injectBasePath(cloneDir: string): Promise<void> {
+  const cfg = path.join(cloneDir, 'next.config.ts');
+  const marker = path.join(cloneDir, 'next.config.base.ts');
+  if (await exists(marker)) return; // already patched
+  if (!(await exists(cfg))) return; // nothing to patch (e.g. .js/.mjs config — out of scope)
+  const content = await fs.readFile(cfg, 'utf8');
+  if (/export\s+default\s+(async\s+)?function|export\s+default\s*\(/.test(content)) {
+    // Function-style config can't be spread into an object wrapper; leave it alone.
+    console.warn('[runtime/clone] next.config.ts exports a function; skipping basePath injection');
+    return;
+  }
+  await fs.rename(cfg, marker);
+  await fs.writeFile(cfg, BASE_PATH_WRAPPER, 'utf8');
+}
+
 export async function ensureClone(
   forge: ForgeForClone,
   githubClient: GitHubClient,
@@ -58,6 +84,10 @@ export async function ensureClone(
   if (!(await exists(envLocal)) && (await exists(envExample))) {
     await fs.copyFile(envExample, envLocal);
   }
+
+  // Run on every ensureClone (not just fresh clones) so existing clones are
+  // patched on their next start. injectBasePath is idempotent.
+  await injectBasePath(cloneDir);
 
   // GitHub's contents API doesn't preserve the executable bit; restore it on
   // the PreToolUse hook script so Claude Code can run it.
