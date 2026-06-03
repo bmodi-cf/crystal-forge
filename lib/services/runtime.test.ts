@@ -5,6 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { FakeGitHubClient } from '@/lib/github/fake-client';
+import { FakeContainerManager } from '@/lib/runtime/container/fake-container-manager';
+import { FakeDatabaseProvisioner } from '@/lib/db/fake-provisioner';
+import type { ContainerManager, CreateContainerSpec } from '@/lib/runtime/container/types';
 import { makeRuntimeService } from './runtime';
 import { ForbiddenError } from '@/lib/errors';
 
@@ -25,15 +28,18 @@ afterEach(async () => {
 
 function makeFakes() {
   const probes: number[] = [];
+  const containers = new FakeContainerManager();
+  const provisioner = new FakeDatabaseProvisioner();
   return {
     githubClient: new FakeGitHubClient({ owner: 'o', baseUrl: 'https://github.com' }),
-    clone: async () => {},
-    spawnLongLived: () => 12345,
-    killProcess: async () => {},
-    isAlive: () => true,
+    containerManager: containers,
+    provisioner,
+    setup: async () => {},
     probe: async (port: number) => { probes.push(port); return true; },
     portStart: 3001, portEnd: 3099,
     _calls: { probes },
+    _containers: containers,
+    _provisioner: provisioner,
   };
 }
 
@@ -49,6 +55,8 @@ describe('runtime service', () => {
       const result = await svc.startForge(tom, forge.id);
       expect(result.status).toBe('running');
       expect(result.port).toBeGreaterThanOrEqual(3001);
+      expect(result.containerId).toMatch(/^fake-/);
+      expect((await fakes._containers.inspect(result.containerId)).running).toBe(true);
       expect(fakes._calls.probes.length).toBeGreaterThan(0);
     });
   });
@@ -71,19 +79,19 @@ describe('runtime service', () => {
       const forge = await makeForge(prisma, {
         name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
       });
-      let cloneCalls = 0;
+      let setupCalls = 0;
       const svc = makeRuntimeService({
         ...makeFakes(),
         prisma,
-        clone: async () => { cloneCalls++; await new Promise((r) => setTimeout(r, 20)); },
+        setup: async () => { setupCalls++; await new Promise((r) => setTimeout(r, 20)); },
       });
       const [a, b] = await Promise.all([svc.startForge(tom, forge.id), svc.startForge(tom, forge.id)]);
       expect(a.port).toBe(b.port);
-      expect(cloneCalls).toBe(1);
+      expect(setupCalls).toBe(1);
     });
   });
 
-  it('startForge marks setup-failed when ensureClone throws', async () => {
+  it('startForge marks setup-failed when setup throws', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
       const forge = await makeForge(prisma, {
@@ -92,7 +100,7 @@ describe('runtime service', () => {
       const svc = makeRuntimeService({
         ...makeFakes(),
         prisma,
-        clone: async () => { throw new Error('git clone exploded'); },
+        setup: async () => { throw new Error('git clone exploded'); },
       });
       await expect(svc.startForge(tom, forge.id)).rejects.toThrow('git clone exploded');
       const got = await svc.getRuntime(tom, forge.id);
@@ -124,7 +132,7 @@ describe('runtime service', () => {
       const svc = makeRuntimeService({
         ...makeFakes(),
         prisma,
-        clone: async () => { if (attempt++ === 0) throw new Error('first try fails'); },
+        setup: async () => { if (attempt++ === 0) throw new Error('first try fails'); },
       });
       await expect(svc.startForge(tom, forge.id)).rejects.toThrow();
       const ok = await svc.startForge(tom, forge.id);
@@ -132,21 +140,23 @@ describe('runtime service', () => {
     });
   });
 
-  it('stopForge terminates and removes the entry; second stop is a no-op', async () => {
+  it('stopForge stops and removes the container, removes the entry; second stop is a no-op', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
       const forge = await makeForge(prisma, {
         name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
       });
-      const svc = makeRuntimeService({ ...makeFakes(), prisma });
-      await svc.startForge(tom, forge.id);
+      const fakes = makeFakes();
+      const svc = makeRuntimeService({ ...fakes, prisma });
+      const entry = await svc.startForge(tom, forge.id);
       await svc.stopForge(tom, forge.id);
+      expect((await fakes._containers.inspect(entry.containerId)).exists).toBe(false);
       expect(await svc.getRuntime(tom, forge.id)).toBeNull();
       await svc.stopForge(tom, forge.id); // idempotent — no throw
     });
   });
 
-  it('listRuntimes filters by ACL and redacts pid for read-only viewers', async () => {
+  it('listRuntimes filters by ACL and redacts containerId for read-only viewers', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
       const reader = await makeUser(prisma, { email: 'r@x', name: 'R', groups: ['Engineering'] });
@@ -157,29 +167,33 @@ describe('runtime service', () => {
       await svc.startForge(tom, forge.id);
       const tomList = await svc.listRuntimes(tom);
       const readerList = await svc.listRuntimes(reader);
-      expect(tomList[0]?.pid).toBe(12345);
-      expect(readerList[0]?.pid).toBeUndefined();
+      expect(tomList[0]?.containerId).toMatch(/^fake-/);
+      expect(readerList[0]?.containerId).toBeUndefined();
     });
   });
 
-  it('startForge passes FORGE_BASE_PATH env to spawnLongLived', async () => {
+  it('startForge injects FORGE_BASE_PATH and a scoped DATABASE_URL into the container', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
       const forge = await makeForge(prisma, {
         name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
       });
-      const spawnEnvs: Array<Record<string, string> | undefined> = [];
-      const svc = makeRuntimeService({
-        ...makeFakes(),
-        prisma,
-        spawnLongLived: (_cmd: string, _args: string[], opts: { env?: Record<string, string> }) => {
-          spawnEnvs.push(opts.env);
-          return 12345;
-        },
-      });
+      const base = new FakeContainerManager();
+      const specs: CreateContainerSpec[] = [];
+      const recording: ContainerManager = {
+        create: (spec) => { specs.push(spec); return base.create(spec); },
+        exec: base.exec.bind(base),
+        inspect: base.inspect.bind(base),
+        stop: base.stop.bind(base),
+        remove: base.remove.bind(base),
+        list: base.list.bind(base),
+      };
+      const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
       await svc.startForge(tom, forge.id);
-      expect(spawnEnvs.length).toBe(1);
-      expect(spawnEnvs[0]?.FORGE_BASE_PATH).toBe('/app/marketing-fru-fru');
+      expect(specs).toHaveLength(1);
+      expect(specs[0]?.env?.FORGE_BASE_PATH).toBe('/app/marketing-fru-fru');
+      expect(specs[0]?.env?.DATABASE_URL).toContain('marketing_fru_fru_app');
+      expect(specs[0]?.env?.DATABASE_URL).toContain('/marketing_fru_fru');
     });
   });
 
@@ -195,7 +209,7 @@ describe('runtime service', () => {
         prisma,
         probe: async () => {
           // Simulate a concurrent stopForge wiping the entry between
-          // spawn and the probe-success state write.
+          // container start and the probe-success state write.
           const { mutateState } = await import('@/lib/runtime/state');
           await mutateState((s) => { delete s[forge.id]; });
           return true;

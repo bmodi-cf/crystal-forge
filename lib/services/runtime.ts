@@ -4,23 +4,28 @@ import { ForbiddenError, NotFoundError, RuntimeBusyError } from '@/lib/errors';
 import { getGitHubClient } from '@/lib/github/client';
 import type { GitHubClient } from '@/lib/github/types';
 import { prisma as defaultPrisma } from '@/lib/prisma';
-import { slugifyForgeName } from '@/lib/github/slug';
+import { randomBytes } from 'node:crypto';
+import { slugifyForgeName, slugToDbName, dbNameToRole } from '@/lib/github/slug';
 import { allocatePort } from '@/lib/runtime/ports';
-import { ensureClone as defaultClone } from '@/lib/runtime/clone';
-import { spawnLongLived as defaultSpawn, killProcess as defaultKill, isAlive as defaultIsAlive } from '@/lib/runtime/process';
+import { getContainerManager } from '@/lib/runtime/container';
+import type { ContainerManager } from '@/lib/runtime/container/types';
+import { setupForgeContainer } from '@/lib/runtime/container-setup';
+import { getDatabaseProvisioner } from '@/lib/db/provisioner';
+import type { DatabaseProvisioner } from '@/lib/db/types';
+import { buildScopedDatabaseUrl } from '@/lib/db/url';
 import { probe as defaultProbe } from '@/lib/runtime/probe';
 import { mutateState, loadState } from '@/lib/runtime/state';
-import { forgeClonePath, logPath as logPathFor } from '@/lib/runtime/paths';
+import { workspaceVolumeName, CONTAINER_WORKDIR, logPath as logPathFor } from '@/lib/runtime/paths';
+import { env } from '@/lib/env';
 import type { RuntimeStateEntry, RuntimeStateView } from '@/lib/runtime/types';
 import type { SessionUser } from './types';
 
 export type RuntimeDeps = {
   prisma: PrismaClient;
   githubClient: GitHubClient;
-  clone: (forge: { slug: string; repoFullName: string }, gh: GitHubClient) => Promise<void>;
-  spawnLongLived: (cmd: string, args: string[], opts: { cwd: string; logPath: string; env?: Record<string, string> }) => number;
-  killProcess: (pid: number) => Promise<void>;
-  isAlive: (pid: number) => boolean;
+  containerManager: ContainerManager;
+  provisioner: DatabaseProvisioner;
+  setup: (mgr: ContainerManager, id: string, opts: { slug: string; repoFullName: string; token: string; logPath: string }) => Promise<void>;
   probe: (port: number) => Promise<boolean>;
   portStart: number;
   portEnd: number;
@@ -82,67 +87,67 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
     const port = await allocatePort({ start: deps.portStart, end: deps.portEnd });
     const startedAt = new Date().toISOString();
     const log = logPathFor(slug);
+    const dbName = slugToDbName(slug);
+    const role = dbNameToRole(dbName);
 
     const baseEntry: RuntimeStateEntry = {
       forgeId, slug, status: 'starting',
-      pid: 0, port, startedAt, logPath: log,
+      containerId: '', port, startedAt, logPath: log,
     };
     await mutateState((s) => { s[forgeId] = baseEntry; });
 
+    // Rotate the scoped DB password and build the URL injected into the container.
+    const password = randomBytes(24).toString('hex');
+    await deps.provisioner.setRolePassword(role, password);
+    const databaseUrl = buildScopedDatabaseUrl({ role, password, database: dbName });
+
+    const containerId = await deps.containerManager.create({
+      name: `forge-${slug}`,
+      image: env.FORGE_RUNTIME_IMAGE,
+      labels: { 'crystal-forge.forgeId': forgeId },
+      env: {
+        PORT: '3000',
+        NEXT_TELEMETRY_DISABLED: '1',
+        FORGE_BASE_PATH: `/app/${slug}`,
+        DATABASE_URL: databaseUrl,
+      },
+      publish: { hostIp: '127.0.0.1', hostPort: port, containerPort: 3000 },
+      volumes: [{ volume: workspaceVolumeName(slug), target: CONTAINER_WORKDIR }],
+      network: env.FORGE_NETWORK,
+    });
+    await mutateState((s) => { const e = s[forgeId]; if (e) e.containerId = containerId; });
+
     try {
-      await deps.clone({ slug, repoFullName: row.repoFullName }, deps.githubClient);
+      const token = await deps.githubClient.getInstallationToken();
+      await deps.setup(deps.containerManager, containerId, { slug, repoFullName: row.repoFullName, token, logPath: log });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await mutateState((s) => {
-        s[forgeId] = { ...baseEntry, status: 'setup-failed', setupError: msg };
-      });
+      await deps.containerManager.remove(containerId).catch(() => {});
+      await mutateState((s) => { s[forgeId] = { ...baseEntry, containerId, status: 'setup-failed', setupError: msg }; });
       throw err;
     }
 
-    const pid = deps.spawnLongLived(
-      'pnpm',
-      ['dev', '--port', String(port)],
-      {
-        cwd: forgeClonePath(slug),
-        logPath: log,
-        env: {
-          PORT: String(port),
-          NEXT_TELEMETRY_DISABLED: '1',
-          FORGE_BASE_PATH: `/app/${slug}`,
-        },
-      },
-    );
-    await mutateState((s) => {
-      const e = s[forgeId];
-      if (e) e.pid = pid;
-    });
+    // Start the dev server in the background inside the container.
+    await deps.containerManager.exec(containerId, 'sh',
+      ['-c', `pnpm dev --port 3000 >> ${CONTAINER_WORKDIR}/.forge-dev.log 2>&1 &`],
+      { workdir: CONTAINER_WORKDIR });
 
     const deadline = Date.now() + PROBE_TIMEOUT_MS;
     while (Date.now() < deadline) {
       if (await deps.probe(port)) {
-        const final: RuntimeStateEntry = { ...baseEntry, pid, status: 'running' };
+        const final: RuntimeStateEntry = { ...baseEntry, containerId, status: 'running' };
         let written = false;
-        await mutateState((s) => {
-          if (s[forgeId]) {
-            s[forgeId] = final;
-            written = true;
-          }
-        });
+        await mutateState((s) => { if (s[forgeId]) { s[forgeId] = final; written = true; } });
         if (!written) {
-          // Entry was deleted (probably by a concurrent stopForge). Kill the
-          // dev-server we just spawned so we don't leak it.
-          await deps.killProcess(pid).catch(() => {});
+          await deps.containerManager.remove(containerId).catch(() => {});
           throw new RuntimeBusyError('Forge was stopped while starting');
         }
         return final;
       }
       await sleep(PROBE_INTERVAL_MS);
     }
-    await deps.killProcess(pid).catch(() => {});
-    await mutateState((s) => {
-      const e = s[forgeId];
-      if (e) e.status = 'crashed';
-    });
+    await deps.containerManager.remove(containerId).catch(() => {});
+    await mutateState((s) => { const e = s[forgeId]; if (e) e.status = 'crashed'; });
     throw new Error(`Forge ${slug} failed to become healthy within ${PROBE_TIMEOUT_MS}ms`);
   }
 
@@ -158,10 +163,9 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       const e = s[forgeId];
       if (e) e.status = 'stopping';
     });
-    if (entry.pid > 0) {
-      try { await deps.killProcess(entry.pid); } catch (err) {
-        console.error('[runtime/stopForge] kill failed', { pid: entry.pid, err });
-      }
+    if (entry.containerId) {
+      try { await deps.containerManager.stop(entry.containerId); await deps.containerManager.remove(entry.containerId); }
+      catch (err) { console.error('[runtime/stopForge] container teardown failed', { id: entry.containerId, err }); }
     }
     await mutateState((s) => { delete s[forgeId]; });
   }
@@ -193,7 +197,7 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       const state = await loadState();
       const entry = state[forgeId];
       if (!entry) return null;
-      return canWriteForge(currentUser, aclFor(row)) ? entry : redactPid(entry);
+      return canWriteForge(currentUser, aclFor(row)) ? entry : redactContainerId(entry);
     },
 
     async listRuntimes(currentUser) {
@@ -211,15 +215,15 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       for (const [forgeId, writable] of idToWriteable) {
         const entry = state[forgeId];
         if (!entry) continue;
-        out.push(writable ? entry : redactPid(entry));
+        out.push(writable ? entry : redactContainerId(entry));
       }
       return out;
     },
   };
 }
 
-function redactPid(e: RuntimeStateEntry): RuntimeStateView {
-  const { pid: _drop, ...rest } = e;
+function redactContainerId(e: RuntimeStateEntry): RuntimeStateView {
+  const { containerId: _drop, ...rest } = e;
   return rest;
 }
 
@@ -234,10 +238,9 @@ export function getRuntimeService(): RuntimeService {
   cached = makeRuntimeService({
     prisma: defaultPrisma,
     githubClient: getGitHubClient(),
-    clone: async (forge, gh) => { await defaultClone(forge, gh); },
-    spawnLongLived: defaultSpawn,
-    killProcess: defaultKill,
-    isAlive: defaultIsAlive,
+    containerManager: getContainerManager(),
+    provisioner: getDatabaseProvisioner(),
+    setup: setupForgeContainer,
     probe: defaultProbe,
     portStart: 3001,
     portEnd: 3099,
