@@ -22,46 +22,74 @@ afterEach(async () => {
   await fs.rm(tmp, { recursive: true, force: true });
 });
 
-function listenOn(port: number): Promise<net.Server> {
+/**
+ * Ask the OS for a guaranteed-free loopback port (bind to :0, read the assigned
+ * port, release it). Using ephemeral ports instead of the hardcoded 3001-3099
+ * range keeps these tests passing even when a real forge is occupying a port in
+ * that range on the same host.
+ */
+function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
     srv.once('error', reject);
-    srv.listen(port, '127.0.0.1', () => resolve(srv));
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+/** Start a server actually listening on a free loopback port and return both. */
+function listenOnFreePort(): Promise<{ srv: net.Server; port: number }> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      resolve({ srv, port });
+    });
   });
 }
 
 describe('allocatePort', () => {
   it('returns the first port that is free in state and on the host', async () => {
-    const port = await allocatePort({ start: 3001, end: 3099 });
-    expect(port).toBeGreaterThanOrEqual(3001);
-    expect(port).toBeLessThanOrEqual(3099);
+    const p = await freePort();
+    const port = await allocatePort({ start: p, end: p + 20 });
+    expect(port).toBeGreaterThanOrEqual(p);
+    expect(port).toBeLessThanOrEqual(p + 20);
   });
 
   it('skips ports recorded in state.json', async () => {
+    const p = await freePort();
     await saveState({
-      a: { forgeId: 'a', slug: 'a', status: 'running', pid: 1, port: 3001, startedAt: 'x', logPath: '' },
+      a: { forgeId: 'a', slug: 'a', status: 'running', pid: 1, port: p, startedAt: 'x', logPath: '' },
     });
-    const port = await allocatePort({ start: 3001, end: 3099 });
-    expect(port).not.toBe(3001);
+    const port = await allocatePort({ start: p, end: p + 20 });
+    expect(port).not.toBe(p);
   });
 
   it('skips ports bound externally', async () => {
-    const srv = await listenOn(3001);
+    const { srv, port: p } = await listenOnFreePort();
     try {
-      const port = await allocatePort({ start: 3001, end: 3099 });
-      expect(port).not.toBe(3001);
+      const port = await allocatePort({ start: p, end: p + 20 });
+      expect(port).not.toBe(p);
     } finally {
       await new Promise<void>((r) => srv.close(() => r()));
     }
   });
 
   it('throws RuntimeCapacityError when the pool is exhausted', async () => {
-    await expect(allocatePort({ start: 3001, end: 3001 })).resolves.toBe(3001);
+    const p = await freePort();
+    // A single-port pool that is free resolves to that port...
+    await expect(allocatePort({ start: p, end: p })).resolves.toBe(p);
 
-    // Fill the entire tiny pool via state.
+    // ...but once that single port is taken (here via state), the pool is
+    // exhausted and allocation throws.
     await saveState({
-      a: { forgeId: 'a', slug: 'a', status: 'running', pid: 1, port: 3001, startedAt: 'x', logPath: '' },
+      a: { forgeId: 'a', slug: 'a', status: 'running', pid: 1, port: p, startedAt: 'x', logPath: '' },
     });
-    await expect(allocatePort({ start: 3001, end: 3001 })).rejects.toBeInstanceOf(RuntimeCapacityError);
+    await expect(allocatePort({ start: p, end: p })).rejects.toBeInstanceOf(RuntimeCapacityError);
   });
 });
