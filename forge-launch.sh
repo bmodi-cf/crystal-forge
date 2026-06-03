@@ -128,6 +128,17 @@ if [[ $SEED -eq 1 ]]; then
   pnpm db:seed
 fi
 
+# --- phase 4c: forge runtime image + network -------------------------------
+# Ensure the shared forge runtime image exists (build if missing).
+if ! docker image inspect crystal-forge-runtime:latest >/dev/null 2>&1; then
+  echo "Building crystal-forge-runtime image…"
+  docker build -t crystal-forge-runtime:latest -f docker/forge-runtime.Dockerfile docker/
+fi
+
+# Ensure the dedicated forge network exists (compose creates it, but be explicit).
+docker network inspect crystal-forge-net >/dev/null 2>&1 \
+  || docker network create crystal-forge-net
+
 # --- phase 5: banner + dev server ------------------------------------------
 WIDTH=42
 hr() { printf '%s' "$1"; printf '═%.0s' $(seq 1 $WIDTH); printf '%s\n' "$2"; }
