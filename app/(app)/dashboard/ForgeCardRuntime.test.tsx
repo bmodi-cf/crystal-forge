@@ -31,7 +31,7 @@ describe('ForgeCardRuntime', () => {
     );
     expect(screen.getByText(/Running/i)).toBeInTheDocument();
     const open = screen.getByRole('link', { name: /open/i });
-    expect(open).toHaveAttribute('href', 'http://localhost:3007');
+    expect(open).toHaveAttribute('href', '/app/marketing-frufru/');
     expect(screen.getByRole('button', { name: /stop/i })).toBeEnabled();
   });
 
