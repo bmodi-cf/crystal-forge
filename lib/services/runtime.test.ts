@@ -162,6 +162,28 @@ describe('runtime service', () => {
     });
   });
 
+  it('startForge passes FORGE_BASE_PATH env to spawnLongLived', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const spawnEnvs: Array<Record<string, string> | undefined> = [];
+      const svc = makeRuntimeService({
+        ...makeFakes(),
+        prisma,
+        spawnLongLived: (_cmd: string, _args: string[], opts: { env?: Record<string, string> }) => {
+          spawnEnvs.push(opts.env);
+          return 12345;
+        },
+      });
+      await svc.startForge(tom, forge.id);
+      expect(spawnEnvs.length).toBe(1);
+      expect(spawnEnvs[0]?.FORGE_BASE_PATH).toBeDefined();
+      expect(spawnEnvs[0]?.FORGE_BASE_PATH!.startsWith('/app/')).toBe(true);
+    });
+  });
+
   it('startForge throws RuntimeBusyError if the entry is deleted (race with stopForge) before probe success', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });

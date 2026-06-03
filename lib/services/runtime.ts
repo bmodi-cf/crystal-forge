@@ -105,7 +105,11 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       {
         cwd: forgeClonePath(slug),
         logPath: log,
-        env: { PORT: String(port), NEXT_TELEMETRY_DISABLED: '1' },
+        env: {
+          PORT: String(port),
+          NEXT_TELEMETRY_DISABLED: '1',
+          FORGE_BASE_PATH: `/app/${slug}`,
+        },
       },
     );
     await mutateState((s) => {
