@@ -21,3 +21,11 @@ export function forgeClonePath(slug: string): string {
 export function logPath(slug: string): string {
   return path.join(forgeHome(), 'logs', `${slug}.log`);
 }
+
+/** Fixed mount point for the forge's code inside its container. */
+export const CONTAINER_WORKDIR = '/workspace';
+
+/** Stable docker volume name holding a forge's checkout + node_modules. */
+export function workspaceVolumeName(slug: string): string {
+  return `forge-${slug}`;
+}

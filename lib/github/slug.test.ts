@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugifyForgeName, slugToDbName } from './slug';
+import { slugifyForgeName, slugToDbName, dbNameToRole } from './slug';
 
 describe('slugifyForgeName', () => {
   it('lowercases letters', () => {
@@ -58,5 +58,11 @@ describe('slugToDbName', () => {
 
   it('handles all-hyphen edge case', () => {
     expect(slugToDbName('a-b-c-d')).toBe('a_b_c_d');
+  });
+});
+
+describe('dbNameToRole', () => {
+  it('appends the _app suffix', () => {
+    expect(dbNameToRole('forge_acme_blue')).toBe('forge_acme_blue_app');
   });
 });
