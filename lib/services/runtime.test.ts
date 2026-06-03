@@ -179,8 +179,7 @@ describe('runtime service', () => {
       });
       await svc.startForge(tom, forge.id);
       expect(spawnEnvs.length).toBe(1);
-      expect(spawnEnvs[0]?.FORGE_BASE_PATH).toBeDefined();
-      expect(spawnEnvs[0]?.FORGE_BASE_PATH!.startsWith('/app/')).toBe(true);
+      expect(spawnEnvs[0]?.FORGE_BASE_PATH).toBe('/app/marketing-fru-fru');
     });
   });
 
