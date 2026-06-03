@@ -61,7 +61,7 @@ export function ForgeCardRuntime({ forgeId: _id, forgeName: _name, canWrite, run
       <div className="flex items-center gap-1.5">
         {showOpen ? (
           <a
-            href={`http://localhost:${runtime!.port}`}
+            href={`/app/${runtime!.slug}/`}
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Open"

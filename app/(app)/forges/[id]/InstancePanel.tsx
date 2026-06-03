@@ -21,11 +21,11 @@ const LABEL: Record<NonNullable<RuntimeStateView['status']> | 'stopped', string>
 
 export function InstancePanel({ forgeName, runtime, canWrite, onStart }: Props) {
   if (runtime?.status === 'running') {
-    const url = `http://localhost:${runtime.port}`;
+    const url = `/app/${runtime.slug}/`;
     return (
       <div className="relative flex flex-col h-full">
         <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11px] text-ink-faint">
-          <span className="truncate">{forgeName} · localhost:{runtime.port}</span>
+          <span className="truncate">{forgeName} · /app/{runtime.slug}</span>
           <span className="text-[#4ad28b]">Running</span>
           <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-ink-dim hover:text-ink">
             <ExternalLink className="h-3 w-3" /> standalone
