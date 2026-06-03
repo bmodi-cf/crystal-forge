@@ -28,7 +28,7 @@ describe('DockerContainerManager argv', () => {
       network: 'crystal-forge-net',
     });
     expect(id).toBe('container123');
-    const argv = rec.calls[0].args.join(' ');
+    const argv = rec.calls[0]!.args.join(' ');
     expect(argv).toContain('create --name forge-x');
     expect(argv).toContain('--label crystal-forge.forgeId=f1');
     expect(argv).toContain('--publish 127.0.0.1:3042:3000');
@@ -43,6 +43,6 @@ describe('DockerContainerManager argv', () => {
     const m = new DockerContainerManager({ capture: rec.capture });
     const status = await m.inspect('container123');
     expect(status).toEqual({ exists: true, running: true });
-    expect(rec.calls[0].args.join(' ')).toBe('inspect -f {{.State.Running}} container123');
+    expect(rec.calls[0]!.args.join(' ')).toBe('inspect -f {{.State.Running}} container123');
   });
 });

@@ -88,7 +88,7 @@ export class DockerContainerManager implements ContainerManager {
     if (opts.label) args.push('--filter', `label=${opts.label}`);
     const out = await this.capture('docker', args);
     return out.split('\n').filter(Boolean).map((line) => {
-      const [id, name, labelStr] = line.split('\t');
+      const [id = '', name = '', labelStr = ''] = line.split('\t');
       const labels: Record<string, string> = {};
       for (const pair of (labelStr ?? '').split(',')) {
         const eq = pair.indexOf('=');
