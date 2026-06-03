@@ -40,6 +40,16 @@ const baseSchema = z.object({
   HARNESS_PG_PASSWORD: z.string().default('crystal'),
   DB_PROVISIONER_MODE: z.enum(['real', 'fake']).default('real'),
 
+  // Forge runtime: where forges run. `docker` spawns per-forge containers;
+  // `fake` uses the in-memory ContainerManager (tests/e2e/offline).
+  FORGE_RUNTIME_MODE: z.enum(['docker', 'fake']).default('docker'),
+  FORGE_RUNTIME_IMAGE: z.string().default('crystal-forge-runtime:latest'),
+  FORGE_NETWORK: z.string().default('crystal-forge-net'),
+  // How a forge container reaches the shared pg engine (service name on the
+  // dedicated docker network — NOT the host-published 5433).
+  CONTAINER_PG_HOST: z.string().default('crystal-forge-pg'),
+  CONTAINER_PG_PORT: z.coerce.number().int().min(1).max(65535).default(5432),
+
   // Runtime orchestration root. Defaults to ~/.crystal-forge.
   CRYSTAL_FORGE_HOME: z.string().optional(),
 
