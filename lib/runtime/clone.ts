@@ -34,6 +34,13 @@ export default { ...base, basePath };
  * Make the cloned Next.js app serve itself under basePath=/app/<slug> so it
  * works behind the dashboard's path-based reverse proxy. Idempotent: the
  * presence of next.config.base.ts is the marker that the patch already ran.
+ *
+ * The wrapper spreads the base file's default export, so that export must
+ * resolve to a plain config **object** at module load. Plugin wrappers that
+ * *return* an object (e.g. `export default withSentryConfig(nextConfig)`) are
+ * fine — `base` is the returned object. Only a default export that is itself a
+ * **function** (config-as-function, e.g. `export default (phase) => ({...})`)
+ * cannot be spread; those are detected and skipped.
  */
 async function injectBasePath(cloneDir: string): Promise<void> {
   const cfg = path.join(cloneDir, 'next.config.ts');

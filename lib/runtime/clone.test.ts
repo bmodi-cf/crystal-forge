@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -165,6 +165,7 @@ describe('ensureClone', () => {
   });
 
   it('skips basePath injection when next.config.ts default export is a function', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fakeGh = new FakeGitHubClient({ owner: 'bmodi-cf', baseUrl: 'https://github.com' });
     const { runner } = makeFakeRunner(async ({ cmd, args }) => {
       if (cmd === 'git' && args[0] === 'clone') {
@@ -186,6 +187,30 @@ describe('ensureClone', () => {
     const cloneDir = path.join(tmp, 'clones', 'fn-config');
     await expect(fs.stat(path.join(cloneDir, 'next.config.base.ts'))).rejects.toThrow();
     expect(await fs.readFile(path.join(cloneDir, 'next.config.ts'), 'utf8')).toContain('export default function config');
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
+
+  it('skips basePath injection when next.config.ts is absent', async () => {
+    const fakeGh = new FakeGitHubClient({ owner: 'bmodi-cf', baseUrl: 'https://github.com' });
+    const { runner } = makeFakeRunner(async ({ cmd, args }) => {
+      if (cmd === 'git' && args[0] === 'clone') {
+        const dest = args[args.length - 1]!;
+        // Simulate a clone that creates .git but no next.config.ts.
+        await fs.mkdir(path.join(dest, '.git'), { recursive: true });
+      }
+    });
+
+    await expect(
+      ensureClone(
+        { slug: 'no-config', repoFullName: 'bmodi-cf/no-config' },
+        fakeGh,
+        runner,
+      ),
+    ).resolves.toBeUndefined();
+
+    const cloneDir = path.join(tmp, 'clones', 'no-config');
+    await expect(fs.stat(path.join(cloneDir, 'next.config.base.ts'))).rejects.toThrow();
   });
 
   it('creates the log directory before any runner.run is invoked', async () => {
