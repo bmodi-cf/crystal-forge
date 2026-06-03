@@ -7,20 +7,20 @@ import { getGitHubClient } from '@/lib/github/client';
 import type { GitHubClient } from '@/lib/github/client';
 import { getDatabaseProvisioner } from '@/lib/db/provisioner';
 import type { DatabaseProvisioner } from '@/lib/db/provisioner';
-import { slugifyForgeName, slugToDbName } from '@/lib/github/slug';
+import { slugifyForgeName, slugToDbName, dbNameToRole } from '@/lib/github/slug';
 import type { Forge, SessionUser } from './types';
 import type { CreateForgeInput, UpdateForgeInput } from './forges-schema';
 
 /**
- * Renders the .env.example body the harness writes into each cloned forge
- * repo. The connection target points at the harness's shared pg container;
- * only the database name varies per forge.
+ * Renders the .env.example body committed into each cloned forge repo. The real
+ * DATABASE_URL (scoped role creds, container-network pg host) is injected into
+ * the forge container at runtime by the harness — this placeholder only
+ * documents the variable so a fresh clone has the right shape.
  */
-export function renderEnvExample(dbName: string): string {
+export function renderEnvExample(): string {
   return [
-    "# Postgres connection. Points at the harness's crystal-forge-pg container.",
-    '# Copy this file to .env.local before running ./forge-launch.sh.',
-    `DATABASE_URL=postgres://${env.HARNESS_PG_USER}:${env.HARNESS_PG_PASSWORD}@${env.HARNESS_PG_HOST}:${env.HARNESS_PG_PORT}/${dbName}`,
+    '# DATABASE_URL is injected into the forge container at runtime by the harness.',
+    'DATABASE_URL=postgres://localhost:5432/placeholder',
     '',
   ].join('\n');
 }
@@ -221,7 +221,7 @@ export async function createForge(
   try {
     await client.writeForgeFiles(created.fullName, {
       forgeConfig: { name: input.name, description, slug, dbName, createdAt },
-      envExample: renderEnvExample(dbName),
+      envExample: renderEnvExample(),
       claudeSettings: renderClaudeSettings(),
       claudeBlockScript: renderBlockScript(),
       claudeMd: renderClaudeMd(input.name, dbName),
@@ -231,10 +231,12 @@ export async function createForge(
     throw err;
   }
 
-  // 6. Provision the per-forge database. On failure, delete the repo.
+  // 6. Provision the per-forge database + scoped login role. On failure, delete the repo.
   try {
     await provisioner.createDatabase(dbName);
+    await provisioner.provisionRole(dbName, dbNameToRole(dbName));
   } catch (err) {
+    await safeDropDatabase(provisioner, dbName);
     await safeDeleteRepo(client, created.fullName);
     throw err;
   }
@@ -381,6 +383,9 @@ async function safeDropDatabase(
 ): Promise<void> {
   try {
     await provisioner.dropDatabase(dbName);
+    // Drop the scoped role after the db is gone — it then owns nothing, so the
+    // drop succeeds cleanly.
+    await provisioner.dropRole(dbNameToRole(dbName)).catch(() => {});
   } catch (cleanupErr) {
     console.error(
       '[createForge] orphaned database — cleanup failed',

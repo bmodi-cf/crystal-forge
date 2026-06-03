@@ -100,7 +100,7 @@ async function provisionForgeArtifacts(
         dbName,
         createdAt: new Date().toISOString(),
       },
-      envExample: renderEnvExample(dbName),
+      envExample: renderEnvExample(),
       claudeSettings: renderClaudeSettings(),
       claudeBlockScript: renderBlockScript(),
       claudeMd: renderClaudeMd(name, dbName),

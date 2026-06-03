@@ -159,9 +159,18 @@ describe('createForge', () => {
       });
       expect(files!.forgeConfig.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(files!.envExample).toContain('DATABASE_URL=postgres://');
-      expect(files!.envExample).toContain('/aquaflow_designer');
+      expect(files!.envExample).toContain('injected into the forge container at runtime');
       // Database provisioned.
       expect(fakeDb.has('aquaflow_designer')).toBe(true);
+    });
+  });
+
+  it('provisions a scoped role alongside the database on create', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      await createForge(tom, { name: 'Aquaflow', description: '', groups: ['Engineering'] }, fake, fakeDb);
+      expect(fakeDb.has('aquaflow')).toBe(true);
+      expect(fakeDb.hasRole('aquaflow_app')).toBe(true);
     });
   });
 
