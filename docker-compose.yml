@@ -7,8 +7,10 @@ services:
       POSTGRES_PASSWORD: crystal
       POSTGRES_DB: crystal_forge
     ports:
-      # Host 5433 → container 5432 because another Postgres already binds 5432 on this host.
-      - "5433:5432"
+      # Bound to loopback so forge containers can't reach it via the docker gateway.
+      - "127.0.0.1:5433:5432"
+    networks:
+      - crystal-forge-net
     volumes:
       - crystal-forge-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,3 +21,7 @@ services:
 
 volumes:
   crystal-forge-pgdata:
+
+networks:
+  crystal-forge-net:
+    name: crystal-forge-net
