@@ -60,3 +60,12 @@ export async function loadRuntimePort(forgeId: string): Promise<number | null> {
   const state = await loadState();
   return state[forgeId]?.port ?? null;
 }
+
+/** No-ACL handle lookup for trusted internal callers (WS server). */
+export async function loadRuntimeHandle(
+  forgeId: string,
+): Promise<{ containerId: string; port: number } | null> {
+  const state = await loadState();
+  const e = state[forgeId];
+  return e ? { containerId: e.containerId, port: e.port } : null;
+}
