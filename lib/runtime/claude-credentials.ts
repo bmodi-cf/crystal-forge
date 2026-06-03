@@ -1,13 +1,14 @@
 /**
- * Single seam for the credentials a spawned `claude` subprocess sees.
+ * Single seam for the credentials a `claude` agent sees inside a forge
+ * container. The returned vars are injected via `docker exec -e` (they are NOT
+ * inherited by a host process anymore — the agent runs in the container).
  *
- * Today: returns an empty env override, so the child inherits the harness
- * operator's `~/.claude/` (i.e. `process.env.HOME`).
+ * Today: forwards the harness operator's `ANTHROPIC_API_KEY` when set.
  *
- * Future: a per-user variant will return `{ HOME: '/path/to/user-claude-home' }`
- * or set `CLAUDE_CONFIG_DIR` directly. Callers must NOT read these env vars
- * by other means — this is the only seam.
+ * Future: a per-user variant will inject scoped, per-forge credentials.
+ * Callers must NOT read these env vars by other means — this is the only seam.
  */
 export function claudeCredentialsEnv(): Record<string, string> {
-  return {};
+  const key = process.env.ANTHROPIC_API_KEY;
+  return key ? { ANTHROPIC_API_KEY: key } : {};
 }
