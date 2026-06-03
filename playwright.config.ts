@@ -29,6 +29,7 @@ export default defineConfig({
       GITHUB_TEMPLATE_REPO: 'bmodi-cf/crystal-forge-template-webapp',
       GITHUB_BASE_URL: 'https://github.com',
       DB_PROVISIONER_MODE: 'fake',
+      FORGE_RUNTIME_MODE: 'fake',
       CRYSTAL_FORGE_HOME: process.env.CRYSTAL_FORGE_HOME ?? `${process.cwd()}/.test-forge-home`,
       PATH: `${process.cwd()}/tests/e2e/fixtures/bin:${process.env.PATH ?? ''}`,
     },
