@@ -79,3 +79,56 @@ describe('PgDatabaseProvisioner (integration)', () => {
     await expect(provisioner.dropDatabase('"; DROP TABLE--')).rejects.toThrow(/unsafe/i);
   });
 });
+
+async function roleExists(role: string): Promise<boolean> {
+  const c = new Client({ connectionString: adminConnectionString() });
+  await c.connect();
+  try {
+    const r = await c.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role]);
+    return r.rowCount === 1;
+  } finally { await c.end(); }
+}
+
+describe('PgDatabaseProvisioner roles (integration)', () => {
+  const ROLE = '_test_provisioner_demo_app';
+  let provisioner: PgDatabaseProvisioner;
+
+  beforeEach(async () => {
+    const url = new URL(process.env.DATABASE_URL!);
+    provisioner = new PgDatabaseProvisioner({
+      host: url.hostname, port: Number(url.port || 5432),
+      user: decodeURIComponent(url.username), password: decodeURIComponent(url.password),
+    });
+    await provisioner.dropRole(ROLE).catch(() => {});
+    await dropIfExists(TEST_DB);
+    await provisioner.createDatabase(TEST_DB);
+  });
+
+  afterEach(async () => {
+    await dropIfExists(TEST_DB);
+    await provisioner.dropRole(ROLE).catch(() => {});
+  });
+
+  it('provisionRole creates the role and lets it connect with a rotated password', async () => {
+    await provisioner.provisionRole(TEST_DB, ROLE);
+    await provisioner.setRolePassword(ROLE, 'abc123def456');
+    expect(await roleExists(ROLE)).toBe(true);
+
+    const url = new URL(adminConnectionString());
+    url.username = ROLE; url.password = 'abc123def456'; url.pathname = `/${TEST_DB}`;
+    const c = new Client({ connectionString: url.toString() });
+    await c.connect();
+    try {
+      await c.query('CREATE TABLE t (id int)'); // schema privilege check
+    } finally { await c.end(); }
+  });
+
+  it('provisionRole is idempotent', async () => {
+    await provisioner.provisionRole(TEST_DB, ROLE);
+    await expect(provisioner.provisionRole(TEST_DB, ROLE)).resolves.toBeUndefined();
+  });
+
+  it('refuses unsafe role names', async () => {
+    await expect(provisioner.provisionRole(TEST_DB, 'Bad-Role')).rejects.toThrow(/unsafe/i);
+  });
+});
