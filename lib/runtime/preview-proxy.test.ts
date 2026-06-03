@@ -83,4 +83,46 @@ describe('handlePreviewProxy', () => {
     expect(res.headers.get('x-test')).toBe('yes');
     expect(await res.text()).toBe('hello');
   });
+
+  it('forwards a POST body to upstream and strips hop-by-hop request headers', async () => {
+    let receivedBody = '';
+    let upstreamHadConnection = true;
+    const res = await handlePreviewProxy(
+      new Request('http://localhost:3000/app/bmodi-test1/api/submit', {
+        method: 'POST',
+        body: 'hello=world',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          connection: 'keep-alive',
+        },
+      }),
+      'bmodi-test1',
+      makeDeps({
+        fetch: (async (_url: string | URL, init: RequestInit) => {
+          receivedBody = await new Response(init?.body as BodyInit).text();
+          upstreamHadConnection = new Headers(init?.headers).has('connection');
+          return new Response('ok', { status: 200 });
+        }) as unknown as typeof fetch,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(receivedBody).toBe('hello=world');
+    expect(upstreamHadConnection).toBe(false); // hop-by-hop header stripped
+  });
+
+  it('does not relay upstream set-cookie to the browser', async () => {
+    const res = await handlePreviewProxy(
+      new Request('http://localhost:3000/app/bmodi-test1/'),
+      'bmodi-test1',
+      makeDeps({
+        fetch: (async () =>
+          new Response('ok', {
+            status: 200,
+            headers: { 'set-cookie': 'sid=abc; Path=/' },
+          })) as unknown as typeof fetch,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
 });

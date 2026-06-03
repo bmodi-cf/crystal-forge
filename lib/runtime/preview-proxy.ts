@@ -14,15 +14,28 @@ export type PreviewProxyDeps = {
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1). We also
 // drop host/content-length so undici recomputes them for the upstream request.
+// `set-cookie` is dropped from forge-app responses on purpose: forge apps are
+// gated by the dashboard and have no identity of their own, so they must not be
+// able to plant cookies on the shared dashboard origin (which could clobber the
+// dashboard's own session cookie). Revisit when app-level identity lands.
 const STRIP_HEADERS = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length',
+  'set-cookie',
 ]);
 
 function filterHeaders(src: Headers): Headers {
+  // RFC 7230 §6.1: also strip any header named in the Connection header value.
+  const connectionListed = new Set(
+    (src.get('connection') ?? '')
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean),
+  );
   const out = new Headers();
   src.forEach((value, key) => {
-    if (!STRIP_HEADERS.has(key.toLowerCase())) out.append(key, value);
+    const k = key.toLowerCase();
+    if (!STRIP_HEADERS.has(k) && !connectionListed.has(k)) out.append(key, value);
   });
   return out;
 }
@@ -47,7 +60,7 @@ export async function handlePreviewProxy(
     (e) => e.slug === slug && e.status === 'running',
   );
   if (!entry) {
-    return new Response('Forge is not running', { status: 404 });
+    return new Response('Not found', { status: 404 });
   }
 
   const acl = await deps.loadForgeAcl(entry.forgeId);
