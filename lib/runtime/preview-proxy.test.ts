@@ -126,6 +126,23 @@ describe('handlePreviewProxy', () => {
     expect(res.headers.get('set-cookie')).toBeNull();
   });
 
+  it('does not relay upstream content-encoding (undici already decompressed the body)', async () => {
+    const res = await handlePreviewProxy(
+      new Request('http://localhost:3000/app/bmodi-test1/'),
+      'bmodi-test1',
+      makeDeps({
+        fetch: (async () =>
+          new Response('<!DOCTYPE html>', {
+            status: 200,
+            headers: { 'content-encoding': 'gzip', 'content-type': 'text/html' },
+          })) as unknown as typeof fetch,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-encoding')).toBeNull();
+    expect(await res.text()).toBe('<!DOCTYPE html>');
+  });
+
   it('rewrites an upstream redirect to the loopback origin into a relative path', async () => {
     const res = await handlePreviewProxy(
       new Request('http://localhost:3000/app/bmodi-test1/old'),

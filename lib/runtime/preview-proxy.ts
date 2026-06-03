@@ -18,10 +18,14 @@ export type PreviewProxyDeps = {
 // gated by the dashboard and have no identity of their own, so they must not be
 // able to plant cookies on the shared dashboard origin (which could clobber the
 // dashboard's own session cookie). Revisit when app-level identity lands.
+// `content-encoding` is dropped because undici (the runtime `fetch`) transparently
+// DECOMPRESSES the upstream body, so `upstream.body` is already plaintext — relaying
+// the original `content-encoding: gzip` would make the browser try to gunzip plain
+// bytes and render a blank page.
 const STRIP_HEADERS = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length',
-  'set-cookie',
+  'set-cookie', 'content-encoding',
 ]);
 
 function filterHeaders(src: Headers): Headers {
