@@ -25,7 +25,7 @@ describe('ForgeCardRuntime', () => {
         {...baseProps}
         runtime={{
           forgeId: 'f1', slug: 'marketing-frufru', status: 'running',
-          pid: 1, port: 3007, startedAt: '2026-05-09T00:00:00.000Z', logPath: '/tmp/x',
+          containerId: 'c1', port: 3007, startedAt: '2026-05-09T00:00:00.000Z', logPath: '/tmp/x',
         }}
       />,
     );
@@ -41,7 +41,7 @@ describe('ForgeCardRuntime', () => {
         {...baseProps}
         runtime={{
           forgeId: 'f1', slug: 's', status: 'crashed',
-          pid: 1, port: 3007, startedAt: 'x', logPath: '/tmp/log',
+          containerId: 'c1', port: 3007, startedAt: 'x', logPath: '/tmp/log',
         }}
       />,
     );

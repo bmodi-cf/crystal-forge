@@ -64,7 +64,7 @@ describe('allocatePort', () => {
   it('skips ports recorded in state.json', async () => {
     const p = await freePort();
     await saveState({
-      a: { forgeId: 'a', slug: 'a', status: 'running', pid: 1, port: p, startedAt: 'x', logPath: '' },
+      a: { forgeId: 'a', slug: 'a', status: 'running', containerId: 'c1', port: p, startedAt: 'x', logPath: '' },
     });
     const port = await allocatePort({ start: p, end: p + 20 });
     expect(port).not.toBe(p);
@@ -88,7 +88,7 @@ describe('allocatePort', () => {
     // ...but once that single port is taken (here via state), the pool is
     // exhausted and allocation throws.
     await saveState({
-      a: { forgeId: 'a', slug: 'a', status: 'running', pid: 1, port: p, startedAt: 'x', logPath: '' },
+      a: { forgeId: 'a', slug: 'a', status: 'running', containerId: 'c1', port: p, startedAt: 'x', logPath: '' },
     });
     await expect(allocatePort({ start: p, end: p })).rejects.toBeInstanceOf(RuntimeCapacityError);
   });

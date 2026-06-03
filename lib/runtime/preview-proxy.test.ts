@@ -12,7 +12,7 @@ const user: SessionUser = {
 const runningState: RuntimeStateFile = {
   'forge-1': {
     forgeId: 'forge-1', slug: 'bmodi-test1', status: 'running',
-    pid: 1, port: 3001, startedAt: '2026-06-02T00:00:00.000Z', logPath: '/tmp/x.log',
+    containerId: 'c1', port: 3001, startedAt: '2026-06-02T00:00:00.000Z', logPath: '/tmp/x.log',
   },
 };
 
