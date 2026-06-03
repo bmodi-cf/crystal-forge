@@ -248,3 +248,22 @@ export function getRuntimeService(): RuntimeService {
 export function resetRuntimeService(): void {
   cached = null;
 }
+
+/**
+ * Load the ACL fields needed by the preview-proxy route without throwing.
+ * Returns null when the forge does not exist.
+ */
+export async function loadForgeAcl(
+  forgeId: string,
+): Promise<{ id: string; createdById: string; groups: string[] } | null> {
+  const row = await defaultPrisma.forge.findUnique({
+    where: { id: forgeId },
+    include: { groups: { include: { group: true } } },
+  });
+  if (!row) return null;
+  return {
+    id: row.id,
+    createdById: row.createdById,
+    groups: row.groups.map((g) => g.group.name),
+  };
+}
