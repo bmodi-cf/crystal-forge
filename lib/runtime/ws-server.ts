@@ -2,20 +2,21 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { verifyTicket } from '@/lib/auth/ws-ticket';
 import { spawnClaudeSession, type Session, type SpawnOpts } from './pty-session';
-import { startTranscriptWatcher, type WatcherDeps } from './transcript-watcher';
+import type { WatcherDeps } from './transcript-watcher';
+import { startContainerTranscriptWatcher } from './container-transcript-watcher';
 import { appendMessage as defaultAppend, setClaudeSessionId as defaultSet, loadConversationLite } from '@/lib/services/conversations';
 import type { ConversationLite } from '@/lib/services/conversations';
-import { forgeClonePath as defaultForgeClonePath } from './paths';
-import { loadRuntimePort as defaultLoadForgePort } from './state';
+import { CONTAINER_WORKDIR } from './paths';
+import { loadRuntimeHandle as defaultLoadRuntimeHandle } from './state';
+import { claudeCredentialsEnv } from './claude-credentials';
 
 export type WsServerOpts = {
   port: number;
   secret: string;
   spawnPty?: (opts: SpawnOpts) => Session;
-  startWatcher?: (conversationId: string, cloneDir: string, deps: WatcherDeps) => { stop: () => void };
-  forgeClonePath?: (slug: string) => string;
+  startWatcher?: (conversationId: string, containerId: string, deps: WatcherDeps) => { stop: () => void };
   loadConversation?: (conversationId: string) => Promise<ConversationLite | null>;
-  loadForgePort?: (forgeId: string) => Promise<number | null>;
+  loadRuntimeHandle?: (forgeId: string) => Promise<{ containerId: string; port: number } | null>;
   appendMessage?: (conversationId: string, payload: { role: 'user' | 'assistant'; content: unknown; createdAt?: Date }) => Promise<void>;
   setClaudeSessionId?: (conversationId: string, sessionId: string) => Promise<void>;
 };
@@ -25,12 +26,11 @@ type ActiveSession = { ws: WebSocket; pty: Session; watcher: { stop: () => void 
 export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; port: number }> {
   const spawnPty = opts.spawnPty ?? spawnClaudeSession;
   const startWatcher = opts.startWatcher
-    ?? ((cid, dir, deps) => startTranscriptWatcher(cid, dir, deps));
-  const forgeClonePath = opts.forgeClonePath ?? defaultForgeClonePath;
+    ?? ((cid, containerId, deps) => startContainerTranscriptWatcher(cid, containerId, deps));
   const appendMessage = opts.appendMessage ?? defaultAppend;
   const setClaudeSessionId = opts.setClaudeSessionId ?? defaultSet;
   const loadConversation = opts.loadConversation ?? loadConversationLite;
-  const loadForgePort = opts.loadForgePort ?? defaultLoadForgePort;
+  const loadForgeHandle = opts.loadRuntimeHandle ?? defaultLoadRuntimeHandle;
 
   const sessions = new Map<string, ActiveSession>();
   const http: HttpServer = createServer();
@@ -45,16 +45,19 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
     const conv = await loadConversation(payload.conversationId);
     if (!conv) { ws.close(4404, 'Conversation not found'); return; }
 
-    const cwd = forgeClonePath(conv.slug);
-    const port = await loadForgePort(conv.forgeId);
-    const env: Record<string, string> = {};
-    if (port !== null) env.PORT = String(port);
+    const handle = await loadForgeHandle(conv.forgeId);
+    if (!handle) { ws.close(4404, 'Forge runtime not found'); return; }
+
+    const credFlags: string[] = [];
+    for (const [k, v] of Object.entries(claudeCredentialsEnv())) credFlags.push('-e', `${k}=${v}`);
+    const resumeArgs = conv.claudeSessionId ? ['--resume', conv.claudeSessionId] : [];
     const pty = spawnPty({
-      cwd, cols: 80, rows: 24,
-      ...(conv.claudeSessionId ? { args: ['--resume', conv.claudeSessionId] } : {}),
-      env,
+      command: 'docker',
+      args: ['exec', '-i', '-t', '-w', CONTAINER_WORKDIR, ...credFlags,
+             handle.containerId, 'claude', '--dangerously-skip-permissions', ...resumeArgs],
+      cwd: '/', cols: 80, rows: 24,
     });
-    const watcher = startWatcher(conv.id, cwd, {
+    const watcher = startWatcher(conv.id, handle.containerId, {
       appendMessage,
       setClaudeSessionId,
     });

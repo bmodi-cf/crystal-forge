@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import { startWsServer } from './ws-server';
 import { signTicket } from '@/lib/auth/ws-ticket';
+import type { SpawnOpts } from './pty-session';
 
 const SECRET = 'a'.repeat(32);
 
@@ -12,16 +13,20 @@ afterEach(() => {
   while (servers.length) servers.pop()?.stop();
 });
 
+function fakeSession() {
+  return {
+    pid: 1234,
+    write: vi.fn(),
+    resize: vi.fn(),
+    onData: vi.fn(),
+    onExit: vi.fn(),
+    kill: vi.fn(),
+  };
+}
+
 async function startServer(overrides: Partial<Parameters<typeof startWsServer>[0]> = {}) {
   const fakePty = {
-    spawn: vi.fn(() => ({
-      pid: 1234,
-      write: vi.fn(),
-      resize: vi.fn(),
-      onData: vi.fn(),
-      onExit: vi.fn(),
-      kill: vi.fn(),
-    })),
+    spawn: vi.fn(() => fakeSession()),
   };
   const fakeWatcher = {
     start: vi.fn(() => ({ stop: vi.fn() })),
@@ -31,9 +36,8 @@ async function startServer(overrides: Partial<Parameters<typeof startWsServer>[0
     secret: SECRET,
     spawnPty: fakePty.spawn,
     startWatcher: fakeWatcher.start,
-    forgeClonePath: () => '/tmp/clone',
     loadConversation: async (id: string) => ({ id, forgeId: 'f1', slug: 'aquaflow-designer', claudeSessionId: null }),
-    loadForgePort: async () => 3002,
+    loadRuntimeHandle: async () => ({ containerId: 'cid', port: 3042 }),
     ...overrides,
   });
   servers.push(server);
@@ -41,7 +45,7 @@ async function startServer(overrides: Partial<Parameters<typeof startWsServer>[0
 }
 
 describe('ws-server', () => {
-  it('accepts a valid ticket and spawns a PTY', async () => {
+  it('accepts a valid ticket and spawns a PTY against the container', async () => {
     const { server, fakePty, fakeWatcher } = await startServer();
     const tok = signTicket({ conversationId: 'c1', userId: 'u1', exp: Date.now() + 60_000 }, SECRET);
     const ws = new WebSocket(`ws://localhost:${server.port}/?token=${encodeURIComponent(tok)}`);
@@ -51,7 +55,29 @@ describe('ws-server', () => {
       setTimeout(() => reject(new Error('open timeout')), 2000);
     });
     expect(fakePty.spawn).toHaveBeenCalledTimes(1);
-    expect(fakeWatcher.start).toHaveBeenCalledWith('c1', '/tmp/clone', expect.anything());
+    expect(fakeWatcher.start).toHaveBeenCalledWith('c1', 'cid', expect.anything());
+    ws.close();
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  it('spawns the agent via docker exec ... claude --dangerously-skip-permissions', async () => {
+    let captured: SpawnOpts | null = null;
+    const { server } = await startServer({
+      spawnPty: (opts: SpawnOpts) => { captured = opts; return fakeSession(); },
+      loadRuntimeHandle: async () => ({ containerId: 'cid', port: 3042 }),
+    });
+    const tok = signTicket({ conversationId: 'c1', userId: 'u1', exp: Date.now() + 60_000 }, SECRET);
+    const ws = new WebSocket(`ws://localhost:${server.port}/?token=${encodeURIComponent(tok)}`);
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+      setTimeout(() => reject(new Error('open timeout')), 2000);
+    });
+    const opts = captured as SpawnOpts | null;
+    expect(opts?.command).toBe('docker');
+    expect(opts?.args).toEqual(expect.arrayContaining(
+      ['exec', '-i', '-t', '-w', '/workspace', 'cid', 'claude', '--dangerously-skip-permissions'],
+    ));
     ws.close();
     await new Promise((r) => setTimeout(r, 50));
   });
@@ -66,6 +92,18 @@ describe('ws-server', () => {
       setTimeout(() => resolve(-2), 2000);
     });
     expect(code).toBe(4401);
+  });
+
+  it('closes 4404 when the forge has no running container', async () => {
+    const { server } = await startServer({ loadRuntimeHandle: async () => null });
+    const tok = signTicket({ conversationId: 'c1', userId: 'u1', exp: Date.now() + 60_000 }, SECRET);
+    const ws = new WebSocket(`ws://localhost:${server.port}/?token=${encodeURIComponent(tok)}`);
+    const code = await new Promise<number>((resolve) => {
+      ws.once('close', (c) => resolve(c));
+      ws.once('error', () => resolve(-1));
+      setTimeout(() => resolve(-2), 2000);
+    });
+    expect(code).toBe(4404);
   });
 
   it('rejects a duplicate connection for the same conversation with close code 4409', async () => {
@@ -100,37 +138,12 @@ describe('ws-server', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  it('injects PORT=<forge_port> into the PTY env', async () => {
-    const spawnArgs: Array<{ env?: Record<string, string> }> = [];
-    const fakeSpawn = (opts: { env?: Record<string, string> }) => {
-      spawnArgs.push(opts);
-      return {
-        pid: 1, write: vi.fn(), resize: vi.fn(),
-        onData: vi.fn(), onExit: vi.fn(), kill: vi.fn(),
-      };
-    };
-    const { server } = await startServer({
-      spawnPty: fakeSpawn as never,
-      loadForgePort: async (forgeId: string) => (forgeId === 'f1' ? 3007 : null),
-    });
-    const tok = signTicket({ conversationId: 'c1', userId: 'u1', exp: Date.now() + 60_000 }, SECRET);
-    const ws = new WebSocket(`ws://localhost:${server.port}/?token=${encodeURIComponent(tok)}`);
-    await new Promise<void>((resolve, reject) => {
-      ws.once('open', resolve);
-      ws.once('error', reject);
-      setTimeout(() => reject(new Error('open timeout')), 2000);
-    });
-    expect(spawnArgs[0]?.env).toMatchObject({ PORT: '3007' });
-    ws.close();
-    await new Promise((r) => setTimeout(r, 50));
-  });
-
   it('uses injected appendMessage and setClaudeSessionId for the watcher', async () => {
     const customAppend = vi.fn(async () => {});
     const customSet = vi.fn(async () => {});
     let capturedDeps: { appendMessage: unknown; setClaudeSessionId: unknown } | null = null;
     const { server } = await startServer({
-      startWatcher: (cid, dir, deps) => {
+      startWatcher: (_cid, _containerId, deps) => {
         capturedDeps = { appendMessage: deps.appendMessage, setClaudeSessionId: deps.setClaudeSessionId };
         return { stop: vi.fn() };
       },
