@@ -42,21 +42,24 @@ export async function handleForgeHmrUpgrade(
   head: Buffer,
   deps: HmrUpgradeDeps,
 ): Promise<void> {
-  const kill = () => { try { socket.destroy(); } catch { /* noop */ } };
+  const kill = (reason: string) => {
+    console.warn('[hmr-proxy] rejected upgrade:', reason, req.url);
+    try { socket.destroy(); } catch { /* noop */ }
+  };
   const target = forgeHmrTarget(req.url ?? '');
-  if (!target) return kill();
+  if (!target) return kill('no-target');
 
   const token = sessionTokenFromCookies(parseCookieHeader(req.headers.cookie));
-  if (!token) return kill();
+  if (!token) return kill('no-token');
   const user = await deps.getUserBySessionToken(token);
-  if (!user) return kill();
+  if (!user) return kill('no-user');
 
   const state = await deps.loadState();
   const entry = Object.values(state).find((e) => e.slug === target.slug && e.status === 'running');
-  if (!entry) return kill();
+  if (!entry) return kill('no-entry');
 
   const acl = await deps.loadForgeAcl(entry.forgeId);
-  if (!acl || !deps.canReadForge(user, acl)) return kill();
+  if (!acl || !deps.canReadForge(user, acl)) return kill('acl-denied');
 
   const wsBase = runtimeOrigin(entry.port).replace(/^http/, 'ws');
   deps.tunnel(wsBase + target.path, req, socket, head, dashboardOrigin(req));
@@ -79,6 +82,7 @@ export const defaultTunnel: HmrUpgradeDeps['tunnel'] = (targetWsUrl, req, socket
     });
     const closeBoth = () => { try { client.close(); } catch { /* noop */ } try { upstream.close(); } catch { /* noop */ } };
     client.on('close', closeBoth); upstream.on('close', closeBoth);
-    client.on('error', closeBoth); upstream.on('error', closeBoth);
+    client.on('error', closeBoth);
+    upstream.on('error', (err) => { console.warn('[hmr-proxy] upstream error:', err.message, targetWsUrl); closeBoth(); });
   });
 };
