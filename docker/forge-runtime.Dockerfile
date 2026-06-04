@@ -12,8 +12,11 @@ RUN corepack enable && corepack prepare pnpm@9 --activate
 RUN npm install -g @anthropic-ai/claude-code@1.0.44
 
 RUN useradd -m -d /home/forge -s /bin/bash forge \
- && mkdir -p /workspace /pnpm-store \
- && chown -R forge:forge /workspace /pnpm-store
+ && mkdir -p /workspace /pnpm-store /home/forge/.claude \
+ && chown -R forge:forge /workspace /pnpm-store /home/forge
+# Pre-creating /home/forge/.claude as `forge` ensures the per-forge named volume
+# mounted there initializes with forge ownership (Docker copies the image path's
+# permissions into a fresh volume), so the agent can write its credentials.
 
 ENV HOME=/home/forge
 USER forge

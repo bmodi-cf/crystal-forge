@@ -24,6 +24,12 @@ export type ExecOpts = {
   env?: Record<string, string>;
   /** Allocate an interactive TTY (docker exec -it). For the agent PTY. */
   tty?: boolean;
+  /**
+   * Run detached (docker exec -d): returns immediately and the process keeps
+   * running in the container, reparented to PID 1. For long-lived background
+   * processes like the dev-server supervisor.
+   */
+  detached?: boolean;
   /** Append combined stdout/stderr to this host file. */
   logPath?: string;
   timeoutMs?: number;

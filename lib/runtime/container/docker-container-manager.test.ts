@@ -45,4 +45,17 @@ describe('DockerContainerManager argv', () => {
     expect(status).toEqual({ exists: true, running: true });
     expect(rec.calls[0]!.args.join(' ')).toBe('inspect -f {{.State.Running}} container123');
   });
+
+  it('exec with detached uses -d and omits the interactive flags', async () => {
+    const calls: string[][] = [];
+    const runner = { run: async (_cmd: string, args: string[]) => { calls.push(args); return { exitCode: 0 }; } };
+    const m = new DockerContainerManager({ runner });
+    await m.exec('c1', 'sh', ['-c', 'pnpm dev'], { detached: true, workdir: '/workspace' });
+    const argv = calls[0]!.join(' ');
+    expect(argv.startsWith('exec -d')).toBe(true);
+    expect(argv).not.toContain('-i');
+    expect(argv).not.toContain('-t');
+    expect(argv).toContain('-w /workspace');
+    expect(argv).toContain('c1 sh -c pnpm dev');
+  });
 });

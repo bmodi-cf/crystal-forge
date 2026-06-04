@@ -37,48 +37,39 @@ describe('makeLivenessChecker', () => {
   it('marks a forge crashed when its container is gone', async () => {
     const containers = new FakeContainerManager();
     await mutateState((s) => { s['f1'] = { forgeId: 'f1', slug: 'x', status: 'running', containerId: 'gone', port: 3042, startedAt: 'now', logPath: '/tmp/x.log' }; });
-    const check = makeLivenessChecker({ containerManager: containers, probe: async () => true });
+    const check = makeLivenessChecker({ containerManager: containers });
     await check();
     expect((await loadState())['f1']?.status).toBe('crashed');
   });
 
-  it('flips a running entry to crashed after 3 consecutive probe failures', async () => {
+  it('keeps a running forge running while its container is up (no probe-kill)', async () => {
     const containers = new FakeContainerManager();
     const id = await containers.create({ name: 'forge-a', image: 'img', labels: { 'crystal-forge.forgeId': 'a' } });
     await saveState({
       a: { forgeId: 'a', slug: 'a', status: 'running', containerId: id, port: 3001, startedAt: 'x', logPath: '' },
     });
-    const check = makeLivenessChecker({
-      containerManager: containers,
-      probe: async () => false,
-      now: () => new Date('2026-05-09T00:00:00Z'),
-      startingTimeoutMs: 60_000,
-    });
-    await check();
-    await check();
-    expect((await loadState())['a']?.status).toBe('running'); // still alive after 2 failures
-    await check();
-    expect((await loadState())['a']?.status).toBe('crashed');
-  });
-
-  it('resets failure counter on a successful probe', async () => {
-    const containers = new FakeContainerManager();
-    const id = await containers.create({ name: 'forge-a', image: 'img', labels: { 'crystal-forge.forgeId': 'a' } });
-    await saveState({
-      a: { forgeId: 'a', slug: 'a', status: 'running', containerId: id, port: 3001, startedAt: 'x', logPath: '' },
-    });
-    let calls = 0;
-    const check = makeLivenessChecker({
-      containerManager: containers,
-      probe: async () => { calls++; return calls !== 1; }, // fail once, then succeed
-      now: () => new Date(),
-      startingTimeoutMs: 60_000,
-    });
-    await check(); await check(); await check(); await check();
+    const check = makeLivenessChecker({ containerManager: containers, now: () => new Date() });
+    // Repeated checks must NOT crash a forge whose container is alive — the
+    // in-container supervisor owns dev-server restarts.
+    await check(); await check(); await check();
     expect((await loadState())['a']?.status).toBe('running');
   });
 
-  it('escalates a starting entry older than the timeout to crashed', async () => {
+  it('marks crashed WITHOUT removing the container when it stops running', async () => {
+    const containers = new FakeContainerManager();
+    const id = await containers.create({ name: 'forge-a', image: 'img', labels: { 'crystal-forge.forgeId': 'a' } });
+    await saveState({
+      a: { forgeId: 'a', slug: 'a', status: 'running', containerId: id, port: 3001, startedAt: 'x', logPath: '' },
+    });
+    await containers.stop(id); // container stopped but not removed
+    const check = makeLivenessChecker({ containerManager: containers, now: () => new Date() });
+    await check();
+    expect((await loadState())['a']?.status).toBe('crashed');
+    // Non-destructive: the container is left in place for inspection/recovery.
+    expect((await containers.inspect(id)).exists).toBe(true);
+  });
+
+  it('escalates a starting entry older than the timeout to crashed (non-destructively)', async () => {
     const containers = new FakeContainerManager();
     const id = await containers.create({ name: 'forge-a', image: 'img', labels: { 'crystal-forge.forgeId': 'a' } });
     await saveState({
@@ -89,11 +80,11 @@ describe('makeLivenessChecker', () => {
     });
     const check = makeLivenessChecker({
       containerManager: containers,
-      probe: async () => true,
       now: () => new Date('2026-05-09T00:02:00.000Z'),
       startingTimeoutMs: 60_000,
     });
     await check();
     expect((await loadState())['a']?.status).toBe('crashed');
+    expect((await containers.inspect(id)).exists).toBe(true);
   });
 });

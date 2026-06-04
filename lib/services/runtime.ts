@@ -15,7 +15,7 @@ import type { DatabaseProvisioner } from '@/lib/db/types';
 import { buildScopedDatabaseUrl } from '@/lib/db/url';
 import { probe as defaultProbe } from '@/lib/runtime/probe';
 import { mutateState, loadState } from '@/lib/runtime/state';
-import { workspaceVolumeName, CONTAINER_WORKDIR, logPath as logPathFor } from '@/lib/runtime/paths';
+import { workspaceVolumeName, claudeVolumeName, CONTAINER_WORKDIR, CLAUDE_HOME, logPath as logPathFor } from '@/lib/runtime/paths';
 import { env } from '@/lib/env';
 import type { RuntimeStateEntry, RuntimeStateView } from '@/lib/runtime/types';
 import type { SessionUser } from './types';
@@ -112,7 +112,12 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
         DATABASE_URL: databaseUrl,
       },
       publish: { hostIp: '127.0.0.1', hostPort: port, containerPort: 3000 },
-      volumes: [{ volume: workspaceVolumeName(slug), target: CONTAINER_WORKDIR }],
+      volumes: [
+        { volume: workspaceVolumeName(slug), target: CONTAINER_WORKDIR },
+        // Persist the agent's Claude home (login + conversation transcripts) so
+        // it survives container recreation — no forced re-login, --resume works.
+        { volume: claudeVolumeName(slug), target: CLAUDE_HOME },
+      ],
       network: env.FORGE_NETWORK,
     });
     await mutateState((s) => { const e = s[forgeId]; if (e) e.containerId = containerId; });
@@ -127,10 +132,12 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       throw err;
     }
 
-    // Start the dev server in the background inside the container.
+    // Start the dev server under a restart-loop supervisor so a crash self-heals
+    // instead of freezing the preview. Detached: the loop keeps running in the
+    // container (reparented to PID 1) after this exec returns.
     await deps.containerManager.exec(containerId, 'sh',
-      ['-c', `pnpm dev --port 3000 >> ${CONTAINER_WORKDIR}/.forge-dev.log 2>&1 &`],
-      { workdir: CONTAINER_WORKDIR });
+      ['-c', `while true; do pnpm dev --port 3000; echo "[forge] dev server exited (code $?); restarting in 2s"; sleep 2; done >> ${CONTAINER_WORKDIR}/.forge-dev.log 2>&1`],
+      { workdir: CONTAINER_WORKDIR, detached: true });
 
     const deadline = Date.now() + PROBE_TIMEOUT_MS;
     while (Date.now() < deadline) {

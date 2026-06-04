@@ -197,6 +197,51 @@ describe('runtime service', () => {
     });
   });
 
+  it('launches the dev server under a detached restart-loop supervisor', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const fakes = makeFakes();
+      const svc = makeRuntimeService({ ...fakes, prisma });
+      await svc.startForge(tom, forge.id);
+      const devExec = fakes._containers.execCalls.find(
+        (c) => c.cmd === 'sh' && c.args.join(' ').includes('pnpm dev'),
+      );
+      expect(devExec).toBeTruthy();
+      expect(devExec?.opts?.detached).toBe(true);
+      expect(devExec?.args.join(' ')).toMatch(/while true; do pnpm dev/);
+    });
+  });
+
+  it('mounts per-forge workspace and claude volumes', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const base = new FakeContainerManager();
+      const specs: CreateContainerSpec[] = [];
+      const recording: ContainerManager = {
+        create: (spec) => { specs.push(spec); return base.create(spec); },
+        exec: base.exec.bind(base),
+        inspect: base.inspect.bind(base),
+        stop: base.stop.bind(base),
+        remove: base.remove.bind(base),
+        list: base.list.bind(base),
+      };
+      const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
+      await svc.startForge(tom, forge.id);
+      const vols = specs[0]?.volumes ?? [];
+      expect(vols.map((v) => v.target)).toEqual(
+        expect.arrayContaining(['/workspace', '/home/forge/.claude']),
+      );
+      expect(vols.find((v) => v.target === '/home/forge/.claude')?.volume)
+        .toBe('forge-marketing-fru-fru-claude');
+    });
+  });
+
   it('startForge throws RuntimeBusyError if the entry is deleted (race with stopForge) before probe success', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });

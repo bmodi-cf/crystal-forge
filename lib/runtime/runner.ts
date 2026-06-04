@@ -1,5 +1,4 @@
 import { loadState, mutateState } from './state';
-import { probe as defaultProbe } from './probe';
 import { getContainerManager } from './container';
 import type { ContainerManager } from './container/types';
 
@@ -19,22 +18,21 @@ export async function bootCleanup(deps: BootCleanupDeps = {}): Promise<void> {
 
 export type LivenessDeps = {
   containerManager?: ContainerManager;
-  probe?: (port: number) => Promise<boolean>;
   now?: () => Date;
   startingTimeoutMs?: number;
-  failureThreshold?: number;
 };
 
 export function makeLivenessChecker(deps: LivenessDeps = {}): () => Promise<void> {
   const mgr = deps.containerManager ?? getContainerManager();
-  const probe = deps.probe ?? defaultProbe;
   const now = deps.now ?? (() => new Date());
   const startingTimeoutMs = deps.startingTimeoutMs ?? 60_000;
-  const failureThreshold = deps.failureThreshold ?? 3;
-  const failureCounts = new Map<string, number>();
 
-  async function markCrashed(forgeId: string, containerId: string) {
-    if (containerId) await mgr.remove(containerId).catch(() => {});
+  // Non-destructive: only the status changes. The container is NEVER removed
+  // here. An active forge survives dev-server hiccups (the in-container
+  // supervisor restarts `pnpm dev`), and a genuinely dead container is left in
+  // place so its logs are inspectable and the forge is recoverable. Removal
+  // happens only on explicit stopForge.
+  async function markCrashed(forgeId: string) {
     await mutateState((s) => { const e = s[forgeId]; if (e) e.status = 'crashed'; });
   }
 
@@ -43,19 +41,16 @@ export function makeLivenessChecker(deps: LivenessDeps = {}): () => Promise<void
     for (const entry of Object.values(state)) {
       if (entry.status === 'starting') {
         const ageMs = now().getTime() - new Date(entry.startedAt).getTime();
-        if (ageMs > startingTimeoutMs) await markCrashed(entry.forgeId, entry.containerId);
+        if (ageMs > startingTimeoutMs) await markCrashed(entry.forgeId);
         continue;
       }
       if (entry.status !== 'running') continue;
-      const alive = (await mgr.inspect(entry.containerId)).running;
-      const healthy = alive && await probe(entry.port);
-      if (healthy) { failureCounts.delete(entry.forgeId); continue; }
-      const next = (failureCounts.get(entry.forgeId) ?? 0) + 1;
-      failureCounts.set(entry.forgeId, next);
-      if (!alive || next >= failureThreshold) {
-        failureCounts.delete(entry.forgeId);
-        await markCrashed(entry.forgeId, entry.containerId);
-      }
+      // A failed HTTP probe is NOT a crash signal — the supervisor restarts the
+      // dev server on its own. Only a dead container means the forge is down.
+      const running = entry.containerId
+        ? (await mgr.inspect(entry.containerId)).running
+        : false;
+      if (!running) await markCrashed(entry.forgeId);
     }
   };
 }

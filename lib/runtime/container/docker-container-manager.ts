@@ -56,7 +56,9 @@ export class DockerContainerManager implements ContainerManager {
 
   async exec(id: string, cmd: string, args: string[], opts: ExecOpts = {}): Promise<{ exitCode: number }> {
     const docker = ['exec'];
-    if (opts.tty) docker.push('-i', '-t'); else docker.push('-i');
+    if (opts.detached) docker.push('-d');
+    else if (opts.tty) docker.push('-i', '-t');
+    else docker.push('-i');
     if (opts.workdir) docker.push('-w', opts.workdir);
     for (const [k, v] of Object.entries(opts.env ?? {})) docker.push('-e', `${k}=${v}`);
     docker.push(id, cmd, ...args);

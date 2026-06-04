@@ -29,3 +29,14 @@ export const CONTAINER_WORKDIR = '/workspace';
 export function workspaceVolumeName(slug: string): string {
   return `forge-${slug}`;
 }
+
+/** In-container home for the agent's Claude config, credentials, and transcripts. */
+export const CLAUDE_HOME = '/home/forge/.claude';
+
+/**
+ * Per-forge docker volume persisting the agent's Claude home so login and
+ * conversation history survive container recreation.
+ */
+export function claudeVolumeName(slug: string): string {
+  return `forge-${slug}-claude`;
+}
