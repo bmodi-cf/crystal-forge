@@ -229,11 +229,11 @@ describe('runtime service', () => {
       const svc = makeRuntimeService({ ...fakes, prisma });
       await svc.startForge(tom, forge.id);
       const devExec = fakes._containers.execCalls.find(
-        (c) => c.cmd === 'sh' && c.args.join(' ').includes('pnpm dev'),
+        (c) => c.cmd === 'sh' && c.args.join(' ').includes('pnpm build'),
       );
       expect(devExec).toBeTruthy();
       expect(devExec?.opts?.detached).toBe(true);
-      expect(devExec?.args.join(' ')).toMatch(/while true; do pnpm dev/);
+      expect(devExec?.args.join(' ')).toMatch(/while true; do pnpm build/);
     });
   });
 
