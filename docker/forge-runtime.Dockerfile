@@ -19,3 +19,7 @@ ENV HOME=/home/forge
 USER forge
 WORKDIR /workspace
 RUN pnpm config set store-dir /pnpm-store
+# pnpm 10+ blocks dependency build scripts by default and exits non-zero on any
+# unapproved ones (e.g. @prisma/engines, sharp), which breaks `pnpm install` and
+# `prisma generate`. The forge runs in a sandbox container, so allow all builds.
+RUN pnpm config set dangerouslyAllowAllBuilds true

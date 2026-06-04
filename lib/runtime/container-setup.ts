@@ -51,12 +51,21 @@ export async function setupForgeContainer(
   ]);
 
   // 3. Inject basePath wrapper (idempotent: next.config.base.ts is the marker).
-  await exec('sh', ['-c',
-    `if [ ! -f ${W}/next.config.base.ts ] && [ -f ${W}/next.config.ts ]; then ` +
-    `if grep -qE 'export[[:space:]]+default[[:space:]]+(async[[:space:]]+)?function|export[[:space:]]+default[[:space:]]*\\(' ${W}/next.config.ts; then ` +
-    `echo 'skip basePath inject (function config)'; else ` +
-    `mv ${W}/next.config.ts ${W}/next.config.base.ts && cat > ${W}/next.config.ts <<'EOF'\n${WRAPPER}EOF\n; fi; fi`,
-  ]);
+  //    Driven by `node -e` rather than a shell heredoc — the heredoc was fragile
+  //    under dash (Debian /bin/sh) and silently failed with a syntax error, so
+  //    basePath was never injected. The script is passed as a single argv element.
+  const injectScript = [
+    `const fs=require('fs');`,
+    `const dir=${JSON.stringify(W)};`,
+    `const cfg=dir+'/next.config.ts',base=dir+'/next.config.base.ts';`,
+    `if(!fs.existsSync(base)&&fs.existsSync(cfg)){`,
+    `const c=fs.readFileSync(cfg,'utf8');`,
+    `if(/export\\s+default\\s+(async\\s+)?function|export\\s+default\\s*\\(/.test(c)){`,
+    `console.log('skip basePath inject (function config)');`,
+    `}else{fs.renameSync(cfg,base);fs.writeFileSync(cfg,${JSON.stringify(WRAPPER)});}`,
+    `}`,
+  ].join('');
+  await exec('node', ['-e', injectScript]);
 
   // 4. Restore exec bit on the PreToolUse hook (GitHub contents API drops it).
   await exec('sh', ['-c',
