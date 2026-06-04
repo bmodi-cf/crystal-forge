@@ -93,6 +93,15 @@ export class PgDatabaseProvisioner implements DatabaseProvisioner {
     } finally { await admin.end(); }
   }
 
+  async hardenDatabase(name: string): Promise<void> {
+    this.assertSafe(name);
+    const admin = new Client({ connectionString: this.adminUrl });
+    await admin.connect();
+    try {
+      await admin.query(`REVOKE CONNECT ON DATABASE "${name}" FROM PUBLIC`);
+    } finally { await admin.end(); }
+  }
+
   private assertSafe(name: string): void {
     if (!SAFE_DBNAME.test(name)) {
       throw new Error(`Refusing to use unsafe database name: ${JSON.stringify(name)}`);

@@ -29,4 +29,13 @@ export interface DatabaseProvisioner {
 
   /** Drop the role if it exists (compensating action / on forge delete). */
   dropRole(role: string): Promise<void>;
+
+  /**
+   * Revoke the default PUBLIC CONNECT privilege on a database so only roles
+   * explicitly granted CONNECT (and superusers) can connect. Idempotent. Used
+   * to harden the dashboard's own database, which is not created via
+   * createDatabase/provisionRole and would otherwise be reachable by any forge
+   * role through the default PUBLIC grant.
+   */
+  hardenDatabase(name: string): Promise<void>;
 }

@@ -6,6 +6,23 @@ export async function register(): Promise<void> {
   const { env } = await import('./lib/env');
   try { await bootCleanup(); }
   catch (err) { console.error('[instrumentation] bootCleanup failed', err); }
+
+  // Harden the dashboard's own database: it is created by docker-compose /
+  // migrations (not via the provisioner), so it keeps Postgres' default PUBLIC
+  // CONNECT grant — which would let any scoped forge role connect to it. Revoke
+  // it here (idempotent; the dashboard connects as a superuser, which bypasses
+  // the check). Forge databases are already hardened in provisionRole.
+  try {
+    const { getDatabaseProvisioner } = await import('./lib/db/provisioner');
+    const dashboardDb = new URL(process.env.DATABASE_URL ?? '').pathname.replace(/^\//, '');
+    if (dashboardDb) {
+      await getDatabaseProvisioner().hardenDatabase(dashboardDb);
+      console.info(`[instrumentation] hardened dashboard DB "${dashboardDb}" (revoked PUBLIC connect)`);
+    }
+  } catch (err) {
+    console.error('[instrumentation] dashboard DB hardening failed', err);
+  }
+
   startLivenessLoop();
   console.info('[instrumentation] runtime liveness loop started');
   try {

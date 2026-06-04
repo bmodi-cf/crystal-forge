@@ -55,4 +55,11 @@ describe('FakeDatabaseProvisioner roles', () => {
     await p.dropRole('forge_x_app');
     expect(p.hasRole('forge_x_app')).toBe(false);
   });
+
+  it('hardenDatabase records the database as hardened', async () => {
+    const p = new FakeDatabaseProvisioner();
+    expect(p.isHardened('crystal_forge')).toBe(false);
+    await p.hardenDatabase('crystal_forge');
+    expect(p.isHardened('crystal_forge')).toBe(true);
+  });
 });

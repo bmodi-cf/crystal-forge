@@ -131,4 +131,22 @@ describe('PgDatabaseProvisioner roles (integration)', () => {
   it('refuses unsafe role names', async () => {
     await expect(provisioner.provisionRole(TEST_DB, 'Bad-Role')).rejects.toThrow(/unsafe/i);
   });
+
+  it('hardenDatabase revokes PUBLIC CONNECT (idempotent)', async () => {
+    const publicCanConnect = async (): Promise<boolean> => {
+      const c = new Client({ connectionString: adminConnectionString() });
+      await c.connect();
+      try {
+        const r = await c.query(
+          "SELECT has_database_privilege('public', $1, 'CONNECT') AS ok", [TEST_DB],
+        );
+        return r.rows[0].ok === true;
+      } finally { await c.end(); }
+    };
+    expect(await publicCanConnect()).toBe(true); // default grant
+    await provisioner.hardenDatabase(TEST_DB);
+    expect(await publicCanConnect()).toBe(false);
+    await expect(provisioner.hardenDatabase(TEST_DB)).resolves.toBeUndefined(); // idempotent
+    expect(await publicCanConnect()).toBe(false);
+  });
 });

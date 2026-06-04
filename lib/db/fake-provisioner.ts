@@ -5,11 +5,13 @@ type Method =
   | 'dropDatabase'
   | 'provisionRole'
   | 'setRolePassword'
-  | 'dropRole';
+  | 'dropRole'
+  | 'hardenDatabase';
 
 export class FakeDatabaseProvisioner implements DatabaseProvisioner {
   private readonly databases = new Set<string>();
   private readonly roles = new Map<string, string>();
+  private readonly hardened = new Set<string>();
   private readonly nextErrors = new Map<Method, Error>();
 
   async createDatabase(name: string): Promise<void> {
@@ -40,6 +42,11 @@ export class FakeDatabaseProvisioner implements DatabaseProvisioner {
     this.roles.delete(role);
   }
 
+  async hardenDatabase(name: string): Promise<void> {
+    this.maybeFail('hardenDatabase');
+    this.hardened.add(name);
+  }
+
   // Test helpers -----------------------------------------------------------
 
   has(name: string): boolean {
@@ -48,6 +55,7 @@ export class FakeDatabaseProvisioner implements DatabaseProvisioner {
 
   hasRole(role: string): boolean { return this.roles.has(role); }
   passwordOf(role: string): string | undefined { return this.roles.get(role); }
+  isHardened(name: string): boolean { return this.hardened.has(name); }
 
   list(): string[] {
     return [...this.databases];
