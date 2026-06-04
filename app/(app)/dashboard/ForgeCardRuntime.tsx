@@ -52,9 +52,9 @@ export function ForgeCardRuntime({ forgeId: _id, forgeName: _name, canWrite, run
       <div className="flex items-center gap-2">
         <span className={cn('h-2 w-2 rounded-full', DOT_CLASS[status])} />
         <span className="text-ink-dim">{LABEL[status]}</span>
-        {status === 'crashed' || status === 'setup-failed' ? (
-          <span className="ml-2 truncate font-mono text-[10px] text-ink-faint" title={runtime?.logPath}>
-            {runtime?.logPath ?? ''}
+        {(status === 'crashed' || status === 'setup-failed') && runtime?.setupError ? (
+          <span className="ml-2 truncate text-[10px] text-ink-faint" title={runtime.setupError}>
+            {runtime.setupError}
           </span>
         ) : null}
       </div>

@@ -197,7 +197,7 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       const state = await loadState();
       const entry = state[forgeId];
       if (!entry) return null;
-      return canWriteForge(currentUser, aclFor(row)) ? entry : redactContainerId(entry);
+      return toView(entry, canWriteForge(currentUser, aclFor(row)));
     },
 
     async listRuntimes(currentUser) {
@@ -215,16 +215,20 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       for (const [forgeId, writable] of idToWriteable) {
         const entry = state[forgeId];
         if (!entry) continue;
-        out.push(writable ? entry : redactContainerId(entry));
+        out.push(toView(entry, writable));
       }
       return out;
     },
   };
 }
 
-function redactContainerId(e: RuntimeStateEntry): RuntimeStateView {
-  const { containerId: _drop, ...rest } = e;
-  return rest;
+/**
+ * Project a state entry to its client-facing view. `logPath` (a host path) is
+ * always stripped; `containerId` is kept only for writers.
+ */
+function toView(e: RuntimeStateEntry, canWrite: boolean): RuntimeStateView {
+  const { logPath: _log, containerId, ...rest } = e;
+  return canWrite ? { ...rest, containerId } : rest;
 }
 
 function sleep(ms: number): Promise<void> {

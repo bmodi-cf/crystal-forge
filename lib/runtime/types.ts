@@ -16,8 +16,12 @@ export type RuntimeStateEntry = {
   setupError?: string;
 };
 
-/** Public-facing entry: same shape but `containerId` is omitted when the viewer cannot write the forge. */
-export type RuntimeStateView = Omit<RuntimeStateEntry, 'containerId'> & { containerId?: string };
+/**
+ * Public-facing entry. Host-internal `logPath` is ALWAYS dropped (it's a host
+ * filesystem path and must never reach the client); `containerId` is additionally
+ * omitted when the viewer cannot write the forge.
+ */
+export type RuntimeStateView = Omit<RuntimeStateEntry, 'containerId' | 'logPath'> & { containerId?: string };
 
 /**
  * On-disk shape of state.json — a flat map of forgeId → entry, exactly as

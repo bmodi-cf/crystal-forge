@@ -25,7 +25,7 @@ describe('ForgeCardRuntime', () => {
         {...baseProps}
         runtime={{
           forgeId: 'f1', slug: 'marketing-frufru', status: 'running',
-          containerId: 'c1', port: 3007, startedAt: '2026-05-09T00:00:00.000Z', logPath: '/tmp/x',
+          containerId: 'c1', port: 3007, startedAt: '2026-05-09T00:00:00.000Z',
         }}
       />,
     );
@@ -35,19 +35,22 @@ describe('ForgeCardRuntime', () => {
     expect(screen.getByRole('button', { name: /stop/i })).toBeEnabled();
   });
 
-  it('renders Crashed + retry-Start with the log path', () => {
+  it('renders Crashed + retry-Start with the setup error (never a host path)', () => {
     render(
       <ForgeCardRuntime
         {...baseProps}
         runtime={{
-          forgeId: 'f1', slug: 's', status: 'crashed',
-          containerId: 'c1', port: 3007, startedAt: 'x', logPath: '/tmp/log',
+          forgeId: 'f1', slug: 's', status: 'setup-failed',
+          containerId: 'c1', port: 3007, startedAt: 'x',
+          setupError: 'pnpm install failed (exit 1)',
         }}
       />,
     );
-    expect(screen.getByText(/Crashed/i)).toBeInTheDocument();
+    expect(screen.getByText(/Setup failed/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /start/i })).toBeEnabled();
-    expect(screen.getByText('/tmp/log')).toBeInTheDocument();
+    expect(screen.getByText('pnpm install failed (exit 1)')).toBeInTheDocument();
+    // Host paths must never reach the client.
+    expect(screen.queryByText(/\/Users\/|\/tmp\//)).toBeNull();
   });
 
   it('start click invokes onAction("start")', async () => {
