@@ -1,3 +1,4 @@
+import type { PrismaClient } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import type { SessionUser } from './types';
 
@@ -58,4 +59,18 @@ export async function getSessionUserByEmail(email: string): Promise<SessionUser 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) return null;
   return getSessionUserById(user.id);
+}
+
+/**
+ * Resolve the SessionUser for an Auth.js database-session token, or null if the
+ * token is unknown or expired. Used to authenticate raw WebSocket upgrades,
+ * which have no Next request context for `auth()`.
+ */
+export async function getUserBySessionToken(
+  sessionToken: string,
+  client: PrismaClient = prisma,
+): Promise<SessionUser | null> {
+  const session = await client.session.findUnique({ where: { sessionToken } });
+  if (!session || session.expires <= new Date()) return null;
+  return getSessionUserById(session.userId);
 }

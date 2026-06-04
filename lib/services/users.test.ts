@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll } from 'vitest';
-import { withCleanDb } from '@/lib/test/db';
-import { provisionFromEntra, getSessionUserById } from './users';
+import { withCleanDb, makeUser } from '@/lib/test/db';
+import { provisionFromEntra, getSessionUserById, getUserBySessionToken } from './users';
 
 beforeAll(async () => {
   // Confirm DB is reachable
@@ -60,6 +60,23 @@ describe('getSessionUserById', () => {
     await withCleanDb(async () => {
       const session = await getSessionUserById('00000000-0000-0000-0000-000000000000');
       expect(session).toBeNull();
+    });
+  });
+});
+
+describe('getUserBySessionToken', () => {
+  it('returns the user for a live session, null for expired/missing', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
+      await prisma.session.create({
+        data: { sessionToken: 'live-tok', userId: tom.id, expires: new Date(Date.now() + 60_000) },
+      });
+      await prisma.session.create({
+        data: { sessionToken: 'dead-tok', userId: tom.id, expires: new Date(Date.now() - 60_000) },
+      });
+      expect((await getUserBySessionToken('live-tok', prisma))?.id).toBe(tom.id);
+      expect(await getUserBySessionToken('dead-tok', prisma)).toBeNull();
+      expect(await getUserBySessionToken('nope', prisma)).toBeNull();
     });
   });
 });
