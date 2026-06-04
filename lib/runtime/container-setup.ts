@@ -9,10 +9,11 @@ const QUICK_TIMEOUT_MS = 60 * 1000;
 export type SetupOpts = { slug: string; repoFullName: string; token: string; logPath: string };
 
 // Wrapper written when injecting basePath. Mirrors clone.ts BASE_PATH_WRAPPER.
-const WRAPPER = `// crystal-forge: basePath injected for path-based reverse proxy. Do not edit.
+const WRAPPER = `// crystal-forge: basePath + dev origins injected for the reverse proxy. Do not edit.
 import base from './next.config.base';
 const basePath = process.env.FORGE_BASE_PATH || undefined;
-export default { ...base, basePath };
+const allowedDevOrigins = (process.env.FORGE_DEV_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+export default { ...base, basePath, ...(allowedDevOrigins.length ? { allowedDevOrigins } : {}) };
 `;
 
 export async function setupForgeContainer(

@@ -21,6 +21,16 @@ describe('setupForgeContainer', () => {
     expect(cmds.some((c) => c === 'pnpm prisma generate')).toBe(true);
   });
 
+  it('basePath wrapper also injects allowedDevOrigins from FORGE_DEV_ORIGINS', async () => {
+    const m = new FakeContainerManager();
+    const id = await m.create({ name: 'x', image: 'img' });
+    await setupForgeContainer(m, id, { slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log' });
+    const inject = m.execCalls.find((c) => c.cmd === 'node' && c.args.join(' ').includes('next.config.base.ts'));
+    expect(inject).toBeTruthy();
+    expect(inject!.args.join(' ')).toContain('allowedDevOrigins');
+    expect(inject!.args.join(' ')).toContain('FORGE_DEV_ORIGINS');
+  });
+
   it('throws when a step exits non-zero', async () => {
     const m = new FakeContainerManager();
     const id = await m.create({ name: 'x', image: 'img' });
