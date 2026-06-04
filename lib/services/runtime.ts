@@ -109,6 +109,7 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
         PORT: '3000',
         NEXT_TELEMETRY_DISABLED: '1',
         FORGE_BASE_PATH: `/app/${slug}`,
+        FORGE_DEV_ORIGINS: env.FORGE_DEV_ORIGINS,
         DATABASE_URL: databaseUrl,
       },
       publish: { hostIp: '127.0.0.1', hostPort: port, containerPort: 3000 },

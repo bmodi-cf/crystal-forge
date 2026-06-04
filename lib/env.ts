@@ -45,6 +45,9 @@ const baseSchema = z.object({
   FORGE_RUNTIME_MODE: z.enum(['docker', 'fake']).default('docker'),
   FORGE_RUNTIME_IMAGE: z.string().default('crystal-forge-runtime:latest'),
   FORGE_NETWORK: z.string().default('crystal-forge-net'),
+  // Comma-separated hostnames the forge dev server trusts for cross-origin dev
+  // requests (Next allowedDevOrigins). Must include the dashboard/pilot host(s).
+  FORGE_DEV_ORIGINS: z.string().default('localhost'),
   // How a forge container reaches the shared pg engine (service name on the
   // dedicated docker network — NOT the host-published 5433).
   CONTAINER_PG_HOST: z.string().default('crystal-forge-pg'),

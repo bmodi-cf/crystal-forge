@@ -197,6 +197,28 @@ describe('runtime service', () => {
     });
   });
 
+  it('injects FORGE_DEV_ORIGINS into the forge container env', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const base = new FakeContainerManager();
+      const specs: CreateContainerSpec[] = [];
+      const recording: ContainerManager = {
+        create: (spec) => { specs.push(spec); return base.create(spec); },
+        exec: base.exec.bind(base),
+        inspect: base.inspect.bind(base),
+        stop: base.stop.bind(base),
+        remove: base.remove.bind(base),
+        list: base.list.bind(base),
+      };
+      const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
+      await svc.startForge(tom, forge.id);
+      expect(specs[0]?.env?.FORGE_DEV_ORIGINS).toBe('localhost');
+    });
+  });
+
   it('launches the dev server under a detached restart-loop supervisor', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
