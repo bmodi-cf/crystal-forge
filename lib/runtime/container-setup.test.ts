@@ -31,6 +31,16 @@ describe('setupForgeContainer', () => {
     expect(inject!.args.join(' ')).toContain('FORGE_DEV_ORIGINS');
   });
 
+  it('inject script re-writes stale wrapper that lacks allowedDevOrigins', async () => {
+    const m = new FakeContainerManager();
+    const id = await m.create({ name: 'x', image: 'img' });
+    await setupForgeContainer(m, id, { slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log' });
+    const inject = m.execCalls.find((c) => c.cmd === 'node');
+    // The inject script must contain the stale-wrapper re-injection branch.
+    expect(inject!.args.join(' ')).toContain('updated stale basePath wrapper');
+    expect(inject!.args.join(' ')).toContain('cur!==wrapper');
+  });
+
   it('throws when a step exits non-zero', async () => {
     const m = new FakeContainerManager();
     const id = await m.create({ name: 'x', image: 'img' });

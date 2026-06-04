@@ -51,7 +51,10 @@ export async function setupForgeContainer(
     `test -f ${W}/.env.local || { test -f ${W}/.env.example && cp ${W}/.env.example ${W}/.env.local; } || true`,
   ]);
 
-  // 3. Inject basePath wrapper (idempotent: next.config.base.ts is the marker).
+  // 3. Inject basePath wrapper. Idempotent: next.config.base.ts is the marker that
+  //    the wrapper was already injected. Also re-injects when the wrapper is stale
+  //    (i.e. missing allowedDevOrigins), so old containers pick up new features on
+  //    the next start without manual intervention.
   //    Driven by `node -e` rather than a shell heredoc — the heredoc was fragile
   //    under dash (Debian /bin/sh) and silently failed with a syntax error, so
   //    basePath was never injected. The script is passed as a single argv element.
@@ -59,11 +62,17 @@ export async function setupForgeContainer(
     `const fs=require('fs');`,
     `const dir=${JSON.stringify(W)};`,
     `const cfg=dir+'/next.config.ts',base=dir+'/next.config.base.ts';`,
+    `const wrapper=${JSON.stringify(WRAPPER)};`,
     `if(!fs.existsSync(base)&&fs.existsSync(cfg)){`,
+    // First-time injection: rename original → base, write wrapper.
     `const c=fs.readFileSync(cfg,'utf8');`,
     `if(/export\\s+default\\s+(async\\s+)?function|export\\s+default\\s*\\(/.test(c)){`,
     `console.log('skip basePath inject (function config)');`,
-    `}else{fs.renameSync(cfg,base);fs.writeFileSync(cfg,${JSON.stringify(WRAPPER)});}`,
+    `}else{fs.renameSync(cfg,base);fs.writeFileSync(cfg,wrapper);}`,
+    `}else if(fs.existsSync(base)&&fs.existsSync(cfg)){`,
+    // Re-inject stale wrapper (e.g. missing allowedDevOrigins from older release).
+    `const cur=fs.readFileSync(cfg,'utf8');`,
+    `if(cur!==wrapper){fs.writeFileSync(cfg,wrapper);console.log('updated stale basePath wrapper');}`,
     `}`,
   ].join('');
   await exec('node', ['-e', injectScript]);
