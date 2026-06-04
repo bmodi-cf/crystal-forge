@@ -61,7 +61,15 @@ If the script exits early, read the output and surface the actual message verbat
 
 ## Phase 4 — Announce the URL
 
-The script prints its own "starting dev server" banner before handing off to `pnpm dev`. Once `Ready in` appears in the dev-server output, print a separate **ready** banner. The script's port check guarantees the URL is `http://localhost:3030`:
+The script prints its own "starting dev server" banner before handing off to `pnpm dev`. Once `Ready in` appears in the dev-server output, open the app in the default browser, then print a separate **ready** banner. The script's port check guarantees the URL is `http://localhost:3030`.
+
+Open the URL automatically (macOS `open`; the script only auto-starts Docker on macOS, so this matches the supported launch path):
+
+```bash
+open http://localhost:3030
+```
+
+If `open` fails (e.g. a non-macOS host), don't treat it as a launch failure — just note the URL in the banner so the user can open it manually. Then print:
 
 ```
 ╔══════════════════════════════════════════╗
