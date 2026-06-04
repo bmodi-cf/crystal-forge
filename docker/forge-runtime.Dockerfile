@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      git ca-certificates python3 build-essential procps coreutils \
+      git ca-certificates python3 build-essential procps coreutils jq \
  && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
