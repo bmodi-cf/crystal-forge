@@ -133,6 +133,23 @@ To configure it: Entra admin center → **App registrations** → your app →
 - `eslint-rules/` — local ESLint rules
 - `docs/superpowers/` — design specs and implementation plans
 
+## Pilot / deployment
+
+### nginx (pilot): WebSocket passthrough for forge HMR
+
+The dashboard runs forge previews under `/app/<slug>/` and tunnels each forge's
+Fast Refresh WebSocket through the same origin. The `location` block that
+forwards to the dashboard must carry the WebSocket upgrade headers:
+
+```nginx
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";
+```
+
+This is a one-time, non-per-forge addition. Forge runtime ports stay
+loopback-bound and are never exposed.
+
 ## Troubleshooting
 
 - **Port 5433 already in use** — change the host port in `docker-compose.yml` and update `DATABASE_URL` in `.env.local`.
