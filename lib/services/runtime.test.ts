@@ -257,9 +257,9 @@ describe('runtime service', () => {
       await svc.startForge(tom, forge.id);
       const vols = specs[0]?.volumes ?? [];
       expect(vols.map((v) => v.target)).toEqual(
-        expect.arrayContaining(['/workspace', '/home/forge/.claude']),
+        expect.arrayContaining(['/workspace', '/home/forge']),
       );
-      expect(vols.find((v) => v.target === '/home/forge/.claude')?.volume)
+      expect(vols.find((v) => v.target === '/home/forge')?.volume)
         .toBe('forge-marketing-fru-fru-claude');
     });
   });

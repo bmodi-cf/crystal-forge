@@ -82,6 +82,32 @@ export async function setupForgeContainer(
     `test -f ${W}/.claude/hooks/block-dangerous-commands.sh && chmod 755 ${W}/.claude/hooks/block-dangerous-commands.sh || true`,
   ]);
 
+  // 4b. Inject restart-app.sh so the agent can trigger a production rebuild
+  //     without needing dashboard access. Kills next-server; the supervisor
+  //     loop detects the exit and runs `pnpm build && pnpm start` automatically.
+  //     Also writes .claude/settings.json to pre-approve the script so the
+  //     agent is never prompted. Both files belong in the template repo long-
+  //     term; this injection covers forges until the template is updated.
+  await exec('sh', ['-c', [
+    `cat > ${W}/restart-app.sh << 'RESTART_EOF'`,
+    `#!/bin/sh`,
+    `echo "[restart-app] stopping server — supervisor will rebuild and restart (~60s)..."`,
+    `pkill -f next-server 2>/dev/null || pkill -f "next start" 2>/dev/null || true`,
+    `echo "[restart-app] done."`,
+    `RESTART_EOF`,
+    `chmod +x ${W}/restart-app.sh`,
+  ].join('\n')]);
+  await exec('sh', ['-c', [
+    `mkdir -p ${W}/.claude`,
+    `cat > ${W}/.claude/settings.json << 'SETTINGS_EOF'`,
+    `{`,
+    `  "permissions": {`,
+    `    "allow": ["Bash(./restart-app.sh)", "Bash(/workspace/restart-app.sh)"]`,
+    `  }`,
+    `}`,
+    `SETTINGS_EOF`,
+  ].join('\n')]);
+
   // 5. Install deps if node_modules is absent.
   const modulesPresent = (await exec('test', ['-d', `${W}/node_modules`])).exitCode === 0;
   if (!modulesPresent) {

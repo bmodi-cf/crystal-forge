@@ -7,9 +7,9 @@ describe('setupForgeContainer', () => {
     const m = new FakeContainerManager();
     const id = await m.create({ name: 'x', image: 'img' });
     // Simulate a fresh container: the `test -d .git` (call 1) and
-    // `test -d node_modules` (call 7) probes report ABSENT (exit 1) so the
+    // `test -d node_modules` (call 9) probes report ABSENT (exit 1) so the
     // clone and install steps actually run; every other step succeeds (exit 0).
-    [1, 0, 0, 0, 0, 0, 1].forEach((code) => m.queueExit(code));
+    [1, 0, 0, 0, 0, 0, 0, 0, 1].forEach((code) => m.queueExit(code));
     await setupForgeContainer(m, id, {
       slug: 'acme', repoFullName: 'org/acme', token: 'gh_tok', logPath: '/tmp/acme.log',
     });

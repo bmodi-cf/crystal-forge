@@ -31,7 +31,10 @@ export function workspaceVolumeName(slug: string): string {
 }
 
 /** In-container home for the agent's Claude config, credentials, and transcripts. */
-export const CLAUDE_HOME = '/home/forge/.claude';
+/** Mount point for the per-forge Claude home volume — covers the entire user
+ *  home so ~/.claude/ (credentials) and ~/.claude.json (global config/userID)
+ *  both persist across container restarts without any symlink tricks. */
+export const CLAUDE_HOME = '/home/forge';
 
 /**
  * Per-forge docker volume persisting the agent's Claude home so login and
