@@ -44,7 +44,40 @@ function makeFakes() {
   };
 }
 
+async function waitForRuntime(
+  svc: ReturnType<typeof makeRuntimeService>,
+  user: Parameters<ReturnType<typeof makeRuntimeService>['getRuntime']>[0],
+  forgeId: string,
+  pred: (r: Awaited<ReturnType<ReturnType<typeof makeRuntimeService>['getRuntime']>>) => boolean,
+  timeoutMs = 2000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const r = await svc.getRuntime(user, forgeId);
+    if (pred(r)) return r;
+    if (Date.now() > deadline) throw new Error(`waitForRuntime timed out; last=${JSON.stringify(r)}`);
+    await new Promise((res) => setTimeout(res, 5));
+  }
+}
+
 describe('runtime service', () => {
+  it('startForge returns a starting entry immediately and brings the forge up in the background', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const svc = makeRuntimeService({ ...makeFakes(), prisma });
+      const entry = await svc.startForge(tom, forge.id);
+      // Returns before the (slow) container build + health probe complete.
+      expect(entry.status).toBe('starting');
+      expect(entry.containerId).toBe('');
+      // The bring-up proceeds asynchronously and eventually reports running.
+      const ready = await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+      expect(ready?.containerId).toMatch(/^fake-/);
+    });
+  });
+
   it('startForge writes a starting entry, then flips to running on probe success', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
@@ -54,10 +87,11 @@ describe('runtime service', () => {
       const fakes = makeFakes();
       const svc = makeRuntimeService({ ...fakes, prisma });
       const result = await svc.startForge(tom, forge.id);
-      expect(result.status).toBe('running');
-      expect(result.port).toBeGreaterThanOrEqual(3001);
-      expect(result.containerId).toMatch(/^fake-/);
-      expect((await fakes._containers.inspect(result.containerId)).running).toBe(true);
+      expect(result.status).toBe('starting');
+      const ready = await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+      expect(ready?.port).toBeGreaterThanOrEqual(3001);
+      expect(ready?.containerId).toMatch(/^fake-/);
+      expect((await fakes._containers.inspect(ready!.containerId!)).running).toBe(true);
       expect(fakes._calls.probes.length).toBeGreaterThan(0);
     });
   });
@@ -88,6 +122,7 @@ describe('runtime service', () => {
       });
       const [a, b] = await Promise.all([svc.startForge(tom, forge.id), svc.startForge(tom, forge.id)]);
       expect(a.port).toBe(b.port);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
       expect(setupCalls).toBe(1);
     });
   });
@@ -103,9 +138,9 @@ describe('runtime service', () => {
         prisma,
         setup: async () => { throw new Error('git clone exploded'); },
       });
-      await expect(svc.startForge(tom, forge.id)).rejects.toThrow('git clone exploded');
-      const got = await svc.getRuntime(tom, forge.id);
-      expect(got?.status).toBe('setup-failed');
+      const entry = await svc.startForge(tom, forge.id);
+      expect(entry.status).toBe('starting');
+      const got = await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'setup-failed');
       expect(got?.setupError).toContain('git clone exploded');
     });
   });
@@ -120,6 +155,7 @@ describe('runtime service', () => {
       const first = await svc.startForge(tom, forge.id);
       const second = await svc.startForge(tom, forge.id);
       expect(second.port).toBe(first.port);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
     });
   });
 
@@ -135,9 +171,13 @@ describe('runtime service', () => {
         prisma,
         setup: async () => { if (attempt++ === 0) throw new Error('first try fails'); },
       });
-      await expect(svc.startForge(tom, forge.id)).rejects.toThrow();
-      const ok = await svc.startForge(tom, forge.id);
-      expect(ok.status).toBe('running');
+      // First attempt fails during background bring-up → setup-failed.
+      await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'setup-failed');
+      // A fresh start clears the failed entry and brings the forge up.
+      await svc.startForge(tom, forge.id);
+      const ok = await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+      expect(ok?.status).toBe('running');
     });
   });
 
@@ -163,7 +203,11 @@ describe('runtime service', () => {
       };
       const svc = makeRuntimeService({ ...makeFakes(), prisma, provisioner });
       const result = await svc.startForge(tom, forge.id);
-      expect(result.status).toBe('running');
+      expect(result.status).toBe('starting');
+      // provisionRole runs during the background bring-up, so the role exists
+      // by the time setRolePassword is called and the forge reaches running.
+      const ready = await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+      expect(ready?.status).toBe('running');
     });
   });
 
@@ -175,9 +219,11 @@ describe('runtime service', () => {
       });
       const fakes = makeFakes();
       const svc = makeRuntimeService({ ...fakes, prisma });
-      const entry = await svc.startForge(tom, forge.id);
+      await svc.startForge(tom, forge.id);
+      const ready = await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+      const containerId = ready!.containerId!;
       await svc.stopForge(tom, forge.id);
-      expect((await fakes._containers.inspect(entry.containerId)).exists).toBe(false);
+      expect((await fakes._containers.inspect(containerId)).exists).toBe(false);
       expect(await svc.getRuntime(tom, forge.id)).toBeNull();
       await svc.stopForge(tom, forge.id); // idempotent — no throw
     });
@@ -192,6 +238,7 @@ describe('runtime service', () => {
       });
       const svc = makeRuntimeService({ ...makeFakes(), prisma });
       await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
       const tomList = await svc.listRuntimes(tom);
       const readerList = await svc.listRuntimes(reader);
       expect(tomList[0]?.containerId).toMatch(/^fake-/);
@@ -217,6 +264,7 @@ describe('runtime service', () => {
       };
       const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
       await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
       expect(specs).toHaveLength(1);
       expect(specs[0]?.env?.FORGE_BASE_PATH).toBe('/app/marketing-fru-fru');
       expect(specs[0]?.env?.DATABASE_URL).toContain('marketing_fru_fru_app');
@@ -242,6 +290,7 @@ describe('runtime service', () => {
       };
       const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
       await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
       expect(specs[0]?.env?.FORGE_DEV_ORIGINS).toBe('localhost');
     });
   });
@@ -255,6 +304,7 @@ describe('runtime service', () => {
       const fakes = makeFakes();
       const svc = makeRuntimeService({ ...fakes, prisma });
       await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
       const devExec = fakes._containers.execCalls.find(
         (c) => c.cmd === 'sh' && c.args.join(' ').includes('pnpm build'),
       );
@@ -282,6 +332,7 @@ describe('runtime service', () => {
       };
       const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
       await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
       const vols = specs[0]?.volumes ?? [];
       expect(vols.map((v) => v.target)).toEqual(
         expect.arrayContaining(['/workspace', '/home/forge']),
@@ -291,7 +342,7 @@ describe('runtime service', () => {
     });
   });
 
-  it('startForge throws RuntimeBusyError if the entry is deleted (race with stopForge) before probe success', async () => {
+  it('background bring-up does not resurrect an entry deleted (race with stopForge) before probe success', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
       const forge = await makeForge(prisma, {
@@ -309,7 +360,11 @@ describe('runtime service', () => {
           return true;
         },
       });
-      await expect(svc.startForge(tom, forge.id)).rejects.toThrow(/stopped while starting/i);
+      const entry = await svc.startForge(tom, forge.id);
+      expect(entry.status).toBe('starting');
+      // The probe deletes the entry; the background bring-up must leave it gone
+      // (a 'running' write would resurrect a forge the user just stopped).
+      await waitForRuntime(svc, tom, forge.id, (r) => r === null);
       expect(await svc.getRuntime(tom, forge.id)).toBeNull();
     });
   });

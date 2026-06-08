@@ -64,7 +64,14 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
     return { id: row.id, createdById: row.createdById, groups: row.groupNames };
   }
 
-  async function doStart(currentUser: SessionUser, forgeId: string): Promise<RuntimeStateEntry> {
+  type BeginResult =
+    | { launch: false; entry: RuntimeStateEntry }
+    | { launch: true; entry: RuntimeStateEntry; repoFullName: string; dbName: string; role: string };
+
+  // Fast phase: ACL + dispatch on existing state + write the 'starting' entry.
+  // Returns synchronously enough to answer the HTTP request; the caller then
+  // runs finishStart in the background. Access/not-found errors surface here.
+  async function beginStart(currentUser: SessionUser, forgeId: string): Promise<BeginResult> {
     const row = await loadForgeForAcl(forgeId);
     if (!canWriteForge(currentUser, aclFor(row))) {
       throw new ForbiddenError(`Cannot start forge ${forgeId}`);
@@ -76,7 +83,9 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
     const state = await loadState();
     const existing = state[forgeId];
     if (existing) {
-      if (existing.status === 'running' || existing.status === 'starting') return existing;
+      if (existing.status === 'running' || existing.status === 'starting') {
+        return { launch: false, entry: existing };
+      }
       if (existing.status === 'stopping') {
         throw new RuntimeBusyError('Forge is currently stopping; try again shortly');
       }
@@ -95,6 +104,22 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       containerId: '', port, startedAt, logPath: log,
     };
     await mutateState((s) => { s[forgeId] = baseEntry; });
+    return { launch: true, entry: baseEntry, repoFullName: row.repoFullName, dbName, role };
+  }
+
+  // Slow phase: provision DB role, create + set up the container, launch the
+  // production supervisor, and probe for health. Runs in the background after
+  // beginStart; records the terminal status (running / setup-failed / crashed)
+  // in state for the client poller. The liveness loop is the backstop if this
+  // throws before writing a terminal status.
+  async function finishStart(
+    forgeId: string,
+    baseEntry: RuntimeStateEntry,
+    repoFullName: string,
+    dbName: string,
+    role: string,
+  ): Promise<void> {
+    const { slug, port, logPath: log } = baseEntry;
 
     // Ensure the scoped role exists before rotating its password. The role is
     // normally created at forge creation (provisionRole), but a forge whose
@@ -132,12 +157,12 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
 
     try {
       const token = await deps.githubClient.getInstallationToken();
-      await deps.setup(deps.containerManager, containerId, { slug, repoFullName: row.repoFullName, token, logPath: log });
+      await deps.setup(deps.containerManager, containerId, { slug, repoFullName, token, logPath: log });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await deps.containerManager.remove(containerId).catch(() => {});
       await mutateState((s) => { s[forgeId] = { ...baseEntry, containerId, status: 'setup-failed', setupError: msg }; });
-      throw err;
+      return; // terminal state recorded; the client poller surfaces it
     }
 
     // Build and start in production mode. A restart-loop supervisor self-heals
@@ -154,16 +179,19 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
         let written = false;
         await mutateState((s) => { if (s[forgeId]) { s[forgeId] = final; written = true; } });
         if (!written) {
+          // The entry was deleted mid-start (a concurrent stopForge won the
+          // race). Don't resurrect it — tear the container back down and stop.
           await deps.containerManager.remove(containerId).catch(() => {});
-          throw new RuntimeBusyError('Forge was stopped while starting');
         }
-        return final;
+        return;
       }
       await sleep(PROBE_INTERVAL_MS);
     }
+    // Didn't become healthy within PROBE_TIMEOUT_MS — record crashed and stop.
+    // The client poller surfaces it; the supervisor inside the container keeps
+    // trying to build/start, so a later manual restart can still succeed.
     await deps.containerManager.remove(containerId).catch(() => {});
     await mutateState((s) => { const e = s[forgeId]; if (e) e.status = 'crashed'; });
-    throw new Error(`Forge ${slug} failed to become healthy within ${PROBE_TIMEOUT_MS}ms`);
   }
 
   async function doStop(currentUser: SessionUser, forgeId: string): Promise<void> {
@@ -189,9 +217,21 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
     async startForge(currentUser, forgeId) {
       const cached = startInflight.get(forgeId);
       if (cached) return cached;
-      const p = doStart(currentUser, forgeId)
-        .finally(() => startInflight.delete(forgeId));
+      // Resolve once the 'starting' entry is written, then bring the forge up in
+      // the background. The HTTP request returns promptly (avoiding a gateway
+      // timeout on the slow container build); the client polls /api/forges/runtime
+      // for the starting → running/crashed/setup-failed transition. Concurrent
+      // starts collapse onto this promise during the begin phase; once it clears,
+      // the persisted 'starting' state keeps a second start from launching twice.
+      const p = beginStart(currentUser, forgeId).then((begun) => {
+        if (begun.launch) {
+          void finishStart(forgeId, begun.entry, begun.repoFullName, begun.dbName, begun.role)
+            .catch((err) => { console.error('[runtime] forge bring-up failed', forgeId, err); });
+        }
+        return begun.entry;
+      });
       startInflight.set(forgeId, p);
+      void p.catch(() => {}).finally(() => startInflight.delete(forgeId));
       return p;
     },
 
