@@ -7,6 +7,7 @@ import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { FakeGitHubClient } from '@/lib/github/fake-client';
 import { FakeContainerManager } from '@/lib/runtime/container/fake-container-manager';
 import { FakeDatabaseProvisioner } from '@/lib/db/fake-provisioner';
+import type { DatabaseProvisioner } from '@/lib/db/types';
 import type { ContainerManager, CreateContainerSpec } from '@/lib/runtime/container/types';
 import { makeRuntimeService } from './runtime';
 import { ForbiddenError } from '@/lib/errors';
@@ -137,6 +138,32 @@ describe('runtime service', () => {
       await expect(svc.startForge(tom, forge.id)).rejects.toThrow();
       const ok = await svc.startForge(tom, forge.id);
       expect(ok.status).toBe('running');
+    });
+  });
+
+  it('startForge provisions the scoped role before setting its password (self-heals a missing role)', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      // Mimic Postgres: ALTER ROLE on a role that was never CREATEd fails
+      // (error 42704). The role only exists if provisionRole ran first, so
+      // start must (idempotently) provision it before rotating the password.
+      const roles = new Set<string>();
+      const provisioner: DatabaseProvisioner = {
+        createDatabase: async () => {},
+        dropDatabase: async () => {},
+        provisionRole: async (_db, role) => { roles.add(role); },
+        setRolePassword: async (role) => {
+          if (!roles.has(role)) throw new Error(`role "${role}" does not exist`);
+        },
+        dropRole: async () => {},
+        hardenDatabase: async () => {},
+      };
+      const svc = makeRuntimeService({ ...makeFakes(), prisma, provisioner });
+      const result = await svc.startForge(tom, forge.id);
+      expect(result.status).toBe('running');
     });
   });
 

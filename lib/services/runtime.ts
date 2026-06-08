@@ -96,8 +96,15 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
     };
     await mutateState((s) => { s[forgeId] = baseEntry; });
 
-    // Rotate the scoped DB password and build the URL injected into the container.
+    // Ensure the scoped role exists before rotating its password. The role is
+    // normally created at forge creation (provisionRole), but a forge whose
+    // role is missing — created before role-provisioning, a reset DB, or a
+    // partial creation — would otherwise crash here: setRolePassword issues an
+    // ALTER ROLE, which errors if the role doesn't exist. provisionRole is
+    // idempotent (CREATE ROLE IF NOT EXISTS), so calling it every start
+    // self-heals without affecting forges whose role is already present.
     const password = randomBytes(24).toString('hex');
+    await deps.provisioner.provisionRole(dbName, role);
     await deps.provisioner.setRolePassword(role, password);
     const databaseUrl = buildScopedDatabaseUrl({ role, password, database: dbName });
 
