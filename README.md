@@ -135,6 +135,8 @@ To configure it: Entra admin center → **App registrations** → your app →
 
 ## Pilot / deployment
 
+See [`docs/DEPLOY.md`](docs/DEPLOY.md) for the production setup (systemd service, nginx, rebuild-on-restart).
+
 ### nginx (pilot): WebSocket passthrough for forge HMR
 
 The dashboard runs forge previews under `/app/<slug>/` and tunnels each forge's
