@@ -1,5 +1,5 @@
 import { createServer, type Server as HttpServer } from 'node:http';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import { verifyTicket } from '@/lib/auth/ws-ticket';
 import { spawnClaudeSession, type Session, type SpawnOpts } from './pty-session';
 import type { WatcherDeps } from './transcript-watcher';
