@@ -20,3 +20,10 @@ dotenv.config({ path: '.env.local' });
 })();
 
 import '@testing-library/jest-dom/vitest';
+
+// jsdom does not implement Element.prototype.scrollIntoView. Components that
+// auto-scroll (e.g. MessageHistory) call it inside effects, which throws under
+// jsdom. Stub it globally so those effects are no-ops in tests.
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
