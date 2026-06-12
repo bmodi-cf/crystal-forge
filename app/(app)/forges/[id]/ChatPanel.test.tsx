@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
 
+// jsdom does not implement ResizeObserver
+global.ResizeObserver = class { observe = vi.fn(); disconnect = vi.fn(); unobserve = vi.fn(); } as unknown as typeof ResizeObserver;
+
 vi.mock('./useChatSession', () => ({
   useChatSession: vi.fn(() => ({
     status: 'idle',
@@ -12,6 +15,10 @@ vi.mock('./useChatSession', () => ({
     onData: vi.fn(() => () => {}),
     end: vi.fn(async () => {}),
   })),
+}));
+
+vi.mock('./useConversationMessages', () => ({
+  useConversationMessages: vi.fn(() => ({ messages: [], refetch: vi.fn() })),
 }));
 
 // xterm uses browser APIs (matchMedia, WebGL, canvas) that jsdom does not
@@ -35,6 +42,11 @@ vi.mock('@xterm/addon-fit', () => {
     this.dispose = vi.fn();
   });
   return { FitAddon };
+});
+
+vi.mock('@xterm/addon-web-links', () => {
+  const WebLinksAddon = vi.fn(function (this: Record<string, unknown>) {});
+  return { WebLinksAddon };
 });
 
 describe('ChatPanel', () => {

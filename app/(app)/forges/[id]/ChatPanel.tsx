@@ -6,6 +6,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { useChatSession, type ChatStatus } from './useChatSession';
+import { useConversationMessages } from './useConversationMessages';
+import { ConversationHistory } from './ConversationHistory';
 
 type Props = {
   forgeId: string;
@@ -23,6 +25,7 @@ const STATUS_LABEL: Record<ChatStatus, string> = {
 export function ChatPanel({ forgeId, conversationId }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const session = useChatSession(forgeId, conversationId);
+  const { messages } = useConversationMessages(forgeId, conversationId, session.status === 'open');
 
   useEffect(() => {
     if (!conversationId || !hostRef.current) return;
@@ -37,22 +40,17 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     term.loadAddon(new WebLinksAddon());
     term.open(hostRef.current);
     const refit = () => { fit.fit(); session.resize(term.cols, term.rows); };
-    // ResizeObserver handles subsequent container size changes (sidebar, window resize).
     const observer = new ResizeObserver(refit);
     observer.observe(hostRef.current);
-    // Defer the initial fit one frame: on fresh navigation the flex layout
-    // hasn't settled when ResizeObserver first fires, so xterm measures too small.
-    const rafId = requestAnimationFrame(refit);
-    // Prevent scroll wheel from reaching xterm: in tmux's alternate screen mode
-    // xterm translates wheel events to arrow keys, which navigates shell history.
-    const onWheel = (e: WheelEvent) => e.preventDefault();
-    hostRef.current.addEventListener('wheel', onWheel, { passive: false });
+    const timerId = setTimeout(refit, 0);
+    const onWheel = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); };
+    hostRef.current.addEventListener('wheel', onWheel, { passive: false, capture: true });
     const dataDispose = term.onData((data) => session.send(data));
     const unsub = session.onData((chunk) => term.write(chunk));
     return () => {
-      cancelAnimationFrame(rafId);
+      clearTimeout(timerId);
       observer.disconnect();
-      hostRef.current?.removeEventListener('wheel', onWheel);
+      hostRef.current?.removeEventListener('wheel', onWheel, { capture: true });
       dataDispose.dispose();
       unsub();
       term.dispose();
@@ -69,7 +67,8 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11px] text-ink-faint">
+      {/* status bar */}
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11px] text-ink-faint shrink-0">
         <span>{STATUS_LABEL[session.status]}</span>
         <div className="flex items-center gap-3">
           {session.errorMessage ? <span className="text-[#d96868]">{session.errorMessage}</span> : null}
@@ -83,7 +82,16 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
           </button>
         </div>
       </div>
-      <div data-testid="xterm-host" ref={hostRef} className="flex-1 overflow-hidden bg-[#0c0e12]" />
+
+      {/* conversation history — scrollable React view */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <ConversationHistory messages={messages} />
+      </div>
+
+      {/* live terminal strip */}
+      <div className="shrink-0 h-[40%] border-t border-border">
+        <div data-testid="xterm-host" ref={hostRef} className="h-full bg-[#0c0e12]" />
+      </div>
     </div>
   );
 }
