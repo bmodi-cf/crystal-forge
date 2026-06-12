@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -22,10 +22,34 @@ const STATUS_LABEL: Record<ChatStatus, string> = {
   error: 'Error',
 };
 
+// Matches https URLs that Claude Code prints during the OAuth flow.
+const AUTH_URL_RE = /https:\/\/\S+claude\.ai\S*/;
+
+// Strip ANSI escape codes so we can grep plain text from the PTY stream.
+const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
+
 export function ChatPanel({ forgeId, conversationId }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const session = useChatSession(forgeId, conversationId);
   const { messages } = useConversationMessages(forgeId, conversationId, session.status === 'open');
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+
+  // Scan raw PTY output for the Claude Code auth URL and surface it as a
+  // persistent banner — the terminal redraws on focus and the URL disappears.
+  useEffect(() => {
+    if (session.status !== 'open') return;
+    return session.onData((chunk) => {
+      const plain = chunk.replace(ANSI_RE, '');
+      const match = AUTH_URL_RE.exec(plain);
+      if (match) setAuthUrl(match[0]);
+    });
+  }, [session]);
+
+  // Clear the auth banner once the user has actual conversation messages
+  // (auth is done, Claude is running).
+  useEffect(() => {
+    if (messages.length > 0) setAuthUrl(null);
+  }, [messages.length]);
 
   useEffect(() => {
     if (!conversationId || !hostRef.current) return;
@@ -82,6 +106,29 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
           </button>
         </div>
       </div>
+
+      {/* auth banner — shown while Claude Code needs browser authentication */}
+      {authUrl && (
+        <div className="shrink-0 flex items-center gap-2 border-b border-border bg-surface-raised px-3 py-2 text-[11px]">
+          <span className="text-ink-faint">Authentication required:</span>
+          <a
+            href={authUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 underline break-all hover:text-blue-300"
+          >
+            {authUrl}
+          </a>
+          <button
+            type="button"
+            onClick={() => setAuthUrl(null)}
+            className="ml-auto shrink-0 text-ink-faint hover:text-ink"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* conversation history — scrollable React view */}
       <div className="flex-1 overflow-y-auto min-h-0">
