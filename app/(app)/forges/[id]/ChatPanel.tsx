@@ -22,8 +22,8 @@ const STATUS_LABEL: Record<ChatStatus, string> = {
   error: 'Error',
 };
 
-// Matches https URLs that Claude Code prints during the OAuth flow.
-const AUTH_URL_RE = /https:\/\/\S+claude\.ai\S*/;
+// Matches https://claude.ai/... URLs that Claude Code prints during the OAuth flow.
+const AUTH_URL_RE = /https:\/\/\S*claude\.ai\S*/;
 
 // Strip ANSI escape codes so we can grep plain text from the PTY stream.
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
@@ -44,12 +44,6 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
       if (match) setAuthUrl(match[0]);
     });
   }, [session]);
-
-  // Clear the auth banner once the user has actual conversation messages
-  // (auth is done, Claude is running).
-  useEffect(() => {
-    if (messages.length > 0) setAuthUrl(null);
-  }, [messages.length]);
 
   useEffect(() => {
     if (!conversationId || !hostRef.current) return;
