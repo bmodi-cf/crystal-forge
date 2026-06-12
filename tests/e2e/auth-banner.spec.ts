@@ -71,7 +71,7 @@ test.describe('auth URL banner', () => {
 
     // Start a new conversation and wait for the WS to open.
     await page.getByRole('button', { name: /\+ new/i }).click();
-    await expect(page.getByTestId('xterm-host')).toBeVisible();
+    await expect(page.getByRole('textbox')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/^Connected$/)).toBeVisible({ timeout: 15_000 });
 
     // Inject a fake PTY chunk containing the Claude Code auth URL.
@@ -94,9 +94,8 @@ test.describe('auth URL banner', () => {
     await expect(page.getByText(/Authentication required/i)).toBeVisible();
     await expect(link).toBeVisible();
 
-    // Clicking into the terminal must NOT dismiss the banner.
-    const xtermHost = page.getByTestId('xterm-host');
-    await xtermHost.click();
+    // Clicking the message textarea must NOT dismiss the banner.
+    await page.getByRole('textbox').click();
     await expect(page.getByText(/Authentication required/i)).toBeVisible();
     await expect(link).toBeVisible();
 

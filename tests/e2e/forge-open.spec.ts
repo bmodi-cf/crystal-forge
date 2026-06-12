@@ -70,10 +70,8 @@ test('open forge → start → new conversation → message round trip → persi
   // Start a new conversation.
   await page.getByRole('button', { name: /\+ new/i }).click();
 
-  // Wait for xterm host and terminal input textarea to be ready (Connected state).
-  await expect(page.getByTestId('xterm-host')).toBeVisible();
-  await page.getByRole('textbox', { name: /terminal input/i }).waitFor({ state: 'attached' });
-  // Wait for the WS to be open (status shows "Connected").
+  // Wait for the message textarea and Connected status
+  await expect(page.getByRole('textbox')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText(/^Connected$/)).toBeVisible({ timeout: 10_000 });
 
   // Send the prompt via the server-side WS route.
