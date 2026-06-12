@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { useChatSession, type ChatStatus } from './useChatSession';
 
@@ -33,6 +34,7 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon());
     term.open(hostRef.current);
     fit.fit();
     session.resize(term.cols, term.rows);

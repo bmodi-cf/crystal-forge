@@ -35,4 +35,5 @@ RUN printf '%s\n' \
       'set -g status off' \
       'set -g default-terminal "tmux-256color"' \
       'set -g escape-time 0' \
+      'set -g mouse on' \
       > /home/forge/.tmux.conf
