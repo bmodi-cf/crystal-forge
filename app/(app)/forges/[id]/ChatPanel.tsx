@@ -60,7 +60,17 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11px] text-ink-faint">
         <span>{STATUS_LABEL[session.status]}</span>
-        {session.errorMessage ? <span className="text-[#d96868]">{session.errorMessage}</span> : null}
+        <div className="flex items-center gap-3">
+          {session.errorMessage ? <span className="text-[#d96868]">{session.errorMessage}</span> : null}
+          <button
+            type="button"
+            onClick={() => { void session.end(); }}
+            disabled={session.status !== 'open'}
+            className="px-2 py-0.5 rounded border border-border text-ink-faint hover:text-ink disabled:opacity-40"
+          >
+            End session
+          </button>
+        </div>
       </div>
       <div data-testid="xterm-host" ref={hostRef} className="flex-1 overflow-hidden bg-[#0c0e12]" />
     </div>
