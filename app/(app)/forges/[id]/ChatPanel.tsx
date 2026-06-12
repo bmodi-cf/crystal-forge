@@ -43,11 +43,16 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     // Defer the initial fit one frame: on fresh navigation the flex layout
     // hasn't settled when ResizeObserver first fires, so xterm measures too small.
     const rafId = requestAnimationFrame(refit);
+    // Prevent scroll wheel from reaching xterm: in tmux's alternate screen mode
+    // xterm translates wheel events to arrow keys, which navigates shell history.
+    const onWheel = (e: WheelEvent) => e.preventDefault();
+    hostRef.current.addEventListener('wheel', onWheel, { passive: false });
     const dataDispose = term.onData((data) => session.send(data));
     const unsub = session.onData((chunk) => term.write(chunk));
     return () => {
       cancelAnimationFrame(rafId);
       observer.disconnect();
+      hostRef.current?.removeEventListener('wheel', onWheel);
       dataDispose.dispose();
       unsub();
       term.dispose();
