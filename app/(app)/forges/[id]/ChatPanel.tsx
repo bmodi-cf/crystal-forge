@@ -1,13 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
-import '@xterm/xterm/css/xterm.css';
 import { useChatSession, type ChatStatus } from './useChatSession';
 import { useConversationMessages } from './useConversationMessages';
-import { ConversationHistory } from './ConversationHistory';
+import { MessageHistory } from './MessageHistory';
+import { MessageInput } from './MessageInput';
+import { ToolFeed } from './ToolFeed';
 
 type Props = {
   forgeId: string;
@@ -22,68 +20,52 @@ const STATUS_LABEL: Record<ChatStatus, string> = {
   error: 'Error',
 };
 
-// Matches https://claude.ai/... URLs that Claude Code prints during the OAuth flow.
 const AUTH_URL_RE = /https:\/\/\S*claude\.ai\S*/;
-
-// Strip ANSI escape codes so we can grep plain text from the PTY stream.
+const TOOL_LINE_RE = /\b(Read|Write|Edit|Bash|WebFetch|Agent|TodoRead|TodoWrite|Glob|Grep|NotebookRead|NotebookEdit)\s*\(/;
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
 
 export function ChatPanel({ forgeId, conversationId }: Props) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
   const session = useChatSession(forgeId, conversationId);
   const { messages } = useConversationMessages(forgeId, conversationId, session.status === 'open');
+  const [isWorking, setIsWorking] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const prevMsgCountRef = useRef(0);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // Keep a ref to the current session so the terminal effect can call send/resize
-  // without listing session as a dependency (which would recreate the terminal
-  // every time the WS status changes or polling fires a re-render).
-  const sessionRef = useRef(session);
-  useEffect(() => { sessionRef.current = session; });
+  // Detect end-of-work: a new assistant message landed in the DB
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (messages.length > prevMsgCountRef.current && last?.role === 'assistant') {
+      setIsWorking(false);
+    }
+    prevMsgCountRef.current = messages.length;
+  }, [messages]);
 
-  // Scan raw PTY output for the Claude Code auth URL and surface it as a
-  // persistent banner — the terminal redraws on focus and the URL disappears.
-  // Depends on session.status (to start scanning only when open) and
-  // session.onData (stable useCallback — never changes).
+  // Detect tool activity and auth URLs from PTY stream
   useEffect(() => {
     if (session.status !== 'open') return;
     return session.onData((chunk) => {
       const plain = chunk.replace(ANSI_RE, '');
+      if (TOOL_LINE_RE.test(plain)) setIsWorking(true);
       const match = AUTH_URL_RE.exec(plain);
       if (match) setAuthUrl(match[0]);
     });
   }, [session.status, session.onData]);
 
-  // Terminal is created once per conversation and never recreated mid-session.
-  // session functions are accessed via sessionRef so this effect stays stable.
+  // Scroll to bottom when tool feed updates or new messages arrive
   useEffect(() => {
-    if (!conversationId || !hostRef.current) return;
-    const term = new Terminal({
-      cursorBlink: true,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      fontSize: 13,
-      theme: { background: '#0c0e12' },
-    });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
-    term.open(hostRef.current);
-    const refit = () => { fit.fit(); sessionRef.current.resize(term.cols, term.rows); };
-    const observer = new ResizeObserver(refit);
-    observer.observe(hostRef.current);
-    const timerId = setTimeout(refit, 0);
-    const onWheel = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); };
-    hostRef.current.addEventListener('wheel', onWheel, { passive: false, capture: true });
-    const dataDispose = term.onData((data) => sessionRef.current.send(data));
-    const unsub = sessionRef.current.onData((chunk) => term.write(chunk));
-    return () => {
-      clearTimeout(timerId);
-      observer.disconnect();
-      hostRef.current?.removeEventListener('wheel', onWheel, { capture: true });
-      dataDispose.dispose();
-      unsub();
-      term.dispose();
-    };
-  }, [conversationId]);
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length, isWorking]);
+
+  function handleSend(text: string) {
+    session.send(text + '\r');
+    setIsWorking(true);
+  }
+
+  function handleInterrupt() {
+    session.send('\x1b');
+    setIsWorking(false);
+  }
 
   if (!conversationId) {
     return (
@@ -111,16 +93,11 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
         </div>
       </div>
 
-      {/* auth banner — shown while Claude Code needs browser authentication */}
+      {/* auth banner */}
       {authUrl && (
         <div className="shrink-0 flex items-center gap-2 border-b border-border bg-surface-raised px-3 py-2 text-[11px]">
           <span className="text-ink-faint">Authentication required:</span>
-          <a
-            href={authUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 underline break-all hover:text-blue-300"
-          >
+          <a href={authUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline break-all hover:text-blue-300">
             {authUrl}
           </a>
           <button
@@ -134,15 +111,19 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
         </div>
       )}
 
-      {/* conversation history — scrollable React view */}
+      {/* scrollable message area */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        <ConversationHistory messages={messages} />
+        <MessageHistory messages={messages} />
+        <ToolFeed onData={session.onData} isWorking={isWorking} />
+        <div ref={bottomRef} />
       </div>
 
-      {/* live terminal strip */}
-      <div className="shrink-0 h-[40%] border-t border-border">
-        <div data-testid="xterm-host" ref={hostRef} className="h-full bg-[#0c0e12]" />
-      </div>
+      {/* input */}
+      <MessageInput
+        onSend={handleSend}
+        onInterrupt={handleInterrupt}
+        isWorking={isWorking}
+      />
     </div>
   );
 }
