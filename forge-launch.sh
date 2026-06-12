@@ -129,10 +129,17 @@ if [[ $SEED -eq 1 ]]; then
 fi
 
 # --- phase 4c: forge runtime image + network -------------------------------
-# Ensure the shared forge runtime image exists (build if missing).
-if ! docker image inspect crystal-forge-runtime:latest >/dev/null 2>&1; then
+# Build the image if missing or if the Dockerfile has changed since the last build.
+_DOCKERFILE=docker/forge-runtime.Dockerfile
+_DOCKERFILE_HASH=$(sha256sum "$_DOCKERFILE" | cut -d' ' -f1)
+_BUILT_HASH=$(docker inspect crystal-forge-runtime:latest \
+  --format '{{index .Config.Labels "forge.dockerfile-hash"}}' 2>/dev/null || true)
+if [[ "$_DOCKERFILE_HASH" != "$_BUILT_HASH" ]]; then
   echo "Building crystal-forge-runtime image…"
-  docker build -t crystal-forge-runtime:latest -f docker/forge-runtime.Dockerfile docker/
+  docker build \
+    --label "forge.dockerfile-hash=$_DOCKERFILE_HASH" \
+    -t crystal-forge-runtime:latest \
+    -f "$_DOCKERFILE" docker/
 fi
 
 # Ensure the dedicated forge network exists (compose creates it, but be explicit).
