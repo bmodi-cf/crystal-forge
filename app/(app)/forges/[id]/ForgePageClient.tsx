@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft } from 'lucide-react';
-import { ConversationList } from './ConversationList';
 import { ChatPanel } from './ChatPanel';
 import { InstancePanel } from './InstancePanel';
 import type { ConversationDto } from '@/lib/services/conversations';
@@ -72,14 +71,28 @@ export function ForgePageClient({
       </header>
       <div className="flex flex-1 overflow-hidden">
         <aside className="flex w-[40%] min-w-[280px] flex-col border-r border-border">
-          <div className="border-b border-border p-3">
-            <ConversationList
-              items={conversations}
-              activeId={activeId}
-              canWrite={canWrite}
-              onSelect={setActiveId}
-              onCreate={() => { void handleCreate(); }}
-            />
+          {/* compact conversation header — dropdown replaces the old vertical list */}
+          <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 shrink-0">
+            <select
+              value={activeId ?? ''}
+              onChange={(e) => { setActiveId(e.target.value || null); }}
+              className="flex-1 min-w-0 bg-surface border border-border rounded px-2 py-0.5 text-[11px] text-ink truncate focus:outline-none focus:border-border-strong"
+            >
+              <option value="">— select a conversation —</option>
+              {conversations.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title} · {new Date(c.updatedAt).toISOString().slice(0, 10)}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => { void handleCreate(); }}
+              disabled={!canWrite}
+              className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] text-ink-dim hover:bg-panel-3 disabled:opacity-50"
+            >
+              + New
+            </button>
           </div>
           <div className="flex-1 overflow-hidden">
             <ChatPanel forgeId={forge.id} conversationId={activeId} />

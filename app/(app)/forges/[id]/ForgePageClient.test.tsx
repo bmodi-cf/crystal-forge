@@ -11,7 +11,7 @@ vi.mock('./ChatPanel', () => ({ ChatPanel: ({ conversationId }: { conversationId
 vi.mock('./InstancePanel', () => ({ InstancePanel: () => <div data-testid="instance-panel" /> }));
 
 describe('ForgePageClient', () => {
-  it('selects an existing conversation by clicking it', async () => {
+  it('selects an existing conversation by choosing it from the dropdown', async () => {
     const onCreate = vi.fn();
     render(<ForgePageClient
       forge={forge}
@@ -24,7 +24,7 @@ describe('ForgePageClient', () => {
       onCreateConversation={onCreate}
     />);
     expect(screen.getByTestId('chat-panel').textContent).toContain('conv=null');
-    await userEvent.click(screen.getByText('Setup'));
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'c1');
     expect(screen.getByTestId('chat-panel').textContent).toContain('conv=c1');
   });
 
