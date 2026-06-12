@@ -34,8 +34,16 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
   const { messages } = useConversationMessages(forgeId, conversationId, session.status === 'open');
   const [authUrl, setAuthUrl] = useState<string | null>(null);
 
+  // Keep a ref to the current session so the terminal effect can call send/resize
+  // without listing session as a dependency (which would recreate the terminal
+  // every time the WS status changes or polling fires a re-render).
+  const sessionRef = useRef(session);
+  useEffect(() => { sessionRef.current = session; });
+
   // Scan raw PTY output for the Claude Code auth URL and surface it as a
   // persistent banner — the terminal redraws on focus and the URL disappears.
+  // Depends on session.status (to start scanning only when open) and
+  // session.onData (stable useCallback — never changes).
   useEffect(() => {
     if (session.status !== 'open') return;
     return session.onData((chunk) => {
@@ -43,8 +51,10 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
       const match = AUTH_URL_RE.exec(plain);
       if (match) setAuthUrl(match[0]);
     });
-  }, [session]);
+  }, [session.status, session.onData]);
 
+  // Terminal is created once per conversation and never recreated mid-session.
+  // session functions are accessed via sessionRef so this effect stays stable.
   useEffect(() => {
     if (!conversationId || !hostRef.current) return;
     const term = new Terminal({
@@ -57,14 +67,14 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(hostRef.current);
-    const refit = () => { fit.fit(); session.resize(term.cols, term.rows); };
+    const refit = () => { fit.fit(); sessionRef.current.resize(term.cols, term.rows); };
     const observer = new ResizeObserver(refit);
     observer.observe(hostRef.current);
     const timerId = setTimeout(refit, 0);
     const onWheel = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); };
     hostRef.current.addEventListener('wheel', onWheel, { passive: false, capture: true });
-    const dataDispose = term.onData((data) => session.send(data));
-    const unsub = session.onData((chunk) => term.write(chunk));
+    const dataDispose = term.onData((data) => sessionRef.current.send(data));
+    const unsub = sessionRef.current.onData((chunk) => term.write(chunk));
     return () => {
       clearTimeout(timerId);
       observer.disconnect();
@@ -73,7 +83,7 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
       unsub();
       term.dispose();
     };
-  }, [conversationId, session]);
+  }, [conversationId]);
 
   if (!conversationId) {
     return (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type ChatStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
 
@@ -62,25 +62,33 @@ export function useChatSession(forgeId: string, conversationId: string | null): 
     };
   }, [forgeId, conversationId]);
 
-  return {
-    status,
-    errorMessage,
-    send: (data) => {
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
-    },
-    resize: (cols, rows) => {
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-    },
-    onData: (handler) => {
-      handlersRef.current.add(handler);
-      return () => { handlersRef.current.delete(handler); };
-    },
-    end: async () => {
-      if (!conversationId) return;
-      await fetch(`/api/forges/${forgeId}/conversations/${conversationId}/end`, { method: 'POST' });
-      try { wsRef.current?.close(); } catch { /* noop */ }
-    },
-  };
+  // All three functions use refs internally so they never need to change.
+  const send = useCallback((data: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+  }, []);
+
+  const resize = useCallback((cols: number, rows: number) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+  }, []);
+
+  const onData = useCallback((handler: (chunk: string) => void) => {
+    handlersRef.current.add(handler);
+    return () => { handlersRef.current.delete(handler); };
+  }, []);
+
+  const end = useCallback(async () => {
+    if (!conversationId) return;
+    await fetch(`/api/forges/${forgeId}/conversations/${conversationId}/end`, { method: 'POST' });
+    try { wsRef.current?.close(); } catch { /* noop */ }
+  }, [forgeId, conversationId]);
+
+  // Return a stable object — only changes when status/errorMessage change or
+  // conversationId changes (which recreates `end`). This prevents effects in
+  // ChatPanel that depend on the session reference from firing on every render.
+  return useMemo(
+    () => ({ status, errorMessage, send, resize, onData, end }),
+    [status, errorMessage, send, resize, onData, end],
+  );
 }
