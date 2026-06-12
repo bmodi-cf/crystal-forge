@@ -36,14 +36,18 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(hostRef.current);
-    fit.fit();
-    session.resize(term.cols, term.rows);
-    const onResize = () => { fit.fit(); session.resize(term.cols, term.rows); };
-    window.addEventListener('resize', onResize);
+    const refit = () => { fit.fit(); session.resize(term.cols, term.rows); };
+    // ResizeObserver handles subsequent container size changes (sidebar, window resize).
+    const observer = new ResizeObserver(refit);
+    observer.observe(hostRef.current);
+    // Defer the initial fit one frame: on fresh navigation the flex layout
+    // hasn't settled when ResizeObserver first fires, so xterm measures too small.
+    const rafId = requestAnimationFrame(refit);
     const dataDispose = term.onData((data) => session.send(data));
     const unsub = session.onData((chunk) => term.write(chunk));
     return () => {
-      window.removeEventListener('resize', onResize);
+      cancelAnimationFrame(rafId);
+      observer.disconnect();
       dataDispose.dispose();
       unsub();
       term.dispose();
