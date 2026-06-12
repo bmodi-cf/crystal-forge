@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      git ca-certificates python3 build-essential procps coreutils jq \
+      git ca-certificates python3 build-essential procps coreutils jq tmux \
  && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
@@ -26,3 +26,13 @@ RUN pnpm config set store-dir /pnpm-store
 # unapproved ones (e.g. @prisma/engines, sharp), which breaks `pnpm install` and
 # `prisma generate`. The forge runs in a sandbox container, so allow all builds.
 RUN pnpm config set dangerouslyAllowAllBuilds true
+
+# tmux hosts the durable Claude session (see lib/runtime/tmux-session.ts).
+# Large scrollback so a reattaching browser repaints prior output; no status
+# bar; 256-color terminal to match the xterm client.
+RUN printf '%s\n' \
+      'set -g history-limit 100000' \
+      'set -g status off' \
+      'set -g default-terminal "tmux-256color"' \
+      'set -g escape-time 0' \
+      > /home/forge/.tmux.conf
