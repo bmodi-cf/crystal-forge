@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
 
 vi.mock('./useChatSession', () => ({
@@ -9,6 +10,7 @@ vi.mock('./useChatSession', () => ({
     send: vi.fn(),
     resize: vi.fn(),
     onData: vi.fn(() => () => {}),
+    end: vi.fn(async () => {}),
   })),
 }));
 
@@ -53,7 +55,7 @@ describe('ChatPanel', () => {
     (useChatSession as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       status: 'connecting',
       errorMessage: null,
-      send: vi.fn(), resize: vi.fn(), onData: vi.fn(() => () => {}),
+      send: vi.fn(), resize: vi.fn(), onData: vi.fn(() => () => {}), end: vi.fn(async () => {}),
     });
     render(<ChatPanel forgeId="f1" conversationId="c1" />);
     expect(screen.getByText(/connecting/i)).toBeInTheDocument();
@@ -64,9 +66,21 @@ describe('ChatPanel', () => {
     (useChatSession as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       status: 'error',
       errorMessage: 'WebSocket error',
-      send: vi.fn(), resize: vi.fn(), onData: vi.fn(() => () => {}),
+      send: vi.fn(), resize: vi.fn(), onData: vi.fn(() => () => {}), end: vi.fn(async () => {}),
     });
     render(<ChatPanel forgeId="f1" conversationId="c1" />);
     expect(screen.getByText(/WebSocket error/i)).toBeInTheDocument();
+  });
+
+  it('End session button calls session.end when connected', async () => {
+    const end = vi.fn(async () => {});
+    const { useChatSession } = await import('./useChatSession');
+    (useChatSession as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      status: 'open', errorMessage: null,
+      send: vi.fn(), resize: vi.fn(), onData: vi.fn(() => () => {}), end,
+    });
+    render(<ChatPanel forgeId="f1" conversationId="c1" />);
+    fireEvent.click(screen.getByRole('button', { name: /end session/i }));
+    expect(end).toHaveBeenCalled();
   });
 });

@@ -11,6 +11,8 @@ export type ChatSession = {
   resize: (cols: number, rows: number) => void;
   /** Subscribe to incoming server bytes. */
   onData: (handler: (chunk: string) => void) => () => void;
+  /** Explicitly end the durable server-side session. */
+  end: () => Promise<void>;
 };
 
 export function useChatSession(forgeId: string, conversationId: string | null): ChatSession {
@@ -39,8 +41,10 @@ export function useChatSession(forgeId: string, conversationId: string | null): 
         };
         ws.onclose = (ev) => {
           if (ev.code === 4401) setErrorMessage('Authorization expired');
-          else if (ev.code === 4409) setErrorMessage('Conversation already active in another tab');
+          else if (ev.code === 4410) setErrorMessage('Reconnected in another tab');
+          else if (ev.code === 4411) setErrorMessage('Session ended');
           else if (ev.code === 4404) setErrorMessage('Conversation not found');
+          else if (ev.code === 4500) setErrorMessage('Failed to start session');
           setStatus('closed');
         };
         ws.onerror = () => { setStatus('error'); setErrorMessage('WebSocket error'); };
@@ -72,6 +76,11 @@ export function useChatSession(forgeId: string, conversationId: string | null): 
     onData: (handler) => {
       handlersRef.current.add(handler);
       return () => { handlersRef.current.delete(handler); };
+    },
+    end: async () => {
+      if (!conversationId) return;
+      await fetch(`/api/forges/${forgeId}/conversations/${conversationId}/end`, { method: 'POST' });
+      try { wsRef.current?.close(); } catch { /* noop */ }
     },
   };
 }
