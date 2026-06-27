@@ -7,7 +7,9 @@ description: Use when the user invokes /forge-launch or asks to "launch", "start
 
 Delegate to `./forge-launch.sh` in the repo root. The script handles Docker daemon startup (macOS), the Postgres container, the healthcheck wait, `prisma migrate deploy`, and `exec pnpm dev`. Your job is the judgment around it: don't disrupt a running stack without confirming, decide if `--seed` is wanted, and surface real errors verbatim.
 
-Working directory must be `/Users/bmodi/work/crystal-forge`. If `forge-launch.sh` isn't present at the repo root, stop and tell the user.
+Run from the repo root (the directory containing `forge-launch.sh`). If `forge-launch.sh` isn't present there, stop and tell the user.
+
+**The dev server is a custom `server.ts` (run via `tsx server.ts`), NOT stock `next dev`.** It never prints Next.js's `Ready in …`. Its ready signal is the line `dashboard server listening on :3030`. Match that — not `Ready in` — when waiting for readiness.
 
 ## Phase 1 — Detect what's already running
 
@@ -43,10 +45,16 @@ From the repo root:
 
 Run with Bash `run_in_background: true` and capture the task id. The script ends in `exec pnpm dev`, so the background task stays alive until the dev server is stopped.
 
-Wait for the ready signal in a separate background Bash job:
+Wait for the ready signal in a separate background Bash job. The signal is `dashboard server listening` (from `server.ts`), **not** `Ready in`:
 
 ```bash
-until grep -qE "Ready in|Error|error:" <output-file>; do sleep 0.5; done
+until grep -qE "dashboard server listening|Error|error:|did not become healthy|already in use" <output-file>; do sleep 0.5; done
+```
+
+Then confirm the server actually responds before announcing — a healthy authed dashboard returns a `307` redirect to login:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost:3030   # expect 3xx
 ```
 
 If the script exits early, read the output and surface the actual message verbatim. Don't retry blindly. Common script failures and the user-facing fix:
@@ -61,15 +69,18 @@ If the script exits early, read the output and surface the actual message verbat
 
 ## Phase 4 — Announce the URL
 
-The script prints its own "starting dev server" banner before handing off to `pnpm dev`. Once `Ready in` appears in the dev-server output, open the app in the default browser, then print a separate **ready** banner. The script's port check guarantees the URL is `http://localhost:3030`.
+The script prints its own "starting dev server" banner before handing off to `pnpm dev`. Once `dashboard server listening` appears in the dev-server output (and the `curl` above returns a 3xx), open the app in the default browser, then print a separate **ready** banner. The script's port check guarantees the URL is `http://localhost:3030`.
 
-Open the URL automatically (macOS `open`; the script only auto-starts Docker on macOS, so this matches the supported launch path):
+Open the URL automatically, trying the opener for the host in turn (this is typically a Linux/WSL host, so `wslview`/`xdg-open` apply; `open` is the macOS fallback):
 
 ```bash
-open http://localhost:3030
+(command -v wslview >/dev/null && wslview http://localhost:3030) || \
+  (command -v xdg-open >/dev/null && xdg-open http://localhost:3030) || \
+  (command -v open >/dev/null && open http://localhost:3030) || \
+  echo "no browser opener available"
 ```
 
-If `open` fails (e.g. a non-macOS host), don't treat it as a launch failure — just note the URL in the banner so the user can open it manually. Then print:
+If no opener is available, don't treat it as a launch failure — just note the URL in the banner so the user can open it manually. Then print:
 
 ```
 ╔══════════════════════════════════════════╗
