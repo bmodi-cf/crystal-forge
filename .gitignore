@@ -63,3 +63,6 @@ Thumbs.db
 
 # E2E runtime state / clone fixtures
 .test-forge-home/
+
+# Superpowers session artifacts (brainstorm mockups, server PIDs/logs)
+.superpowers/
