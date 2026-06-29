@@ -9,7 +9,7 @@ RUN apt-get update \
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
 # Pinned Claude Code CLI. Update the version to match the host's `claude --version`.
-RUN npm install -g @anthropic-ai/claude-code@1.0.44
+RUN npm install -g @anthropic-ai/claude-code@2.1.195
 
 RUN useradd -m -d /home/forge -s /bin/bash forge \
  && mkdir -p /workspace /pnpm-store /home/forge/.claude \
