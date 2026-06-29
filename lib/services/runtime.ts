@@ -143,6 +143,10 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
         FORGE_BASE_PATH: `/app/${slug}`,
         FORGE_DEV_ORIGINS: env.FORGE_DEV_ORIGINS,
         DATABASE_URL: databaseUrl,
+        // PAT for the agent's own git/gh operations. `gh` reads GH_TOKEN
+        // automatically; container-setup runs `gh auth setup-git` so plain git
+        // does too. Only injected when configured (empty would confuse gh).
+        ...(env.FORGE_GIT_TOKEN ? { GH_TOKEN: env.FORGE_GIT_TOKEN } : {}),
       },
       publish: { hostIp: '127.0.0.1', hostPort: port, containerPort: 3000 },
       volumes: [

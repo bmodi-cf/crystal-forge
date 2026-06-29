@@ -46,6 +46,14 @@ export async function setupForgeContainer(
     );
   }
 
+  // 1b. Register `gh` as git's credential helper so the agent's own git pull/push
+  //     authenticate via the PAT injected as GH_TOKEN at container creation. The
+  //     helper config is written to ~/.gitconfig on the persistent home volume, so
+  //     it survives restarts. Best-effort (`|| true`): when no token is configured
+  //     gh exits non-zero, which must not abort setup. Runs every start (idempotent)
+  //     so already-cloned forges pick it up too.
+  await exec('sh', ['-c', 'gh auth setup-git || true'], { timeoutMs: QUICK_TIMEOUT_MS });
+
   // 2. Seed .env.local from .env.example when present and missing.
   await exec('sh', ['-c',
     `test -f ${W}/.env.local || { test -f ${W}/.env.example && cp ${W}/.env.example ${W}/.env.local; } || true`,
@@ -116,4 +124,14 @@ export async function setupForgeContainer(
 
   // 6. Generate Prisma client (every start; cheap).
   await assertOk(exec('pnpm', ['prisma', 'generate'], { timeoutMs: QUICK_TIMEOUT_MS }), 'pnpm prisma generate');
+
+  // 7. Apply pending migrations to the forge's provisioned DB. Uses the injected
+  //    DATABASE_URL (rotated each start), so it must run in-container, before the
+  //    supervisor's `next build` — production prerendering queries the DB at build
+  //    time, which fails with P2021 ("table does not exist") on an unmigrated DB.
+  //    Idempotent: `migrate deploy` only applies migrations not yet recorded.
+  await assertOk(
+    exec('pnpm', ['prisma', 'migrate', 'deploy'], { timeoutMs: INSTALL_TIMEOUT_MS }),
+    'pnpm prisma migrate deploy',
+  );
 }

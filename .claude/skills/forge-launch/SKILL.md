@@ -7,9 +7,54 @@ description: Use when the user invokes /forge-launch or asks to "launch", "start
 
 Delegate to `./forge-launch.sh` in the repo root. The script handles Docker daemon startup (macOS), the Postgres container, the healthcheck wait, `prisma migrate deploy`, and `exec pnpm dev`. Your job is the judgment around it: don't disrupt a running stack without confirming, decide if `--seed` is wanted, and surface real errors verbatim.
 
-Run from the repo root (the directory containing `forge-launch.sh`). If `forge-launch.sh` isn't present there, stop and tell the user.
+Working directory must be `/home/bmodi/work/crystal-forge` (the pilot host is Linux). If `forge-launch.sh` isn't present at the repo root, stop and tell the user.
 
 **The dev server is a custom `server.ts` (run via `tsx server.ts`), NOT stock `next dev`.** It never prints Next.js's `Ready in …`. Its ready signal is the line `dashboard server listening on :3030`. Match that — not `Ready in` — when waiting for readiness.
+
+## Phase 0 — Is the systemd production service already running? (CHECK THIS FIRST)
+
+On the pilot host the app runs under a systemd unit, **`crystal-forge.service`**, which is
+`enabled` (auto-starts on every boot) and rebuilds from the working tree on each start. When
+it's active it **already owns both `:3030` and `:3100`** (the runtime WebSocket server, started
+by `instrumentation.ts`). Running `forge-launch.sh` on top of it starts a *second*, dev-mode
+server that collides — you'll see `EADDRINUSE` on `:3100` (and `:3030`). This is the most common
+launch failure, so check it before anything else:
+
+```bash
+systemctl is-active  crystal-forge.service   # active  => app already up in prod
+systemctl is-enabled crystal-forge.service   # enabled => will auto-start on reboot
+```
+
+If the service is **active**, the app is already serving on `http://localhost:3030`. Do **not**
+silently launch a dev server over it. Ask the user which path they want (these are the two real
+intents — pick based on what they said, otherwise ask):
+
+- **Path A — ship latest (no dev iteration).** They just want the running deploy updated to the
+  current code. The unit's `ExecStartPre` rebuilds from the **working tree** on every start, so:
+  ```bash
+  sudo systemctl restart crystal-forge.service   # rebuild (~1-2 min downtime) + serve
+  ```
+  No `forge-launch.sh`, no dev server. Note the build uses the working tree, so *uncommitted*
+  edits go live too — and a failing build keeps the service down (won't serve stale output).
+
+- **Path B — longer dev session (hot-reload).** They want to iterate with `pnpm dev`. The
+  service holds the ports and `Restart=always` means killing the process just respawns it, so you
+  must **stop the unit first**, then launch dev:
+  ```bash
+  sudo systemctl stop crystal-forge.service      # frees :3030 + :3100
+  ./forge-launch.sh                              # dev server, hot-reload, on :3030
+  ```
+  **`stop` does not `disable`** — the service is still `enabled`, so a reboot mid-session will
+  auto-start prod again and re-collide. When the dev session ends, restore the boot scenario:
+  ```bash
+  sudo systemctl start crystal-forge.service     # rebuild from working tree + back to prod
+  ```
+  If they expect to reboot during a long session and want to stay in dev, offer
+  `sudo systemctl disable crystal-forge.service` now and `enable` again when done — but always
+  leave it `enabled` at the end so boot still brings the app up.
+
+If the service is **inactive** (e.g. someone already stopped it for dev work), continue to Phase 1
+and launch normally. See `docs/DEPLOY.md` for the full unit definition and rationale.
 
 ## Phase 1 — Detect what's already running
 
@@ -63,6 +108,8 @@ If the script exits early, read the output and surface the actual message verbat
 |---|---|
 | `Docker daemon is not running` (non-mac) | User starts their runtime (OrbStack, Colima) manually. |
 | `Port 3030 is already in use by PID X` | Should have been caught in Phase 1 — re-do the detection. |
+| `EADDRINUSE … :3100` (from `lib/runtime/ws-server.ts` via `instrumentation.ts`) | The systemd prod service is already running and owns `:3100`. Should have been caught in Phase 0 — `systemctl stop crystal-forge.service` first (Path B), then relaunch. |
+| `network crystal-forge-net … incorrect label` (Compose) | A stale, unlabeled Docker network is blocking Compose. If `docker network inspect crystal-forge-net` shows **no attached containers**, `docker network rm crystal-forge-net` (Compose recreates it). Don't remove it if anything is attached. |
 | `.env.local missing` | Tell user to copy `.env.example` and fill in secrets. |
 | `node_modules missing` | Tell user to run `pnpm install`. |
 | `Postgres did not become healthy` | Surface the `docker logs --tail 50 crystal-forge-pg` output the script already printed. |
