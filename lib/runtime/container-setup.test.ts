@@ -7,18 +7,20 @@ describe('setupForgeContainer', () => {
     const m = new FakeContainerManager();
     const id = await m.create({ name: 'x', image: 'img' });
     // Simulate a fresh container: the `test -d .git` (call 1) and
-    // `test -d node_modules` (call 9) probes report ABSENT (exit 1) so the
+    // `test -d node_modules` (call 10) probes report ABSENT (exit 1) so the
     // clone and install steps actually run; every other step succeeds (exit 0).
-    [1, 0, 0, 0, 0, 0, 0, 0, 1].forEach((code) => m.queueExit(code));
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 1].forEach((code) => m.queueExit(code));
     await setupForgeContainer(m, id, {
       slug: 'acme', repoFullName: 'org/acme', token: 'gh_tok', logPath: '/tmp/acme.log',
     });
     const cmds = m.execCalls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
     expect(cmds.some((c) => c.includes('git clone'))).toBe(true);
     expect(cmds.some((c) => c.includes('remote set-url origin https://github.com/org/acme.git'))).toBe(true);
+    expect(cmds.some((c) => c.includes('gh auth setup-git'))).toBe(true); // git credential helper
     expect(cmds.some((c) => c.includes('next.config.base.ts'))).toBe(true); // basePath inject
     expect(cmds.some((c) => c === 'pnpm install')).toBe(true);
     expect(cmds.some((c) => c === 'pnpm prisma generate')).toBe(true);
+    expect(cmds.some((c) => c === 'pnpm prisma migrate deploy')).toBe(true);
   });
 
   it('basePath wrapper also injects allowedDevOrigins from FORGE_DEV_ORIGINS', async () => {

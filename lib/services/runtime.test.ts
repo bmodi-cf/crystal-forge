@@ -10,6 +10,7 @@ import { FakeDatabaseProvisioner } from '@/lib/db/fake-provisioner';
 import type { DatabaseProvisioner } from '@/lib/db/types';
 import type { ContainerManager, CreateContainerSpec } from '@/lib/runtime/container/types';
 import { makeRuntimeService } from './runtime';
+import { env } from '@/lib/env';
 import { ForbiddenError } from '@/lib/errors';
 
 let tmp: string;
@@ -292,6 +293,64 @@ describe('runtime service', () => {
       await svc.startForge(tom, forge.id);
       await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
       expect(specs[0]?.env?.FORGE_DEV_ORIGINS).toBe('localhost');
+    });
+  });
+
+  it('injects GH_TOKEN into the forge container only when FORGE_GIT_TOKEN is set', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const base = new FakeContainerManager();
+      const specs: CreateContainerSpec[] = [];
+      const recording: ContainerManager = {
+        create: (spec) => { specs.push(spec); return base.create(spec); },
+        exec: base.exec.bind(base),
+        inspect: base.inspect.bind(base),
+        stop: base.stop.bind(base),
+        remove: base.remove.bind(base),
+        list: base.list.bind(base),
+      };
+      const prev = env.FORGE_GIT_TOKEN;
+      try {
+        env.FORGE_GIT_TOKEN = 'ghp_pilot_token';
+        const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
+        await svc.startForge(tom, forge.id);
+        await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+        expect(specs[0]?.env?.GH_TOKEN).toBe('ghp_pilot_token');
+      } finally {
+        env.FORGE_GIT_TOKEN = prev;
+      }
+    });
+  });
+
+  it('omits GH_TOKEN from the forge container env when FORGE_GIT_TOKEN is unset', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const base = new FakeContainerManager();
+      const specs: CreateContainerSpec[] = [];
+      const recording: ContainerManager = {
+        create: (spec) => { specs.push(spec); return base.create(spec); },
+        exec: base.exec.bind(base),
+        inspect: base.inspect.bind(base),
+        stop: base.stop.bind(base),
+        remove: base.remove.bind(base),
+        list: base.list.bind(base),
+      };
+      const prev = env.FORGE_GIT_TOKEN;
+      try {
+        env.FORGE_GIT_TOKEN = undefined;
+        const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
+        await svc.startForge(tom, forge.id);
+        await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+        expect(specs[0]?.env && 'GH_TOKEN' in specs[0].env).toBe(false);
+      } finally {
+        env.FORGE_GIT_TOKEN = prev;
+      }
     });
   });
 
