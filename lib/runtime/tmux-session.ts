@@ -2,6 +2,7 @@ import { getContainerManager } from './container';
 import type { ContainerManager } from './container/types';
 import { CONTAINER_WORKDIR } from './paths';
 import { claudeCredentialsEnv } from './claude-credentials';
+import { transcriptPath } from './container-transcript-watcher';
 
 /** One window per conversation; the socket name carries the conversation id. */
 const SESSION = 'main';
@@ -21,13 +22,18 @@ export async function hasSession(
 }
 
 export async function ensureSession(
-  opts: { containerId: string; conversationId: string; resumeSessionId: string | null },
+  opts: { containerId: string; conversationId: string; sessionId: string },
   deps: TmuxDeps = {},
 ): Promise<{ created: boolean }> {
   const mgr = deps.manager ?? getContainerManager();
   if (await hasSession(opts.containerId, opts.conversationId, deps)) return { created: false };
-  const resume = opts.resumeSessionId ? ` --resume ${opts.resumeSessionId}` : '';
-  const command = `claude --dangerously-skip-permissions${resume}`;
+  // The session id is pinned per conversation. If its transcript already exists
+  // (tmux server died but the claude volume persists), resume it; otherwise this
+  // is the first start, so create the session with that exact id via --session-id.
+  const file = transcriptPath(opts.sessionId);
+  const resumable = (await mgr.exec(opts.containerId, 'sh', ['-c', `test -f '${file}'`])).exitCode === 0;
+  const sessionArg = resumable ? `--resume ${opts.sessionId}` : `--session-id ${opts.sessionId}`;
+  const command = `claude --dangerously-skip-permissions ${sessionArg}`;
   // Fresh per-conversation server, so credentials passed via `-e` (ExecOpts.env
   // -> docker exec -e) propagate to the claude process this spawns.
   await mgr.exec(opts.containerId, 'tmux',

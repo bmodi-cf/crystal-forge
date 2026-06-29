@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { canReadForge, canWriteForge } from '@/lib/acl';
@@ -72,8 +73,11 @@ export async function listConversations(currentUser: SessionUser, forgeId: strin
 export async function createConversation(currentUser: SessionUser, forgeId: string): Promise<ConversationDto> {
   const acl = await loadForgeForAcl(forgeId);
   if (!canWriteForge(currentUser, acl)) throw new ForbiddenError(`Cannot create conversation on forge ${forgeId}`);
+  // Pin the Claude session id up front so the transcript file (<id>.jsonl) and
+  // `claude --session-id <id>` are deterministic — the watcher reads exactly one
+  // file and never has to guess which session belongs to this conversation.
   const row = await prisma.conversation.create({
-    data: { forgeId, createdById: currentUser.id, title: DEFAULT_TITLE },
+    data: { forgeId, createdById: currentUser.id, title: DEFAULT_TITLE, claudeSessionId: randomUUID() },
     include: conversationInclude,
   });
   return toDto(row);
@@ -137,16 +141,23 @@ export async function appendMessage(
   if (payload.role === 'user') await maybeBackfillTitle(conversationId);
 }
 
-export async function setClaudeSessionId(conversationId: string, sessionId: string): Promise<void> {
-  try {
-    await prisma.conversation.update({
-      where: { id: conversationId, claudeSessionId: null },
-      data: { claudeSessionId: sessionId },
-    });
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') return;
-    throw err;
-  }
+/**
+ * Return the conversation's pinned Claude session id, generating + persisting
+ * one if it is still null (legacy rows created before session-id pinning).
+ * `updateMany` only writes when claudeSessionId is null and never throws on a
+ * zero-row match, so concurrent callers converge on the first id written.
+ */
+export async function ensureClaudeSessionId(conversationId: string): Promise<string> {
+  const candidate = randomUUID();
+  await prisma.conversation.updateMany({
+    where: { id: conversationId, claudeSessionId: null },
+    data: { claudeSessionId: candidate },
+  });
+  const row = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { claudeSessionId: true },
+  });
+  return row?.claudeSessionId ?? candidate;
 }
 
 export async function maybeBackfillTitle(conversationId: string): Promise<void> {

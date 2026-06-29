@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { startContainerTranscriptWatcher } from './container-transcript-watcher';
+import { startContainerTranscriptWatcher, transcriptPath } from './container-transcript-watcher';
 import { EventEmitter } from 'node:events';
 
 function fakeStream() {
@@ -9,19 +9,26 @@ function fakeStream() {
 }
 
 describe('startContainerTranscriptWatcher', () => {
-  it('parses tailed lines into setClaudeSessionId + appendMessage', async () => {
+  it('tails only the conversation session id and appends parsed lines', async () => {
     const stream = fakeStream();
     const appendMessage = vi.fn().mockResolvedValue(undefined);
-    const setClaudeSessionId = vi.fn().mockResolvedValue(undefined);
-    const w = startContainerTranscriptWatcher('conv1', 'cid', {
-      appendMessage, setClaudeSessionId,
-      spawnTail: () => stream,
-    });
-    stream.emit('line', JSON.stringify({ sessionId: 's1', message: { role: 'assistant', content: 'hi' } }));
+    const spawnTail = vi.fn(() => stream);
+    const w = startContainerTranscriptWatcher('conv1', 'cid', 'sess-1', { appendMessage, spawnTail });
+
+    // It must tail this session's file, not every transcript in the shared dir.
+    expect(spawnTail).toHaveBeenCalledWith('cid', 'sess-1');
+
+    stream.emit('line', JSON.stringify({ sessionId: 'sess-1', message: { role: 'assistant', content: 'hi' } }));
     await Promise.resolve();
-    expect(setClaudeSessionId).toHaveBeenCalledWith('conv1', 's1');
     expect(appendMessage).toHaveBeenCalledWith('conv1', { role: 'assistant', content: 'hi' });
+
     w.stop();
     expect(stream.kill).toHaveBeenCalled();
+  });
+
+  it('transcriptPath targets a single <sessionId>.jsonl, never a glob', () => {
+    const p = transcriptPath('sess-1');
+    expect(p.endsWith('/sess-1.jsonl')).toBe(true);
+    expect(p).not.toContain('*');
   });
 });

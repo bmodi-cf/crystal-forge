@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import {
   listConversations, createConversation, getConversation,
-  appendMessage, setClaudeSessionId,
+  appendMessage, ensureClaudeSessionId,
 } from './conversations';
 import { ForbiddenError, NotFoundError } from '@/lib/errors';
 
@@ -16,7 +16,19 @@ describe('conversations service', () => {
       await expect(createConversation(intruder, forge.id)).rejects.toBeInstanceOf(ForbiddenError);
       const conv = await createConversation(tom, forge.id);
       expect(conv.title).toBe('New conversation');
-      expect(conv.hasClaudeSessionId).toBe(false);
+      // The Claude session id is pinned at create time so the transcript file and
+      // `claude --session-id` are deterministic.
+      expect(conv.hasClaudeSessionId).toBe(true);
+    });
+  });
+
+  it('createConversation pins a valid UUID claudeSessionId', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, { name: 'F', createdById: tom.id, groups: ['Engineering'] });
+      const conv = await createConversation(tom, forge.id);
+      const row = await prisma.conversation.findUnique({ where: { id: conv.id } });
+      expect(row?.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/);
     });
   });
 
@@ -70,20 +82,30 @@ describe('conversations service', () => {
     });
   });
 
-  it('setClaudeSessionId is idempotent — only first write wins', async () => {
+  it('ensureClaudeSessionId returns the existing id and never overwrites it', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
       const forge = await makeForge(prisma, { name: 'F', createdById: tom.id, groups: ['Engineering'] });
       const conv = await createConversation(tom, forge.id);
-      const id1 = '00000000-0000-0000-0000-000000000001';
-      const id2 = '00000000-0000-0000-0000-000000000002';
-      await setClaudeSessionId(conv.id, id1);
-      await setClaudeSessionId(conv.id, id2);
-      const got = await getConversation(tom, conv.id);
-      expect(got.hasClaudeSessionId).toBe(true);
-      // Direct DB peek to confirm id1 stuck.
-      const row = await prisma.conversation.findUnique({ where: { id: conv.id } });
-      expect(row?.claudeSessionId).toBe(id1);
+      const pinned = (await prisma.conversation.findUnique({ where: { id: conv.id } }))?.claudeSessionId;
+      expect(pinned).toBeTruthy();
+      // Already set at create — ensure must return it unchanged, twice.
+      expect(await ensureClaudeSessionId(conv.id)).toBe(pinned);
+      expect(await ensureClaudeSessionId(conv.id)).toBe(pinned);
+    });
+  });
+
+  it('ensureClaudeSessionId backfills legacy rows whose id is null, then is stable', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, { name: 'F', createdById: tom.id, groups: ['Engineering'] });
+      const conv = await createConversation(tom, forge.id);
+      // Simulate a pre-pinning row.
+      await prisma.conversation.update({ where: { id: conv.id }, data: { claudeSessionId: null } });
+      const first = await ensureClaudeSessionId(conv.id);
+      expect(first).toMatch(/^[0-9a-f-]{36}$/);
+      // Second call must return the same persisted id, not generate a new one.
+      expect(await ensureClaudeSessionId(conv.id)).toBe(first);
     });
   });
 
@@ -92,11 +114,6 @@ describe('conversations service', () => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
       await expect(getConversation(tom, '00000000-0000-0000-0000-000000000000')).rejects.toBeInstanceOf(NotFoundError);
     });
-  });
-
-  it('setClaudeSessionId rethrows non-P2025 errors', async () => {
-    // Pass a malformed UUID — Prisma throws P2023 (invalid uuid) which we should NOT swallow.
-    await expect(setClaudeSessionId('not-a-uuid', 'also-not-a-uuid')).rejects.toBeDefined();
   });
 
   it('maybeBackfillTitle is a no-op when title is already custom', async () => {

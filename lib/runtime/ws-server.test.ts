@@ -26,6 +26,7 @@ async function startServer(overrides: Partial<Parameters<typeof startWsServer>[0
     startWatcher: fakeWatcher.start,
     loadConversation: async (id: string) => ({ id, forgeId: 'f1', slug: 'aquaflow-designer', claudeSessionId: null }),
     loadRuntimeHandle: async () => ({ containerId: 'cid', port: 3042 }),
+    ensureClaudeSessionId: async () => 'gen-uuid',
     ensureSession: vi.fn(async () => ({ created: true })),
     hasSession: vi.fn(async () => true),
     attachArgv: (containerId: string, conversationId: string) => ({
@@ -57,7 +58,8 @@ describe('ws-server', () => {
     const ws = open(server);
     await opened(ws);
     expect(fakePty.spawn).toHaveBeenCalledTimes(1);
-    expect(fakeWatcher.start).toHaveBeenCalledWith('c1', 'cid', expect.anything());
+    // null stored id -> ensureClaudeSessionId backfills 'gen-uuid'; watcher tails it.
+    expect(fakeWatcher.start).toHaveBeenCalledWith('c1', 'cid', 'gen-uuid', expect.anything());
     ws.close();
     await new Promise((r) => setTimeout(r, 50));
   });
@@ -74,7 +76,7 @@ describe('ws-server', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  it('passes the stored claudeSessionId to ensureSession for --resume', async () => {
+  it('passes the stored claudeSessionId to ensureSession', async () => {
     const ensureSession = vi.fn(async () => ({ created: true }));
     const { server } = await startServer({
       ensureSession,
@@ -82,7 +84,7 @@ describe('ws-server', () => {
     });
     const ws = open(server);
     await opened(ws);
-    expect(ensureSession).toHaveBeenCalledWith({ containerId: 'cid', conversationId: 'c1', resumeSessionId: 'sess-9' });
+    expect(ensureSession).toHaveBeenCalledWith({ containerId: 'cid', conversationId: 'c1', sessionId: 'sess-9' });
     ws.close();
     await new Promise((r) => setTimeout(r, 50));
   });

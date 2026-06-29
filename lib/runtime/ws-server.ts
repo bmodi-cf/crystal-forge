@@ -2,9 +2,9 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { verifyTicket } from '@/lib/auth/ws-ticket';
 import { spawnClaudeSession, type Session, type SpawnOpts } from './pty-session';
-import type { WatcherDeps } from './transcript-watcher';
+import type { AppendMessageFn } from './transcript-watcher';
 import { startContainerTranscriptWatcher } from './container-transcript-watcher';
-import { appendMessage as defaultAppend, setClaudeSessionId as defaultSet, loadConversationLite } from '@/lib/services/conversations';
+import { appendMessage as defaultAppend, ensureClaudeSessionId as defaultEnsureClaudeSessionId, loadConversationLite } from '@/lib/services/conversations';
 import type { ConversationLite } from '@/lib/services/conversations';
 import { loadRuntimeHandle as defaultLoadRuntimeHandle } from './state';
 import {
@@ -18,12 +18,12 @@ export type WsServerOpts = {
   port: number;
   secret: string;
   spawnPty?: (opts: SpawnOpts) => Session;
-  startWatcher?: (conversationId: string, containerId: string, deps: WatcherDeps) => { stop: () => void };
+  startWatcher?: (conversationId: string, containerId: string, sessionId: string, deps: { appendMessage: AppendMessageFn }) => { stop: () => void };
   loadConversation?: (conversationId: string) => Promise<ConversationLite | null>;
   loadRuntimeHandle?: (forgeId: string) => Promise<{ containerId: string; port: number } | null>;
-  appendMessage?: (conversationId: string, payload: { role: 'user' | 'assistant'; content: unknown; createdAt?: Date }) => Promise<void>;
-  setClaudeSessionId?: (conversationId: string, sessionId: string) => Promise<void>;
-  ensureSession?: (opts: { containerId: string; conversationId: string; resumeSessionId: string | null }) => Promise<{ created: boolean }>;
+  appendMessage?: AppendMessageFn;
+  ensureClaudeSessionId?: (conversationId: string) => Promise<string>;
+  ensureSession?: (opts: { containerId: string; conversationId: string; sessionId: string }) => Promise<{ created: boolean }>;
   hasSession?: (containerId: string, conversationId: string) => Promise<boolean>;
   attachArgv?: (containerId: string, conversationId: string) => { command: string; args: string[] };
   registry?: SessionRegistry;
@@ -32,9 +32,9 @@ export type WsServerOpts = {
 export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; port: number }> {
   const spawnPty = opts.spawnPty ?? spawnClaudeSession;
   const startWatcher = opts.startWatcher
-    ?? ((cid, containerId, deps) => startContainerTranscriptWatcher(cid, containerId, deps));
+    ?? ((cid, containerId, sessionId, deps) => startContainerTranscriptWatcher(cid, containerId, sessionId, deps));
   const appendMessage = opts.appendMessage ?? defaultAppend;
-  const setClaudeSessionId = opts.setClaudeSessionId ?? defaultSet;
+  const ensureClaudeSessionId = opts.ensureClaudeSessionId ?? defaultEnsureClaudeSessionId;
   const loadConversation = opts.loadConversation ?? loadConversationLite;
   const loadForgeHandle = opts.loadRuntimeHandle ?? defaultLoadRuntimeHandle;
   const ensureSession = opts.ensureSession ?? defaultEnsureSession;
@@ -81,18 +81,24 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
           registry.delete(cid);
         }
 
+        // The conversation's Claude session id is pinned (set at create; this
+        // backfills legacy rows). It keys both `claude --session-id/--resume` and
+        // the single transcript file the watcher tails, so a new conversation
+        // never picks up another session's history.
+        const sessionId = conv.claudeSessionId ?? await ensureClaudeSessionId(cid);
+
         // Ensure a live tmux session + a session-scoped watcher exist.
         let entry = registry.get(cid);
         if (!entry) {
-          await ensureSession({ containerId: handle.containerId, conversationId: cid, resumeSessionId: conv.claudeSessionId });
-          const watcher = startWatcher(cid, handle.containerId, { appendMessage, setClaudeSessionId });
+          await ensureSession({ containerId: handle.containerId, conversationId: cid, sessionId });
+          const watcher = startWatcher(cid, handle.containerId, sessionId, { appendMessage });
           entry = { containerId: handle.containerId, watcher, attachedWs: null };
           registry.set(cid, entry);
         } else if (!(await hasSession(handle.containerId, cid))) {
           // Claude exited but the entry lingered — recreate from scratch.
           entry.watcher.stop();
-          await ensureSession({ containerId: handle.containerId, conversationId: cid, resumeSessionId: conv.claudeSessionId });
-          entry.watcher = startWatcher(cid, handle.containerId, { appendMessage, setClaudeSessionId });
+          await ensureSession({ containerId: handle.containerId, conversationId: cid, sessionId });
+          entry.watcher = startWatcher(cid, handle.containerId, sessionId, { appendMessage });
         }
 
         const { command, args } = attachArgv(handle.containerId, cid);
