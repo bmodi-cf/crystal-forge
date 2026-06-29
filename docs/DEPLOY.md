@@ -87,6 +87,34 @@ Consequences to know:
 - `TimeoutStartSec=600` exists so the build has room; the systemd default (90s) would kill a
   mid-build start.
 
+## Dev iteration vs the service
+
+The service is `enabled`, so **every reboot auto-starts it in production mode**, and while
+active it owns `:3030` and `:3100`. Running `./forge-launch.sh` (or `pnpm dev`) on top of it
+starts a second, dev-mode server that collides — `EADDRINUSE` on `:3100` (started by
+`instrumentation.ts`, not `next start`). Because `Restart=always`, you cannot just kill the
+process — systemd respawns it within `RestartSec`. Pick the path that matches the intent:
+
+- **Ship latest code, no dev loop** — let the unit rebuild from the working tree and restart:
+  ```bash
+  sudo systemctl restart crystal-forge.service   # ExecStartPre builds current files (~1-2 min), then serves
+  ```
+  The build uses the **working tree**, so uncommitted edits go live too; a failing build keeps
+  the service down rather than serving stale output.
+
+- **Longer dev session (hot-reload)** — stop the unit to free the ports, then run dev; restart
+  it when done so the boot scenario is preserved:
+  ```bash
+  sudo systemctl stop  crystal-forge.service     # frees :3030 + :3100
+  ./forge-launch.sh                              # dev server with hot-reload on :3030
+  # …develop…
+  sudo systemctl start crystal-forge.service     # rebuild from working tree, back to prod
+  ```
+  `stop` does **not** `disable`: the unit is still enabled, so a reboot mid-session re-starts
+  prod and re-collides. If you expect to reboot during a long dev session, `sudo systemctl
+  disable crystal-forge.service` while developing and `enable` it again afterward — but always
+  leave it `enabled` at the end so boot brings the app back up.
+
 ## Rollback
 
 Each edit to the unit is backed up alongside it, e.g.
