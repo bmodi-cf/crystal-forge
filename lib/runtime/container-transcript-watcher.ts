@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { getContainerManager } from './container';
 import { CONTAINER_WORKDIR, CLAUDE_HOME } from './paths';
 import { parseTranscriptLine, encodedCwd, type AppendMessageFn } from './transcript-watcher';
 
@@ -16,6 +17,18 @@ export type ContainerWatcherDeps = { appendMessage: AppendMessageFn; spawnTail?:
 // other conversations' history into this one.
 const TRANSCRIPT_DIR = `${CLAUDE_HOME}/.claude/projects/${encodedCwd(CONTAINER_WORKDIR)}`;
 export const transcriptPath = (sessionId: string): string => `${TRANSCRIPT_DIR}/${sessionId}.jsonl`;
+
+/**
+ * Whether this session's transcript already exists in the container — i.e. the
+ * session has run before. Drives the `claude --resume <id>` vs `--session-id <id>`
+ * choice: resume an existing transcript, otherwise start fresh with that id.
+ */
+export async function transcriptExists(containerId: string, sessionId: string): Promise<boolean> {
+  const { exitCode } = await getContainerManager().exec(
+    containerId, 'sh', ['-c', `test -f '${transcriptPath(sessionId)}'`],
+  );
+  return exitCode === 0;
+}
 
 const defaultSpawnTail: SpawnTail = (containerId, sessionId) => {
   const file = transcriptPath(sessionId);

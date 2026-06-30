@@ -4,7 +4,6 @@ import WebSocket from 'ws';
 import { startWsServer } from './ws-server';
 import { signTicket } from '@/lib/auth/ws-ticket';
 import type { SpawnOpts } from './pty-session';
-import type { SessionRegistry } from './session-registry';
 
 const SECRET = 'a'.repeat(32);
 const servers: Array<{ stop: () => void }> = [];
@@ -18,7 +17,6 @@ function fakeSession() {
 async function startServer(overrides: Partial<Parameters<typeof startWsServer>[0]> = {}) {
   const fakePty = { spawn: vi.fn(() => fakeSession()) };
   const fakeWatcher = { start: vi.fn(() => ({ stop: vi.fn() })) };
-  const registry: SessionRegistry = new Map();
   const server = await startWsServer({
     port: 0,
     secret: SECRET,
@@ -27,17 +25,12 @@ async function startServer(overrides: Partial<Parameters<typeof startWsServer>[0
     loadConversation: async (id: string) => ({ id, forgeId: 'f1', slug: 'aquaflow-designer', claudeSessionId: null }),
     loadRuntimeHandle: async () => ({ containerId: 'cid', port: 3042 }),
     ensureClaudeSessionId: async () => 'gen-uuid',
-    ensureSession: vi.fn(async () => ({ created: true })),
-    hasSession: vi.fn(async () => true),
-    attachArgv: (containerId: string, conversationId: string) => ({
-      command: 'docker',
-      args: ['exec', '-i', '-t', containerId, 'tmux', '-L', `claude-${conversationId}`, 'attach', '-t', 'main'],
-    }),
-    registry,
+    sessionExists: async () => false, // fresh by default
+    appendMessage: async () => {},
     ...overrides,
   });
   servers.push(server);
-  return { server, fakePty, fakeWatcher, registry };
+  return { server, fakePty, fakeWatcher };
 }
 
 function open(server: { port: number }, conversationId = 'c1') {
@@ -52,39 +45,37 @@ const closedCode = (ws: WebSocket) => new Promise<number>((res) => {
   ws.once('close', (c) => res(c)); ws.once('error', () => res(-1)); setTimeout(() => res(-2), 2000);
 });
 
-describe('ws-server', () => {
-  it('attaches to the tmux session and starts the watcher on first connect', async () => {
-    const { server, fakePty, fakeWatcher } = await startServer();
+describe('ws-server (direct streaming)', () => {
+  it('spawns a fresh claude PTY with --session-id and starts the watcher', async () => {
+    let captured: SpawnOpts | null = null;
+    const { server, fakeWatcher } = await startServer({
+      spawnPty: (opts: SpawnOpts) => { captured = opts; return fakeSession(); },
+    });
     const ws = open(server);
     await opened(ws);
-    expect(fakePty.spawn).toHaveBeenCalledTimes(1);
-    // null stored id -> ensureClaudeSessionId backfills 'gen-uuid'; watcher tails it.
+    const opts = captured as SpawnOpts | null;
+    expect(opts?.command).toBe('docker');
+    // null stored id -> ensureClaudeSessionId backfills 'gen-uuid'; fresh -> --session-id.
+    expect(opts?.args).toEqual([
+      'exec', '-i', '-t', '-w', '/workspace', 'cid',
+      'claude', '--dangerously-skip-permissions', '--session-id', 'gen-uuid',
+    ]);
     expect(fakeWatcher.start).toHaveBeenCalledWith('c1', 'cid', 'gen-uuid', expect.anything());
     ws.close();
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  it('spawns the PTY against docker exec ... tmux attach', async () => {
+  it('uses --resume with the stored session id when the transcript exists', async () => {
     let captured: SpawnOpts | null = null;
-    const { server } = await startServer({ spawnPty: (opts: SpawnOpts) => { captured = opts; return fakeSession(); } });
-    const ws = open(server);
-    await opened(ws);
-    const opts = captured as SpawnOpts | null;
-    expect(opts?.command).toBe('docker');
-    expect(opts?.args).toEqual(['exec', '-i', '-t', 'cid', 'tmux', '-L', 'claude-c1', 'attach', '-t', 'main']);
-    ws.close();
-    await new Promise((r) => setTimeout(r, 50));
-  });
-
-  it('passes the stored claudeSessionId to ensureSession', async () => {
-    const ensureSession = vi.fn(async () => ({ created: true }));
     const { server } = await startServer({
-      ensureSession,
+      spawnPty: (opts: SpawnOpts) => { captured = opts; return fakeSession(); },
       loadConversation: async (id: string) => ({ id, forgeId: 'f1', slug: 's', claudeSessionId: 'sess-9' }),
+      sessionExists: async () => true,
     });
     const ws = open(server);
     await opened(ws);
-    expect(ensureSession).toHaveBeenCalledWith({ containerId: 'cid', conversationId: 'c1', sessionId: 'sess-9' });
+    const opts = captured as SpawnOpts | null;
+    expect(opts?.args?.slice(-3)).toEqual(['--dangerously-skip-permissions', '--resume', 'sess-9']);
     ws.close();
     await new Promise((r) => setTimeout(r, 50));
   });
@@ -101,37 +92,21 @@ describe('ws-server', () => {
     expect(await closedCode(open(server))).toBe(4404);
   });
 
-  it('closes 4500 when the session cannot be started (e.g. tmux missing)', async () => {
-    const { server } = await startServer({
-      ensureSession: vi.fn(async () => { throw new Error('tmux: command not found'); }),
-    });
-    expect(await closedCode(open(server))).toBe(4500);
-  });
-
-  it('supersedes the previous connection: old socket closes 4410, new attaches', async () => {
-    const { server, fakeWatcher } = await startServer({ hasSession: vi.fn(async () => true) });
+  it('rejects a second connection for the same conversation with 4409', async () => {
+    const { server } = await startServer();
     const a = open(server);
     await opened(a);
     const b = open(server);
-    const aCode = await closedCode(a);
-    await opened(b);
-    expect(aCode).toBe(4410);
-    // Reattach must NOT start a second watcher.
-    expect(fakeWatcher.start).toHaveBeenCalledTimes(1);
-    b.close();
+    expect(await closedCode(b)).toBe(4409);
+    a.close();
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  it('does not kill the session/watcher on ws close (detach only)', async () => {
-    const stop = vi.fn();
-    const { server, registry } = await startServer({ startWatcher: () => ({ stop }) });
-    const ws = open(server);
-    await opened(ws);
-    ws.close();
-    await new Promise((r) => setTimeout(r, 50));
-    expect(stop).not.toHaveBeenCalled();
-    expect(registry.get('c1')).toBeTruthy();
-    expect(registry.get('c1')?.attachedWs).toBeNull();
+  it('closes 4500 when the session cannot be started', async () => {
+    const { server } = await startServer({
+      sessionExists: vi.fn(async () => { throw new Error('docker exec failed'); }),
+    });
+    expect(await closedCode(open(server))).toBe(4500);
   });
 
   it('forwards client input messages to the PTY', async () => {
@@ -146,5 +121,20 @@ describe('ws-server', () => {
     expect(write).toHaveBeenCalledWith('hi');
     ws.close();
     await new Promise((r) => setTimeout(r, 50));
+  });
+
+  it('kills the PTY and stops the watcher when the socket closes', async () => {
+    const kill = vi.fn();
+    const stop = vi.fn();
+    const { server } = await startServer({
+      spawnPty: () => ({ pid: 1, write: vi.fn(), resize: vi.fn(), onData: vi.fn(), onExit: vi.fn(), kill }),
+      startWatcher: () => ({ stop }),
+    });
+    const ws = open(server);
+    await opened(ws);
+    ws.close();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(kill).toHaveBeenCalled();
+    expect(stop).toHaveBeenCalled();
   });
 });

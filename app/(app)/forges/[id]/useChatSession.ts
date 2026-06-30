@@ -41,8 +41,7 @@ export function useChatSession(forgeId: string, conversationId: string | null): 
         };
         ws.onclose = (ev) => {
           if (ev.code === 4401) setErrorMessage('Authorization expired');
-          else if (ev.code === 4410) setErrorMessage('Reconnected in another tab');
-          else if (ev.code === 4411) setErrorMessage('Session ended');
+          else if (ev.code === 4409) setErrorMessage('Already open in another tab');
           else if (ev.code === 4404) setErrorMessage('Conversation not found');
           else if (ev.code === 4500) setErrorMessage('Failed to start session');
           setStatus('closed');
@@ -79,10 +78,10 @@ export function useChatSession(forgeId: string, conversationId: string | null): 
   }, []);
 
   const end = useCallback(async () => {
-    if (!conversationId) return;
-    await fetch(`/api/forges/${forgeId}/conversations/${conversationId}/end`, { method: 'POST' });
+    // Direct-streaming sessions live for the connection: closing the socket kills
+    // the PTY (and thus the Claude process) in the container. Reopening resumes.
     try { wsRef.current?.close(); } catch { /* noop */ }
-  }, [forgeId, conversationId]);
+  }, []);
 
   // Return a stable object — only changes when status/errorMessage change or
   // conversationId changes (which recreates `end`). This prevents effects in

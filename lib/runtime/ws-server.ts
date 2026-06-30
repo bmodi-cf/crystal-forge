@@ -1,18 +1,14 @@
 import { createServer, type Server as HttpServer } from 'node:http';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { verifyTicket } from '@/lib/auth/ws-ticket';
 import { spawnClaudeSession, type Session, type SpawnOpts } from './pty-session';
 import type { AppendMessageFn } from './transcript-watcher';
-import { startContainerTranscriptWatcher } from './container-transcript-watcher';
+import { startContainerTranscriptWatcher, transcriptExists } from './container-transcript-watcher';
 import { appendMessage as defaultAppend, ensureClaudeSessionId as defaultEnsureClaudeSessionId, loadConversationLite } from '@/lib/services/conversations';
 import type { ConversationLite } from '@/lib/services/conversations';
+import { CONTAINER_WORKDIR } from './paths';
 import { loadRuntimeHandle as defaultLoadRuntimeHandle } from './state';
-import {
-  ensureSession as defaultEnsureSession,
-  hasSession as defaultHasSession,
-  attachArgv as defaultAttachArgv,
-} from './tmux-session';
-import { sessionRegistry, type SessionRegistry } from './session-registry';
+import { claudeCredentialsEnv } from './claude-credentials';
 
 export type WsServerOpts = {
   port: number;
@@ -23,121 +19,94 @@ export type WsServerOpts = {
   loadRuntimeHandle?: (forgeId: string) => Promise<{ containerId: string; port: number } | null>;
   appendMessage?: AppendMessageFn;
   ensureClaudeSessionId?: (conversationId: string) => Promise<string>;
-  ensureSession?: (opts: { containerId: string; conversationId: string; sessionId: string }) => Promise<{ created: boolean }>;
-  hasSession?: (containerId: string, conversationId: string) => Promise<boolean>;
-  attachArgv?: (containerId: string, conversationId: string) => { command: string; args: string[] };
-  registry?: SessionRegistry;
+  sessionExists?: (containerId: string, sessionId: string) => Promise<boolean>;
 };
 
+type ActiveSession = { ws: WebSocket; pty: Session; watcher: { stop: () => void } };
+
+/**
+ * One PTY per WS connection: spawn `docker exec … claude` straight into a PTY and
+ * stream it to the browser (no tmux indirection). The Claude session id is pinned
+ * per conversation, so a reconnect resumes the same transcript (`--resume`) while a
+ * first connect starts it with that exact id (`--session-id`). The session lives
+ * for the connection — closing the socket ends the PTY; reopening resumes.
+ */
 export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; port: number }> {
   const spawnPty = opts.spawnPty ?? spawnClaudeSession;
   const startWatcher = opts.startWatcher
     ?? ((cid, containerId, sessionId, deps) => startContainerTranscriptWatcher(cid, containerId, sessionId, deps));
   const appendMessage = opts.appendMessage ?? defaultAppend;
   const ensureClaudeSessionId = opts.ensureClaudeSessionId ?? defaultEnsureClaudeSessionId;
+  const sessionExists = opts.sessionExists ?? transcriptExists;
   const loadConversation = opts.loadConversation ?? loadConversationLite;
   const loadForgeHandle = opts.loadRuntimeHandle ?? defaultLoadRuntimeHandle;
-  const ensureSession = opts.ensureSession ?? defaultEnsureSession;
-  const hasSession = opts.hasSession ?? defaultHasSession;
-  const attachArgv = opts.attachArgv ?? defaultAttachArgv;
-  const registry = opts.registry ?? sessionRegistry();
 
-  // Serialize concurrent connects for the same conversation so the
-  // has-session -> ensure -> attach sequence is atomic.
-  const locks = new Map<string, Promise<unknown>>();
-  function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    const prev = locks.get(key) ?? Promise.resolve();
-    const next = prev.then(fn, fn);
-    locks.set(key, next.catch(() => {}));
-    return next;
-  }
-
+  const sessions = new Map<string, ActiveSession>();
   const http: HttpServer = createServer();
   const wss = new WebSocketServer({ server: http });
 
-  wss.on('connection', (ws, req) => {
+  wss.on('connection', async (ws, req) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const token = url.searchParams.get('token') ?? '';
     const payload = verifyTicket(token, opts.secret);
     if (!payload) { ws.close(4401, 'Invalid or expired ticket'); return; }
     const cid = payload.conversationId;
+    if (sessions.has(cid)) { ws.close(4409, 'Conversation already active'); return; }
+    const conv = await loadConversation(cid);
+    if (!conv) { ws.close(4404, 'Conversation not found'); return; }
+    const handle = await loadForgeHandle(conv.forgeId);
+    if (!handle) { ws.close(4404, 'Forge runtime not found'); return; }
 
-    void withLock(cid, async () => {
-      try {
-        const conv = await loadConversation(cid);
-        if (!conv) { ws.close(4404, 'Conversation not found'); return; }
-        const handle = await loadForgeHandle(conv.forgeId);
-        if (!handle) { ws.close(4404, 'Forge runtime not found'); return; }
+    try {
+      // Pinned per-conversation session id keys the transcript file the watcher
+      // tails AND the claude invocation: resume if it already ran, else start it.
+      const sessionId = conv.claudeSessionId ?? await ensureClaudeSessionId(cid);
+      const resumable = await sessionExists(handle.containerId, sessionId);
+      const sessionArgs = resumable ? ['--resume', sessionId] : ['--session-id', sessionId];
 
-        // Takeover: detach any socket currently attached for this conversation.
-        const prior = registry.get(cid);
-        if (prior?.attachedWs && prior.attachedWs !== ws) {
-          try { prior.attachedWs.close(4410, 'Superseded by a newer connection'); } catch { /* noop */ }
-          prior.attachedWs = null;
-        }
-        // Stale entry from a previous container (forge stop/start): drop it.
-        if (prior && prior.containerId !== handle.containerId) {
-          prior.watcher.stop();
-          registry.delete(cid);
-        }
+      const credFlags: string[] = [];
+      for (const [k, v] of Object.entries(claudeCredentialsEnv())) credFlags.push('-e', `${k}=${v}`);
+      const pty = spawnPty({
+        command: 'docker',
+        args: ['exec', '-i', '-t', '-w', CONTAINER_WORKDIR, ...credFlags,
+               handle.containerId, 'claude', '--dangerously-skip-permissions', ...sessionArgs],
+        cwd: '/', cols: 80, rows: 24,
+      });
+      const watcher = startWatcher(cid, handle.containerId, sessionId, { appendMessage });
+      const active: ActiveSession = { ws, pty, watcher };
+      sessions.set(cid, active);
 
-        // The conversation's Claude session id is pinned (set at create; this
-        // backfills legacy rows). It keys both `claude --session-id/--resume` and
-        // the single transcript file the watcher tails, so a new conversation
-        // never picks up another session's history.
-        const sessionId = conv.claudeSessionId ?? await ensureClaudeSessionId(cid);
-
-        // Ensure a live tmux session + a session-scoped watcher exist.
-        let entry = registry.get(cid);
-        if (!entry) {
-          await ensureSession({ containerId: handle.containerId, conversationId: cid, sessionId });
-          const watcher = startWatcher(cid, handle.containerId, sessionId, { appendMessage });
-          entry = { containerId: handle.containerId, watcher, attachedWs: null };
-          registry.set(cid, entry);
-        } else if (!(await hasSession(handle.containerId, cid))) {
-          // Claude exited but the entry lingered — recreate from scratch.
-          entry.watcher.stop();
-          await ensureSession({ containerId: handle.containerId, conversationId: cid, sessionId });
-          entry.watcher = startWatcher(cid, handle.containerId, sessionId, { appendMessage });
-        }
-
-        const { command, args } = attachArgv(handle.containerId, cid);
-        const pty = spawnPty({ command, args, cwd: '/', cols: 80, rows: 24 });
-        const active = entry;
-        active.attachedWs = ws;
-
-        pty.onData((chunk) => { try { ws.send(chunk, { binary: false }); } catch { /* socket closed */ } });
-        pty.onExit(() => {
-          // The attach *client* exited (detach). Leave the session + watcher alone.
-          if (active.attachedWs === ws) active.attachedWs = null;
-          try { ws.close(4000, 'tmux client exited'); } catch { /* already closed */ }
-        });
-        ws.on('message', (raw, isBinary) => {
-          if (isBinary) { pty.write(raw as Buffer); return; }
-          const text = raw.toString('utf8');
-          try {
-            const msg = JSON.parse(text) as { type?: string };
-            if (msg.type === 'input' && typeof (msg as { data?: unknown }).data === 'string') {
-              pty.write((msg as { data: string }).data); return;
-            }
-            if (msg.type === 'resize') {
-              const m = msg as { cols?: number; rows?: number };
-              if (typeof m.cols === 'number' && typeof m.rows === 'number') pty.resize(m.cols, m.rows);
-              return;
-            }
-          } catch { /* not JSON — raw write */ }
-          pty.write(text);
-        });
-        ws.on('close', () => {
-          pty.kill(); // detaches the tmux client; claude + watcher keep running
-          if (active.attachedWs === ws) active.attachedWs = null;
-        });
-      } catch (err) {
-        // tmux missing (un-rebuilt image), docker exec failure, etc.
-        console.error('[runtime/ws] session setup failed', err);
-        try { ws.close(4500, 'Failed to start session'); } catch { /* noop */ }
-      }
-    });
+      pty.onData((chunk) => { try { ws.send(chunk, { binary: false }); } catch { /* socket closed */ } });
+      pty.onExit((code) => {
+        watcher.stop();
+        sessions.delete(cid);
+        try { ws.close(4000, `pty exit ${code}`); } catch { /* already closed */ }
+      });
+      ws.on('message', (raw, isBinary) => {
+        if (isBinary) { pty.write(raw as Buffer); return; }
+        const text = raw.toString('utf8');
+        try {
+          const msg = JSON.parse(text) as { type?: string };
+          if (msg.type === 'input' && typeof (msg as { data?: unknown }).data === 'string') {
+            pty.write((msg as { data: string }).data); return;
+          }
+          if (msg.type === 'resize') {
+            const m = msg as { cols?: number; rows?: number };
+            if (typeof m.cols === 'number' && typeof m.rows === 'number') pty.resize(m.cols, m.rows);
+            return;
+          }
+        } catch { /* not JSON — fall through to raw write */ }
+        pty.write(text);
+      });
+      ws.on('close', () => {
+        pty.kill();
+        watcher.stop();
+        sessions.delete(cid);
+      });
+    } catch (err) {
+      console.error('[runtime/ws] session setup failed', err);
+      try { ws.close(4500, 'Failed to start session'); } catch { /* noop */ }
+    }
   });
 
   return new Promise<{ stop: () => void; port: number }>((resolve) => {
@@ -147,11 +116,11 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
       resolve({
         port,
         stop: () => {
-          // Process teardown only: detach sockets. Sessions live in containers.
-          for (const entry of registry.values()) {
-            try { entry.attachedWs?.close(); } catch { /* noop */ }
-            entry.attachedWs = null;
+          for (const s of sessions.values()) {
+            try { s.ws.close(); } catch { /* noop */ }
+            s.pty.kill(); s.watcher.stop();
           }
+          sessions.clear();
           wss.close();
           http.close();
         },
