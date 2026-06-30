@@ -169,11 +169,14 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       return; // terminal state recorded; the client poller surfaces it
     }
 
-    // Build and start in production mode. A restart-loop supervisor self-heals
-    // crashes. Each restart rebuilds so code changes made by the agent are
-    // picked up — no HMR needed. Detached: the loop outlives this exec call.
+    // Start the dev server under a restart-loop supervisor so a crash self-heals
+    // instead of freezing the preview. Dev mode gives agent edits instant Fast
+    // Refresh; its HMR WebSocket reaches the browser through the dashboard's
+    // forge-HMR tunnel (server.ts → lib/runtime/hmr-proxy.ts). Detached: the
+    // loop keeps running in the container (reparented to PID 1) after this
+    // exec returns.
     await deps.containerManager.exec(containerId, 'sh',
-      ['-c', `while true; do pnpm build && pnpm start; echo "[forge] prod server exited (code $?); restarting in 2s"; sleep 2; done >> ${CONTAINER_WORKDIR}/.forge-dev.log 2>&1`],
+      ['-c', `while true; do pnpm dev --port 3000; echo "[forge] dev server exited (code $?); restarting in 2s"; sleep 2; done >> ${CONTAINER_WORKDIR}/.forge-dev.log 2>&1`],
       { workdir: CONTAINER_WORKDIR, detached: true });
 
     const deadline = Date.now() + PROBE_TIMEOUT_MS;

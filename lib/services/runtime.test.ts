@@ -365,11 +365,11 @@ describe('runtime service', () => {
       await svc.startForge(tom, forge.id);
       await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
       const devExec = fakes._containers.execCalls.find(
-        (c) => c.cmd === 'sh' && c.args.join(' ').includes('pnpm build'),
+        (c) => c.cmd === 'sh' && c.args.join(' ').includes('pnpm dev'),
       );
       expect(devExec).toBeTruthy();
       expect(devExec?.opts?.detached).toBe(true);
-      expect(devExec?.args.join(' ')).toMatch(/while true; do pnpm build/);
+      expect(devExec?.args.join(' ')).toMatch(/while true; do pnpm dev/);
     });
   });
 
