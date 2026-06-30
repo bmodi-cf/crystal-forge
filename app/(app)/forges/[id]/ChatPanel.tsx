@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 import { useChatSession, type ChatStatus } from './useChatSession';
-import { useConversationMessages } from './useConversationMessages';
-import { MessageHistory } from './MessageHistory';
-import { MessageInput } from './MessageInput';
-import { ToolFeed } from './ToolFeed';
 
 type Props = {
   forgeId: string;
@@ -21,51 +20,52 @@ const STATUS_LABEL: Record<ChatStatus, string> = {
 };
 
 const AUTH_URL_RE = /https:\/\/\S*claude\.ai\S*/;
-const TOOL_LINE_RE = /\b(Read|Write|Edit|Bash|WebFetch|Agent|TodoRead|TodoWrite|Glob|Grep|NotebookRead|NotebookEdit)\s*\(/;
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
 
 export function ChatPanel({ forgeId, conversationId }: Props) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const session = useChatSession(forgeId, conversationId);
-  const { messages } = useConversationMessages(forgeId, conversationId, session.status === 'open');
-  const [isWorking, setIsWorking] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
-  const prevMsgCountRef = useRef(0);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // Detect end-of-work: a new assistant message landed in the DB
+  // Mount the xterm terminal on the live PTY stream. onData/send/resize are
+  // stable useCallbacks, so this runs once per conversation (no destroy/recreate
+  // cycle when status changes).
+  const { onData, send, resize } = session;
   useEffect(() => {
-    const last = messages[messages.length - 1];
-    if (messages.length > prevMsgCountRef.current && last?.role === 'assistant') {
-      setIsWorking(false);
-    }
-    prevMsgCountRef.current = messages.length;
-  }, [messages]);
+    if (!conversationId || !hostRef.current) return;
+    const term = new Terminal({
+      cursorBlink: true,
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontSize: 13,
+      theme: { background: '#0c0e12' },
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(hostRef.current);
+    // Defer the first fit until the flex layout has settled, else cols/rows are
+    // measured against an unsized container.
+    const raf = requestAnimationFrame(() => { fit.fit(); resize(term.cols, term.rows); });
+    const onResize = () => { fit.fit(); resize(term.cols, term.rows); };
+    window.addEventListener('resize', onResize);
+    const dataDispose = term.onData((data) => send(data));
+    const unsub = onData((chunk) => term.write(chunk));
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      dataDispose.dispose();
+      unsub();
+      term.dispose();
+    };
+  }, [conversationId, onData, send, resize]);
 
-  // Detect tool activity and auth URLs from PTY stream
+  // Surface the Claude Code auth URL (login inside the forge) as a banner.
   useEffect(() => {
     if (session.status !== 'open') return;
     return session.onData((chunk) => {
-      const plain = chunk.replace(ANSI_RE, '');
-      if (TOOL_LINE_RE.test(plain)) setIsWorking(true);
-      const match = AUTH_URL_RE.exec(plain);
+      const match = AUTH_URL_RE.exec(chunk.replace(ANSI_RE, ''));
       if (match) setAuthUrl(match[0]);
     });
   }, [session.status, session.onData]);
-
-  // Scroll to bottom when tool feed updates or new messages arrive
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, isWorking]);
-
-  function handleSend(text: string) {
-    session.send(text + '\r');
-    setIsWorking(true);
-  }
-
-  function handleInterrupt() {
-    session.send('\x1b');
-    setIsWorking(false);
-  }
 
   if (!conversationId) {
     return (
@@ -77,7 +77,6 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* status bar */}
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11px] text-ink-faint shrink-0">
         <span>{STATUS_LABEL[session.status]}</span>
         <div className="flex items-center gap-3">
@@ -93,37 +92,19 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
         </div>
       </div>
 
-      {/* auth banner */}
       {authUrl && (
         <div className="shrink-0 flex items-center gap-2 border-b border-border bg-surface-raised px-3 py-2 text-[11px]">
           <span className="text-ink-faint">Authentication required:</span>
           <a href={authUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline break-all hover:text-blue-300">
             {authUrl}
           </a>
-          <button
-            type="button"
-            onClick={() => setAuthUrl(null)}
-            className="ml-auto shrink-0 text-ink-faint hover:text-ink"
-            aria-label="Dismiss"
-          >
+          <button type="button" onClick={() => setAuthUrl(null)} className="ml-auto shrink-0 text-ink-faint hover:text-ink" aria-label="Dismiss">
             ✕
           </button>
         </div>
       )}
 
-      {/* scrollable message area */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <MessageHistory messages={messages} />
-        <ToolFeed onData={session.onData} isWorking={isWorking} />
-        <div ref={bottomRef} />
-      </div>
-
-      {/* input */}
-      <MessageInput
-        onSend={handleSend}
-        onInterrupt={handleInterrupt}
-        isWorking={isWorking}
-      />
+      <div data-testid="xterm-host" ref={hostRef} className="flex-1 overflow-hidden bg-[#0c0e12]" />
     </div>
   );
 }
