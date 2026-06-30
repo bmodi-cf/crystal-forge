@@ -32,7 +32,8 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
   // cycle when status changes).
   const { onData, send, resize } = session;
   useEffect(() => {
-    if (!conversationId || !hostRef.current) return;
+    const host = hostRef.current;
+    if (!conversationId || !host) return;
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
@@ -41,17 +42,18 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(hostRef.current);
-    // Defer the first fit until the flex layout has settled, else cols/rows are
-    // measured against an unsized container.
-    const raf = requestAnimationFrame(() => { fit.fit(); resize(term.cols, term.rows); });
-    const onResize = () => { fit.fit(); resize(term.cols, term.rows); };
-    window.addEventListener('resize', onResize);
+    term.open(host);
+    // Re-fit whenever the host actually changes size — covers the initial flex
+    // layout settling AND the panel growing/shrinking later, so the terminal
+    // always fills its column instead of locking to an early (small) measurement.
+    const doFit = () => { try { fit.fit(); resize(term.cols, term.rows); } catch { /* host not measurable yet */ } };
+    const ro = new ResizeObserver(() => doFit());
+    ro.observe(host);
+    doFit();
     const dataDispose = term.onData((data) => send(data));
     const unsub = onData((chunk) => term.write(chunk));
     return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', onResize);
+      ro.disconnect();
       dataDispose.dispose();
       unsub();
       term.dispose();
@@ -76,7 +78,7 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11px] text-ink-faint shrink-0">
         <span>{STATUS_LABEL[session.status]}</span>
         <div className="flex items-center gap-3">
@@ -104,7 +106,7 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
         </div>
       )}
 
-      <div data-testid="xterm-host" ref={hostRef} className="flex-1 overflow-hidden bg-[#0c0e12]" />
+      <div data-testid="xterm-host" ref={hostRef} className="flex-1 min-h-0 overflow-hidden bg-[#0c0e12]" />
     </div>
   );
 }
