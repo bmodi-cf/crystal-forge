@@ -110,6 +110,43 @@ describe('handlePreviewProxy', () => {
     expect(upstreamHadConnection).toBe(false); // hop-by-hop header stripped
   });
 
+  it('injects a trusted x-forge-user identity header from the session', async () => {
+    let received: string | null = 'absent';
+    await handlePreviewProxy(
+      new Request('http://localhost:3000/app/bmodi-test1/'),
+      'bmodi-test1',
+      makeDeps({
+        fetch: (async (_url: string | URL, init: RequestInit) => {
+          received = new Headers(init?.headers).get('x-forge-user');
+          return new Response('ok', { status: 200 });
+        }) as unknown as typeof fetch,
+      }),
+    );
+    expect(received).toBeTruthy();
+    const decoded = JSON.parse(Buffer.from(received!, 'base64url').toString('utf8'));
+    expect(decoded).toMatchObject({
+      id: 'u1', email: 'a@b.c', name: 'A', groups: ['eng'], isAdmin: false,
+    });
+  });
+
+  it('overwrites a client-supplied x-forge-user (anti-spoofing)', async () => {
+    let received = '';
+    await handlePreviewProxy(
+      new Request('http://localhost:3000/app/bmodi-test1/', {
+        headers: { 'x-forge-user': 'ZmFrZQ' }, // base64url("fake")
+      }),
+      'bmodi-test1',
+      makeDeps({
+        fetch: (async (_url: string | URL, init: RequestInit) => {
+          received = new Headers(init?.headers).get('x-forge-user') ?? '';
+          return new Response('ok', { status: 200 });
+        }) as unknown as typeof fetch,
+      }),
+    );
+    const decoded = JSON.parse(Buffer.from(received, 'base64url').toString('utf8'));
+    expect(decoded.id).toBe('u1'); // trusted session value, not the spoofed one
+  });
+
   it('does not relay upstream set-cookie to the browser', async () => {
     const res = await handlePreviewProxy(
       new Request('http://localhost:3000/app/bmodi-test1/'),

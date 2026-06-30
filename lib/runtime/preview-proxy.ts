@@ -28,6 +28,26 @@ const STRIP_HEADERS = new Set([
   'set-cookie', 'content-encoding',
 ]);
 
+// Identity header the dashboard injects so the forge app knows the authenticated
+// user. The value is base64url(JSON) of the session user — base64 so non-ASCII
+// names/emails survive HTTP header (latin1) encoding. Any client-supplied copy
+// is dropped before this is set, so a browser cannot spoof it. The forge port is
+// loopback-bound and reached only via this proxy, so a plain trusted header is
+// the trust boundary (cf. X-Forwarded-User behind an auth proxy). If forge-to-
+// forge network isolation ever weakens, sign this (HMAC/asymmetric).
+const FORGE_USER_HEADER = 'x-forge-user';
+
+function encodeForgeUser(user: SessionUser): string {
+  const payload = JSON.stringify({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    groups: user.groups,
+    isAdmin: user.isAdmin,
+  });
+  return Buffer.from(payload, 'utf8').toString('base64url');
+}
+
 function filterHeaders(src: Headers): Headers {
   // RFC 7230 §6.1: also strip any header named in the Connection header value.
   const connectionListed = new Set(
@@ -76,10 +96,16 @@ export async function handlePreviewProxy(
   const incoming = new URL(req.url);
   const target = runtimeOrigin(entry.port) + incoming.pathname + incoming.search;
 
+  // Drop any client-supplied identity header, then set the trusted one from the
+  // validated session so the forge app can attribute the request to a user.
+  const reqHeaders = filterHeaders(req.headers);
+  reqHeaders.delete(FORGE_USER_HEADER);
+  reqHeaders.set(FORGE_USER_HEADER, encodeForgeUser(session.user));
+
   const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
   const init: RequestInit & { duplex?: 'half' } = {
     method: req.method,
-    headers: filterHeaders(req.headers),
+    headers: reqHeaders,
     body: hasBody ? req.body : undefined,
     redirect: 'manual', // pass the forge app's redirects through verbatim
   };
