@@ -10,10 +10,18 @@ export class FakeContainerManager implements ContainerManager {
   private readonly containers = new Map<string, Entry>();
   private seq = 0;
   private readonly exitQueue: number[] = [];
+  private readonly failMatches: string[] = [];
   readonly execCalls: ExecCall[] = [];
 
   /** Queue the exit code the next exec() should return (default 0). */
   queueExit(code: number): void { this.exitQueue.push(code); }
+
+  /**
+   * Make any exec whose `cmd + args` contains `match` exit non-zero, regardless
+   * of call order. Useful for probes (e.g. `test -d …`) whose position in the
+   * sequence is awkward to target with the positional queue.
+   */
+  failCommand(match: string): void { this.failMatches.push(match); }
 
   async create(spec: CreateContainerSpec): Promise<string> {
     const id = `fake-${++this.seq}`;
@@ -23,6 +31,8 @@ export class FakeContainerManager implements ContainerManager {
 
   async exec(id: string, cmd: string, args: string[], opts?: ExecOpts): Promise<{ exitCode: number }> {
     this.execCalls.push({ id, cmd, args, ...(opts ? { opts } : {}) });
+    const full = `${cmd} ${args.join(' ')}`;
+    if (this.failMatches.some((m) => full.includes(m))) return { exitCode: 1 };
     return { exitCode: this.exitQueue.length ? this.exitQueue.shift()! : 0 };
   }
 

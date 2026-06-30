@@ -130,8 +130,17 @@ export async function setupForgeContainer(
   //    supervisor's `next build` — production prerendering queries the DB at build
   //    time, which fails with P2021 ("table does not exist") on an unmigrated DB.
   //    Idempotent: `migrate deploy` only applies migrations not yet recorded.
-  await assertOk(
-    exec('pnpm', ['prisma', 'migrate', 'deploy'], { timeoutMs: INSTALL_TIMEOUT_MS }),
-    'pnpm prisma migrate deploy',
-  );
+  //
+  //    Guarded on the presence of prisma/migrations: a forge whose template has no
+  //    committed migration history (a bare schema, or a non-Prisma forge) has
+  //    nothing to deploy, and `migrate deploy` would hard-fail setup. Skip it
+  //    rather than couple every forge to a migration directory.
+  const hasMigrations =
+    (await exec('test', ['-d', `${W}/prisma/migrations`])).exitCode === 0;
+  if (hasMigrations) {
+    await assertOk(
+      exec('pnpm', ['prisma', 'migrate', 'deploy'], { timeoutMs: INSTALL_TIMEOUT_MS }),
+      'pnpm prisma migrate deploy',
+    );
+  }
 }

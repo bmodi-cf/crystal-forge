@@ -43,6 +43,33 @@ describe('setupForgeContainer', () => {
     expect(inject!.args.join(' ')).toContain('cur!==wrapper');
   });
 
+  it('skips prisma migrate deploy when prisma/migrations is absent', async () => {
+    const m = new FakeContainerManager();
+    const id = await m.create({ name: 'x', image: 'img' });
+    // The forge's repo has no committed migration history (e.g. a fresh template
+    // with only a schema, or a non-Prisma forge): the probe reports ABSENT.
+    m.failCommand('test -d /workspace/prisma/migrations');
+    await setupForgeContainer(m, id, {
+      slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log',
+    });
+    const cmds = m.execCalls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
+    // It still probes for the migrations dir...
+    expect(cmds.some((c) => c.includes('test -d /workspace/prisma/migrations'))).toBe(true);
+    // ...but does not attempt to deploy migrations that don't exist.
+    expect(cmds.some((c) => c === 'pnpm prisma migrate deploy')).toBe(false);
+  });
+
+  it('runs prisma migrate deploy when prisma/migrations is present', async () => {
+    const m = new FakeContainerManager();
+    const id = await m.create({ name: 'x', image: 'img' });
+    // Default fake exit code is 0, so the migrations probe reports PRESENT.
+    await setupForgeContainer(m, id, {
+      slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log',
+    });
+    const cmds = m.execCalls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
+    expect(cmds.some((c) => c === 'pnpm prisma migrate deploy')).toBe(true);
+  });
+
   it('throws when a step exits non-zero', async () => {
     const m = new FakeContainerManager();
     const id = await m.create({ name: 'x', image: 'img' });
