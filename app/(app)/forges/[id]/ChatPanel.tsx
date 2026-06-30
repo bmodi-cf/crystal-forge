@@ -50,9 +50,19 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     const ro = new ResizeObserver(() => doFit());
     ro.observe(host);
     doFit();
+    // The first fit can measure a fallback font's taller line-height (→ too few
+    // rows, terminal fills only part of the column) before the monospace font
+    // loads. A font swap doesn't change the host size, so the ResizeObserver
+    // won't re-fire — re-fit explicitly once fonts are ready and on a couple of
+    // deferred ticks after the initial paint.
+    const timers = [setTimeout(doFit, 60), setTimeout(doFit, 300)];
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      document.fonts.ready.then(() => doFit()).catch(() => {});
+    }
     const dataDispose = term.onData((data) => send(data));
     const unsub = onData((chunk) => term.write(chunk));
     return () => {
+      timers.forEach(clearTimeout);
       ro.disconnect();
       dataDispose.dispose();
       unsub();
