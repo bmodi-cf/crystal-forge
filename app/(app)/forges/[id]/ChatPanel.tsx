@@ -31,14 +31,25 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
   const { onData, send, resize } = session;
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const lastDims = useRef({ cols: 0, rows: 0 });
 
   // Fit the display to the host AND push that size to the PTY so Claude's TTY
   // matches what the user sees (SIGWINCH). resize() is a no-op until the socket
   // is open, which is why we also call this when status flips to 'open' below.
+  // Dedupe on the *proposed* dims so a no-op fit can't mutate the DOM and
+  // re-trigger the ResizeObserver — that feedback loop flooded the PTY with
+  // resizes and kept Claude's TUI from settling.
   const syncSize = useCallback(() => {
     const term = termRef.current, fit = fitRef.current;
     if (!term || !fit) return;
-    try { fit.fit(); resize(term.cols, term.rows); } catch { /* host not measurable yet */ }
+    try {
+      const dims = fit.proposeDimensions();
+      if (!dims?.cols || !dims?.rows) return;
+      if (dims.cols === lastDims.current.cols && dims.rows === lastDims.current.rows) return;
+      lastDims.current = { cols: dims.cols, rows: dims.rows };
+      fit.fit();
+      resize(term.cols, term.rows);
+    } catch { /* host not measurable yet */ }
   }, [resize]);
 
   useEffect(() => {
@@ -56,9 +67,11 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     termRef.current = term;
     fitRef.current = fit;
     syncSize();
-    // Re-fit on real host size changes, after fonts load (line-height changes),
-    // and on a couple of deferred ticks once layout settles.
-    const ro = new ResizeObserver(() => syncSize());
+    // Re-fit on real host size changes (debounced to coalesce bursts), after
+    // fonts load (line-height changes), and on a couple of deferred ticks once
+    // layout settles.
+    let roTimer: ReturnType<typeof setTimeout> | undefined;
+    const ro = new ResizeObserver(() => { clearTimeout(roTimer); roTimer = setTimeout(syncSize, 120); });
     ro.observe(host);
     const timers = [setTimeout(syncSize, 60), setTimeout(syncSize, 300)];
     if (typeof document !== 'undefined' && document.fonts?.ready) {
@@ -67,6 +80,7 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     const dataDispose = term.onData((data) => send(data));
     const unsub = onData((chunk) => term.write(chunk));
     return () => {
+      clearTimeout(roTimer);
       timers.forEach(clearTimeout);
       ro.disconnect();
       dataDispose.dispose();
@@ -130,7 +144,10 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
         </div>
       )}
 
-      <div data-testid="xterm-host" ref={hostRef} className="flex-1 min-h-0 overflow-hidden bg-[#0c0e12]" />
+      {/* Hide the xterm scrollbar so its show/hide doesn't change content width
+          and feed the resize loop; wheel-scroll still works. */}
+      <style>{`.xterm-viewport::-webkit-scrollbar{width:0;height:0}.xterm-viewport{scrollbar-width:none}`}</style>
+      <div data-testid="xterm-host" ref={hostRef} className="flex-1 min-h-0 overflow-hidden bg-[#0c0e12] p-1" />
     </div>
   );
 }

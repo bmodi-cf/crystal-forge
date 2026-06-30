@@ -61,7 +61,7 @@ export function ForgePageClient({
   }
 
   return (
-    <main className="flex h-screen flex-col">
+    <main className="flex h-[calc(100vh_-_4rem)] flex-col overflow-hidden">
       <header className="flex items-center justify-between border-b border-border px-4 py-2">
         <Link href="/dashboard" className="inline-flex items-center gap-1 text-[12px] text-ink-dim hover:text-ink">
           <ChevronLeft className="h-3.5 w-3.5" /> Forges

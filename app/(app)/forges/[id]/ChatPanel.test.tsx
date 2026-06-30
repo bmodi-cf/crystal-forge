@@ -21,7 +21,7 @@ vi.mock('@xterm/xterm', () => ({
     constructor() { lastTerm = this as unknown as { write: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }; }
   },
 }));
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }));
+vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} proposeDimensions() { return { cols: 80, rows: 24 }; } } }));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
 const mockSession = {
