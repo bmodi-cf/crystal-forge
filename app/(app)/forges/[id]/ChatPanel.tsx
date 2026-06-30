@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -27,10 +27,20 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
   const session = useChatSession(forgeId, conversationId);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
 
-  // Mount the xterm terminal on the live PTY stream. onData/send/resize are
-  // stable useCallbacks, so this runs once per conversation (no destroy/recreate
-  // cycle when status changes).
+  // onData/send/resize are stable useCallbacks from useChatSession.
   const { onData, send, resize } = session;
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+
+  // Fit the display to the host AND push that size to the PTY so Claude's TTY
+  // matches what the user sees (SIGWINCH). resize() is a no-op until the socket
+  // is open, which is why we also call this when status flips to 'open' below.
+  const syncSize = useCallback(() => {
+    const term = termRef.current, fit = fitRef.current;
+    if (!term || !fit) return;
+    try { fit.fit(); resize(term.cols, term.rows); } catch { /* host not measurable yet */ }
+  }, [resize]);
+
   useEffect(() => {
     const host = hostRef.current;
     if (!conversationId || !host) return;
@@ -43,21 +53,16 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
-    // Re-fit whenever the host actually changes size — covers the initial flex
-    // layout settling AND the panel growing/shrinking later, so the terminal
-    // always fills its column instead of locking to an early (small) measurement.
-    const doFit = () => { try { fit.fit(); resize(term.cols, term.rows); } catch { /* host not measurable yet */ } };
-    const ro = new ResizeObserver(() => doFit());
+    termRef.current = term;
+    fitRef.current = fit;
+    syncSize();
+    // Re-fit on real host size changes, after fonts load (line-height changes),
+    // and on a couple of deferred ticks once layout settles.
+    const ro = new ResizeObserver(() => syncSize());
     ro.observe(host);
-    doFit();
-    // The first fit can measure a fallback font's taller line-height (→ too few
-    // rows, terminal fills only part of the column) before the monospace font
-    // loads. A font swap doesn't change the host size, so the ResizeObserver
-    // won't re-fire — re-fit explicitly once fonts are ready and on a couple of
-    // deferred ticks after the initial paint.
-    const timers = [setTimeout(doFit, 60), setTimeout(doFit, 300)];
+    const timers = [setTimeout(syncSize, 60), setTimeout(syncSize, 300)];
     if (typeof document !== 'undefined' && document.fonts?.ready) {
-      document.fonts.ready.then(() => doFit()).catch(() => {});
+      document.fonts.ready.then(() => syncSize()).catch(() => {});
     }
     const dataDispose = term.onData((data) => send(data));
     const unsub = onData((chunk) => term.write(chunk));
@@ -67,8 +72,17 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
       dataDispose.dispose();
       unsub();
       term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
     };
-  }, [conversationId, onData, send, resize]);
+  }, [conversationId, onData, send, syncSize]);
+
+  // The first resize during mount is dropped (socket not open yet), leaving the
+  // PTY at its 80x24 spawn size — Claude then renders into only part of the
+  // column. Re-send the size the moment the socket opens.
+  useEffect(() => {
+    if (session.status === 'open') syncSize();
+  }, [session.status, syncSize]);
 
   // Surface the Claude Code auth URL (login inside the forge) as a banner.
   useEffect(() => {
