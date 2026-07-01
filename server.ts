@@ -8,6 +8,18 @@ const app = next({ dev });
 const handle = app.getRequestHandler();
 
 app.prepare().then(async () => {
+  // Next's custom-server wrapper lazily registers its OWN `'upgrade'` listener on
+  // our http.Server the first time a request is handled (`setupWebSocketHandler`,
+  // gated only on this private flag). That listener runs `resolveRoutes` and calls
+  // `socket.end()` for any upgrade whose path matches a Next route — which includes
+  // the forge preview catch-all `/app/[slug]/[[...path]]`. It would therefore tear
+  // down our forge HMR tunnel sockets mid-handshake, racing the async auth below.
+  // We run in production (`dev:false`), so the dashboard has no HMR socket of its
+  // own and Next's listener is purely harmful: suppress it and own `'upgrade'`
+  // entirely. (Pre-empting the flag before the first request keeps Next from ever
+  // attaching the listener.)
+  (app as unknown as { didWebSocketSetup: boolean }).didWebSocketSetup = true;
+
   const server = createServer((req, res) => handle(req, res));
 
   const upgradeHandler = app.getUpgradeHandler();
