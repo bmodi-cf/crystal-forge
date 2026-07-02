@@ -1,9 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { Pencil, SquareTerminal } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Forge } from '@/lib/services/types';
 import { ForgeCardRuntime, RuntimeStatus, type RuntimeAction } from './ForgeCardRuntime';
+import { RequestPromotionDialog, type BumpLevel } from './RequestPromotionDialog';
+import { usePromotion } from './usePromotion';
 import type { RuntimeStateView } from '@/lib/runtime/types';
 
 const TONE_CLASSES: Record<Forge['tone'], string> = {
@@ -22,6 +26,24 @@ type Props = {
 };
 
 export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, onDelete }: Props) {
+  const [promoOpen, setPromoOpen] = useState(false);
+  const { promotion, refetch: refetchPromotion } = usePromotion(forge.id);
+
+  async function submitPromotion(bump: BumpLevel) {
+    const res = await fetch(`/api/forges/${forge.id}/promotion`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bumpLevel: bump }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      toast.error(body?.error ?? 'Promotion request failed');
+      return;
+    }
+    toast.success('Promotion requested');
+    void refetchPromotion();
+  }
+
   return (
     <article className="relative flex min-h-[220px] flex-col overflow-hidden rounded-[14px] border border-border bg-panel transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-panel-2">
       {/* Header — identity + runtime status (left column), Code Workspace launcher (right). Status sits bottom-left, in the space the tall button creates. */}
@@ -80,7 +102,7 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
         </div>
       </div>
 
-      {/* Control — start/stop/open on the left, repo + delete on the right */}
+      {/* Control — start/stop/open on the left, repo + delete + promotion on the right */}
       <ForgeCardRuntime
         forgeName={forge.name}
         canWrite={canWrite}
@@ -88,6 +110,15 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
         onAction={(action) => onRuntimeAction(forge, action)}
         repoUrl={forge.repoUrl}
         onDelete={onDelete ? () => onDelete(forge) : undefined}
+        promotion={promotion}
+        onRequestPromotion={() => setPromoOpen(true)}
+      />
+
+      <RequestPromotionDialog
+        open={promoOpen}
+        onOpenChange={setPromoOpen}
+        forgeName={forge.name}
+        onConfirm={submitPromotion}
       />
     </article>
   );
