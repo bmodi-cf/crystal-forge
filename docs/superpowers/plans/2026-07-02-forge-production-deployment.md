@@ -1570,3 +1570,652 @@ export async function getForgePromotion(
 }
 ```
 
+
+> If you prefer, replace the inline `await import('@/lib/acl')` with a top-of-file `import { canReadForge } from '@/lib/acl'`; the dynamic import just avoids reordering the existing import block.
+
+- [ ] **Step 4: Run tests**
+
+Run: `pnpm test lib/services/promotions.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/services/promotions.ts lib/services/promotions.test.ts
+git commit -m "feat(promotions): refresh gates, list pending, get-by-forge"
+```
+
+---
+
+## Task 12: Promotions service — accept & reject
+
+**Files:**
+- Modify: `lib/services/promotions.ts`
+- Test: `lib/services/promotions.test.ts`
+
+**Interfaces:**
+- Consumes: `github.mergePullRequest`, `github.createGitTag`, `github.closePullRequest`; `registry.tagManifest`; `slugifyForgeName`.
+- Produces:
+  - `acceptPromotion(currentUser, id, github?, registry?): Promise<PromotionDto>` — admin-only; requires `awaiting_approval`; merges `dev → main`, tags the merge commit `vX.Y.Z`, retags `sha-<headSha>` → `[vX.Y.Z, latest]` in the registry, sets `status='accepted'`, `imageRef`, `approvedById`, `decidedAt`.
+  - `rejectPromotion(currentUser, id, input: { reason?: string }, github?): Promise<PromotionDto>` — admin-only; closes the PR, sets `status='rejected'`.
+
+- [ ] **Step 1: Write failing tests**
+
+```ts
+import { acceptPromotion, rejectPromotion } from './promotions';
+
+async function seedAwaiting(prisma: any, gh: FakeGitHubClient, reg: FakeRegistryClient) {
+  const owner = await makeUser(prisma, { email: 'o@x', name: 'Owner', groups: ['Eng'] });
+  const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin', groups: [], isAdmin: true });
+  const forge = await makeForge(prisma, {
+    name: 'Aquaflow', createdById: owner.id, groups: ['Eng'], repoFullName: 'test-owner/aquaflow',
+  });
+  gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
+  await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
+  const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, reg);
+  // registry has the candidate image the CI build pushed:
+  reg.seedTag('aquaflow', `sha-${dto.headSha}`);
+  gh.setRefChecks('test-owner/aquaflow', dto.headSha,
+    ['build', 'typecheck', 'lint', 'tests'].map((name) => ({ name, status: 'completed', conclusion: 'success' })));
+  await refreshPromotionGates(dto.id, gh);
+  return { admin, owner, forge, dto };
+}
+
+it('accept merges, tags git, retags the image, and records the release', async () => {
+  await withCleanDb(async (prisma) => {
+    const { admin, dto } = await seedAwaiting(prisma, gh, reg);
+    const accepted = await acceptPromotion(admin, dto.id, gh, reg);
+    expect(accepted.status).toBe('accepted');
+    expect(accepted.imageRef).toContain('aquaflow');
+    expect(accepted.imageRef).toContain('v1.0.0');
+    expect(gh.getPullRequestState('test-owner/aquaflow', dto.prNumber)).toEqual({ state: 'closed', merged: true });
+    expect(reg.getTags('aquaflow').sort()).toEqual(
+      [`sha-${dto.headSha}`, 'latest', 'v1.0.0'].sort(),
+    );
+  });
+});
+
+it('accept is admin-only and requires awaiting_approval', async () => {
+  await withCleanDb(async (prisma) => {
+    const { owner, dto } = await seedAwaiting(prisma, gh, reg);
+    await expect(acceptPromotion(owner, dto.id, gh, reg)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+it('reject closes the PR and records the reason', async () => {
+  await withCleanDb(async (prisma) => {
+    const { admin, dto } = await seedAwaiting(prisma, gh, reg);
+    const rejected = await rejectPromotion(admin, dto.id, { reason: 'not yet' }, gh);
+    expect(rejected.status).toBe('rejected');
+    expect(gh.getPullRequestState('test-owner/aquaflow', dto.prNumber)).toEqual({ state: 'closed', merged: false });
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `pnpm test lib/services/promotions.test.ts -t "accept merges"`
+Expected: FAIL — functions not exported.
+
+- [ ] **Step 3: Implement**
+
+Append to `lib/services/promotions.ts`:
+
+```ts
+export async function acceptPromotion(
+  currentUser: SessionUser,
+  id: string,
+  github: GitHubClient = getGitHubClient(),
+  registry: RegistryClient = getRegistryClient(),
+): Promise<PromotionDto> {
+  if (!currentUser.isAdmin) throw new ForbiddenError('Admin only');
+  const row = await loadRow(id);
+  if (!row) throw new NotFoundError('promotion', id);
+  if (row.status !== 'awaiting_approval') {
+    throw new ValidationError(`Promotion ${id} is not awaiting approval (status ${row.status})`, {});
+  }
+  const forge = await prisma.forge.findUniqueOrThrow({ where: { id: row.forgeId } });
+  const slug = slugifyForgeName(forge.name);
+
+  // Merge dev -> main.
+  const merge = await github.mergePullRequest(forge.repoFullName, row.prNumber, { method: 'squash' });
+  // Tag the merge commit for traceability.
+  await github.createGitTag(forge.repoFullName, row.targetVersion, merge.sha);
+  // Retag the already-built candidate image to the release + latest (no rebuild).
+  await registry.tagManifest(slug, `sha-${row.headSha}`, [row.targetVersion, 'latest']);
+
+  const imageRef = `${process.env.REGISTRY_HOST ?? 'registry.crystalfountains.com'}/${slug}:${row.targetVersion}`;
+  const updated = await prisma.promotionRequest.update({
+    where: { id },
+    data: {
+      status: 'accepted',
+      approvedById: currentUser.id,
+      decidedAt: new Date(),
+      imageRef,
+    },
+    include: promotionInclude,
+  });
+  return toDto(updated);
+}
+
+export async function rejectPromotion(
+  currentUser: SessionUser,
+  id: string,
+  input: { reason?: string },
+  github: GitHubClient = getGitHubClient(),
+): Promise<PromotionDto> {
+  if (!currentUser.isAdmin) throw new ForbiddenError('Admin only');
+  const row = await loadRow(id);
+  if (!row) throw new NotFoundError('promotion', id);
+  if (row.status === 'accepted' || row.status === 'rejected') {
+    throw new ValidationError(`Promotion ${id} already decided`, {});
+  }
+  const forge = await prisma.forge.findUniqueOrThrow({ where: { id: row.forgeId } });
+  await github.closePullRequest(forge.repoFullName, row.prNumber);
+  const updated = await prisma.promotionRequest.update({
+    where: { id },
+    data: { status: 'rejected', approvedById: currentUser.id, decidedAt: new Date(), rejectReason: input.reason ?? null },
+    include: promotionInclude,
+  });
+  return toDto(updated);
+}
+```
+
+- [ ] **Step 4: Run the full promotions suite**
+
+Run: `pnpm test lib/services/promotions.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/services/promotions.ts lib/services/promotions.test.ts
+git commit -m "feat(promotions): accept (merge+tag+retag) and reject"
+```
+
+---
+
+## Task 13: API route handlers
+
+**Files:**
+- Create: `app/api/forges/[id]/promotion/route.ts`, `app/api/promotions/route.ts`, `app/api/promotions/[id]/accept/route.ts`, `app/api/promotions/[id]/reject/route.ts`
+
+**Interfaces:**
+- Consumes: `auth()` (from `lib/auth.ts`), the promotion service functions, `respondToServiceError` (the existing helper used by forge routes), the input schemas from `promotions-schema.ts`.
+
+> Route handlers mirror the existing `app/api/forges/[id]/start/route.ts` pattern verbatim (auth → params → service → `respondToServiceError`). No unit tests (covered by the service tests + manual/e2e). `respondToServiceError` lives in `@/lib/http` and `RouteContext` follows the exact shape used by `app/api/forges/[id]/route.ts` — mirror that file.
+
+- [ ] **Step 1: Forge promotion route (request + current)**
+
+```ts
+// app/api/forges/[id]/promotion/route.ts
+import { NextResponse, type NextRequest } from 'next/server';
+import { auth } from '@/lib/auth';
+import { requestPromotion, refreshPromotionGates, getForgePromotion } from '@/lib/services/promotions';
+import { requestPromotionInput } from '@/lib/services/promotions-schema';
+import { respondToServiceError } from '@/lib/http';
+
+export async function POST(req: NextRequest, ctx: RouteContext<'/api/forges/[id]/promotion'>) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { id } = await ctx.params;
+  const parsed = requestPromotionInput.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  try {
+    const promotion = await requestPromotion(session.user, id, parsed.data);
+    return NextResponse.json({ promotion });
+  } catch (err) {
+    return respondToServiceError(err);
+  }
+}
+
+export async function GET(_req: NextRequest, ctx: RouteContext<'/api/forges/[id]/promotion'>) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { id } = await ctx.params;
+  try {
+    let promotion = await getForgePromotion(session.user, id);
+    // Refresh gates on read while the request is still in an active state.
+    if (promotion && ['checks_running', 'checks_failed', 'awaiting_approval'].includes(promotion.status)) {
+      promotion = await refreshPromotionGates(promotion.id);
+    }
+    return NextResponse.json({ promotion });
+  } catch (err) {
+    return respondToServiceError(err);
+  }
+}
+```
+
+- [ ] **Step 2: Admin list route**
+
+```ts
+// app/api/promotions/route.ts
+import { NextResponse, type NextRequest } from 'next/server';
+import { auth } from '@/lib/auth';
+import { listPendingPromotions, refreshPromotionGates } from '@/lib/services/promotions';
+import { respondToServiceError } from '@/lib/http';
+
+export async function GET(_req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  try {
+    const pending = await listPendingPromotions(session.user);
+    // Refresh each so the admin sees current gate state.
+    const refreshed = await Promise.all(pending.map((p) => refreshPromotionGates(p.id)));
+    return NextResponse.json({ promotions: refreshed });
+  } catch (err) {
+    return respondToServiceError(err);
+  }
+}
+```
+
+- [ ] **Step 3: Accept + reject routes**
+
+```ts
+// app/api/promotions/[id]/accept/route.ts
+import { NextResponse, type NextRequest } from 'next/server';
+import { auth } from '@/lib/auth';
+import { acceptPromotion } from '@/lib/services/promotions';
+import { respondToServiceError } from '@/lib/http';
+
+export async function POST(_req: NextRequest, ctx: RouteContext<'/api/promotions/[id]/accept'>) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { id } = await ctx.params;
+  try {
+    const promotion = await acceptPromotion(session.user, id);
+    return NextResponse.json({ promotion });
+  } catch (err) {
+    return respondToServiceError(err);
+  }
+}
+```
+
+```ts
+// app/api/promotions/[id]/reject/route.ts
+import { NextResponse, type NextRequest } from 'next/server';
+import { auth } from '@/lib/auth';
+import { rejectPromotion } from '@/lib/services/promotions';
+import { rejectPromotionInput } from '@/lib/services/promotions-schema';
+import { respondToServiceError } from '@/lib/http';
+
+export async function POST(req: NextRequest, ctx: RouteContext<'/api/promotions/[id]/reject'>) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { id } = await ctx.params;
+  const parsed = rejectPromotionInput.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  try {
+    const promotion = await rejectPromotion(session.user, id, parsed.data);
+    return NextResponse.json({ promotion });
+  } catch (err) {
+    return respondToServiceError(err);
+  }
+}
+```
+
+- [ ] **Step 4: Typecheck + lint**
+
+Run: `pnpm typecheck && pnpm lint`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add app/api/forges/[id]/promotion app/api/promotions
+git commit -m "feat(api): promotion request/list/accept/reject routes"
+```
+
+---
+
+## Task 14: Dev UI — Request-to-Production control + polling
+
+**Files:**
+- Create: `app/(app)/dashboard/RequestPromotionDialog.tsx`, `app/(app)/dashboard/usePromotion.ts`
+- Modify: `app/(app)/dashboard/ForgeCard.tsx`, `app/(app)/dashboard/ForgeCardRuntime.tsx`
+
+**Interfaces:**
+- Consumes: `Button`, `Dialog` from `components/ui`; `sonner` `toast`; the `POST/GET /api/forges/[id]/promotion` routes.
+- Produces: a `Request to Production` button visible when `canWrite`, opening a bump-level dialog; a small status line showing the current promotion's version + status when one exists.
+
+> UI has no unit tests in this repo; verify by `pnpm typecheck`, `pnpm build`, and manual run. Match the styling idiom already in `ForgeCardRuntime.tsx`. Read the current `ForgeCard.tsx` / `ForgeCardRuntime.tsx` before wiring props so you thread `onRequestPromotion` consistently with the existing `onRuntimeAction`/`onEdit`/`onDelete` prop pattern.
+
+- [ ] **Step 1: Bump-level dialog**
+
+```tsx
+// app/(app)/dashboard/RequestPromotionDialog.tsx
+'use client';
+import { useState } from 'react';
+import { Dialog } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+
+type BumpLevel = 'major' | 'minor' | 'patch';
+
+export function RequestPromotionDialog({
+  open, onOpenChange, forgeName, onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  forgeName: string;
+  onConfirm: (bump: BumpLevel) => Promise<void>;
+}) {
+  const [bump, setBump] = useState<BumpLevel>('patch');
+  const [busy, setBusy] = useState(false);
+  const levels: BumpLevel[] = ['major', 'minor', 'patch'];
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <div className="flex flex-col gap-4 p-5">
+        <h2 className="text-base font-semibold">Request production release — {forgeName}</h2>
+        <p className="text-[13px] text-ink-dim">
+          Opens a <code>dev → main</code> pull request and runs the gates. An admin approves the release.
+        </p>
+        <div className="flex gap-2">
+          {levels.map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setBump(l)}
+              className={`rounded-md border px-3 py-1.5 text-[12px] font-medium ${
+                bump === l ? 'border-gold/40 bg-gold/[0.15] text-gold-soft' : 'border-border text-ink-dim'
+              }`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
+          <Button
+            variant="gold"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try { await onConfirm(bump); onOpenChange(false); } finally { setBusy(false); }
+            }}
+          >
+            Request release
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+```
+
+- [ ] **Step 2: Per-forge promotion hook (poll while active)**
+
+```tsx
+// app/(app)/dashboard/usePromotion.ts
+'use client';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+export type Promotion = {
+  id: string; status: string; targetVersion: string; prUrl: string;
+  summary: { gates: { name: string; status: string; conclusion: string | null }[] } | null;
+};
+
+const ACTIVE = ['checks_running', 'checks_failed', 'awaiting_approval'];
+
+export function usePromotion(forgeId: string): {
+  promotion: Promotion | null;
+  refetch: () => Promise<void>;
+} {
+  const [promotion, setPromotion] = useState<Promotion | null>(null);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const refetch = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/forges/${forgeId}/promotion`);
+      if (!res.ok) return;
+      const body = (await res.json()) as { promotion: Promotion | null };
+      setPromotion(body.promotion);
+    } catch { /* leave prior state */ }
+  }, [forgeId]);
+
+  useEffect(() => {
+    void refetch();
+    timer.current = setInterval(() => {
+      // Only poll while an active request is in flight.
+      if (!promotion || ACTIVE.includes(promotion.status)) void refetch();
+    }, 5000);
+    return () => { if (timer.current) clearInterval(timer.current); };
+  }, [refetch, promotion]);
+
+  return { promotion, refetch };
+}
+```
+
+- [ ] **Step 3: Wire the button into the card control row**
+
+In `ForgeCardRuntime.tsx`, add (near the repo link, gated by `canWrite`) a `Request to Production` button that calls a new `onRequestPromotion` prop. Thread `onRequestPromotion` from `ForgeCard` → `ForgeCardRuntime`. In `ForgeCard.tsx`, manage dialog state and call the API:
+
+```tsx
+// inside ForgeCard.tsx
+const [promoOpen, setPromoOpen] = useState(false);
+const { promotion, refetch } = usePromotion(forge.id);
+
+async function submitPromotion(bump: 'major' | 'minor' | 'patch') {
+  const res = await fetch(`/api/forges/${forge.id}/promotion`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bumpLevel: bump }),
+  });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    toast.error(b?.error ?? 'Promotion request failed');
+    return;
+  }
+  toast.success('Promotion requested');
+  void refetch();
+}
+```
+
+Render, in the description or control section:
+- When `promotion && ACTIVE`: a small line `Release {promotion.targetVersion} — {status}` with a link to `promotion.prUrl`.
+- The `<RequestPromotionDialog open={promoOpen} .../>`.
+- Disable the Request button when an active promotion already exists.
+
+- [ ] **Step 4: Typecheck + build**
+
+Run: `pnpm typecheck && pnpm build`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add "app/(app)/dashboard"
+git commit -m "feat(dashboard): request-to-production control + promotion status polling"
+```
+
+---
+
+## Task 15: Admin UI — Pending Promotions queue
+
+**Files:**
+- Create: `app/(app)/promotions/page.tsx`, `app/(app)/promotions/PromotionsClient.tsx`
+
+**Interfaces:**
+- Consumes: `auth()` server-side (redirect/hide if not admin); `GET /api/promotions`, `POST /api/promotions/[id]/accept`, `POST /api/promotions/[id]/reject`.
+- Produces: an admin-only page listing active requests with gate results + Accept/Reject.
+
+> Verify by `pnpm typecheck`, `pnpm build`, manual run as an admin user.
+
+- [ ] **Step 1: Server page (admin gate)**
+
+```tsx
+// app/(app)/promotions/page.tsx
+import { redirect } from 'next/navigation';
+import { auth } from '@/lib/auth';
+import { PromotionsClient } from './PromotionsClient';
+
+export default async function PromotionsPage() {
+  const session = await auth();
+  if (!session?.user) redirect('/login');
+  if (!session.user.isAdmin) redirect('/dashboard');
+  return <PromotionsClient />;
+}
+```
+
+- [ ] **Step 2: Client queue**
+
+```tsx
+// app/(app)/promotions/PromotionsClient.tsx
+'use client';
+import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+
+type Gate = { name: string; status: string; conclusion: string | null };
+type Promotion = {
+  id: string; forgeId: string; status: string; targetVersion: string; prUrl: string;
+  requestedBy: { name: string };
+  summary: { forgeName: string; commits: number; changedFiles: number; gates: Gate[] } | null;
+};
+
+export function PromotionsClient() {
+  const [items, setItems] = useState<Promotion[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch('/api/promotions');
+    if (!res.ok) return;
+    const body = (await res.json()) as { promotions: Promotion[] };
+    setItems(body.promotions);
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const h = setInterval(load, 5000);
+    return () => clearInterval(h);
+  }, [load]);
+
+  async function act(id: string, action: 'accept' | 'reject') {
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/promotions/${id}/${action}`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        toast.error(b?.error ?? `${action} failed`);
+        return;
+      }
+      toast.success(action === 'accept' ? 'Released' : 'Rejected');
+      await load();
+    } finally { setBusyId(null); }
+  }
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
+      <h1 className="text-lg font-semibold">Pending Promotions</h1>
+      {items.length === 0 ? (
+        <p className="text-[13px] text-ink-dim">No pending requests.</p>
+      ) : items.map((p) => {
+        const ready = p.status === 'awaiting_approval';
+        return (
+          <article key={p.id} className="flex flex-col gap-3 rounded-[14px] border border-border bg-panel p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold">{p.summary?.forgeName ?? p.forgeId}</h3>
+                <div className="text-[11px] text-ink-faint">
+                  {p.targetVersion} · requested by {p.requestedBy.name} ·{' '}
+                  <a href={p.prUrl} target="_blank" rel="noreferrer" className="underline">PR</a>
+                </div>
+              </div>
+              <span className="text-[12px] text-ink-dim">{p.status}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(p.summary?.gates ?? []).map((g) => (
+                <span key={g.name}
+                  className={`rounded-md border px-2 py-1 text-[11px] ${
+                    g.conclusion === 'success' || g.conclusion === 'skipped'
+                      ? 'border-[#4ad28b]/40 text-[#4ad28b]'
+                      : g.status !== 'completed'
+                      ? 'border-border text-ink-dim'
+                      : 'border-[#d96868]/40 text-[#d96868]'
+                  }`}>
+                  {g.name}: {g.conclusion ?? g.status}
+                </span>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" disabled={busyId === p.id} onClick={() => act(p.id, 'reject')}>Reject</Button>
+              <Button variant="gold" disabled={busyId === p.id || !ready}
+                title={ready ? undefined : 'All gates must pass first'}
+                onClick={() => act(p.id, 'accept')}>
+                Accept &amp; release
+              </Button>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: Add a nav entry to the admin page**
+
+Add a link to `/promotions` in the top bar/nav for admins (mirror how other nav items gate on `isAdmin`; grep `components/topbar/` for the pattern and follow it).
+
+- [ ] **Step 4: Typecheck + build**
+
+Run: `pnpm typecheck && pnpm build`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add "app/(app)/promotions" components/topbar
+git commit -m "feat(admin): pending promotions queue with accept/reject"
+```
+
+---
+
+## Task 16: Full verification pass
+
+**Files:** none (verification only).
+
+- [ ] **Step 1: Whole unit suite**
+
+Run: `pnpm test`
+Expected: PASS (semver, registry, github fake, forges, promotions, clone, plus existing suites).
+
+- [ ] **Step 2: Typecheck + lint + build**
+
+Run: `pnpm typecheck && pnpm lint && pnpm build`
+Expected: PASS on all three.
+
+- [ ] **Step 3: Manual smoke (fake mode), documented in the PR**
+
+With `GITHUB_CLIENT_MODE=fake` and `REGISTRY_CLIENT_MODE=fake`:
+1. As a forge owner, click **Request to Production**, pick `patch`, confirm → a status line shows `v1.0.0 — checks_running`.
+2. (Fake gates won't auto-complete; for the manual check, temporarily seed passing checks via a throwaway script or accept that the admin queue shows the request in `checks_running`.) Confirm the admin `/promotions` page lists the request with gate chips.
+3. Confirm a non-admin cannot reach `/promotions` (redirected to `/dashboard`).
+
+- [ ] **Step 4: Final commit (if any doc/notes)**
+
+```bash
+git add -A
+git commit -m "chore(promotions): verification notes" || true
+```
+
+---
+
+## Self-Review (author checklist — completed)
+
+**Spec coverage:**
+- §2.2 image/§5 build → candidate image is produced by the template CI (P2) and retagged on accept (Task 12); registry client Task 3. ✓
+- §2.3/§2.4 registry + TLS + service account → infra P1 + `REGISTRY_*` env (Task 3). ✓
+- §3.1 branching → dev/main constants (Task 1), provisioning (Task 7), clone (Task 8). ✓
+- §3.2 flow → request (Task 10), gates (Task 11), accept/reject (Task 12), UI (Tasks 14–15). ✓
+- §3.3 gates → `REQUIRED_CHECKS` + `computeStatus` (Tasks 1, 11); build/tests via template CI (P2). ✓
+- §3.5 build-during-gates + up-to-date → template CI (P2) + `requireUpToDate: true` (Task 7). ✓
+- §4 permissions → `canWriteForge` request (Task 10), `isAdmin` accept/reject/list (Tasks 11–12), admin page gate (Task 15). ✓
+- §5.2 semver tags → Task 2 + accept retag (Task 12). ✓
+- §6 PromotionRequest + views → model (Task 9), service DTO/summary (Tasks 10–12), UI (Tasks 14–15). ✓
+- §7 migrations-in-image → template Dockerfile `COPY prisma/migrations` (P2); prod execution deferred. ✓
+- AI report → not built (absent by construction). ✓
+
+**Placeholder scan:** all import paths resolved (`@/lib/errors`, `@/lib/http`). All code blocks are complete.
+
+**Type consistency:** `CheckResult`, `PromotionDto`, `RegistryClient.tagManifest`, `nextVersion`, and the `GitHubClient` additions are used with identical signatures across tasks.
