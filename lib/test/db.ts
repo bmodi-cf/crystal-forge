@@ -34,6 +34,7 @@ export async function withCleanDb<T>(fn: (prisma: PrismaClient) => Promise<T>): 
   await prisma.message.deleteMany();
   await prisma.conversation.deleteMany();
   await prisma.forgeGroup.deleteMany();
+  await prisma.promotionRequest.deleteMany();
   await prisma.forge.deleteMany();
   await prisma.userRole.deleteMany();
   await prisma.userGroup.deleteMany();

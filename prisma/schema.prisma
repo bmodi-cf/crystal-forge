@@ -22,6 +22,9 @@ model User {
   forges        Forge[]
   conversations Conversation[]
 
+  promotionsRequested PromotionRequest[] @relation("PromotionRequester")
+  promotionsApproved  PromotionRequest[] @relation("PromotionApprover")
+
   // Auth.js relations
   accounts Account[]
   sessions Session[]
@@ -74,19 +77,20 @@ enum ForgeTone {
 }
 
 model Forge {
-  id           String      @id @default(uuid()) @db.Uuid
-  name         String      @unique
+  id           String    @id @default(uuid()) @db.Uuid
+  name         String    @unique
   description  String?
-  tone         ForgeTone   @default(navy)
+  tone         ForgeTone @default(navy)
   initials     String
-  repoFullName String      @unique @map("repo_full_name")
-  createdById  String      @map("created_by") @db.Uuid
-  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+  repoFullName String    @unique @map("repo_full_name")
+  createdById  String    @map("created_by") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
-  createdBy     User           @relation(fields: [createdById], references: [id], onDelete: Restrict)
-  groups        ForgeGroup[]
-  conversations Conversation[]
+  createdBy         User               @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  groups            ForgeGroup[]
+  conversations     Conversation[]
+  promotionRequests PromotionRequest[]
 
   @@index([createdById])
   @@map("forges")
@@ -106,13 +110,13 @@ model ForgeGroup {
 }
 
 model Conversation {
-  id          String   @id @default(uuid()) @db.Uuid
-  forgeId     String   @map("forge_id") @db.Uuid
-  createdById String   @map("created_by") @db.Uuid
+  id              String   @id @default(uuid()) @db.Uuid
+  forgeId         String   @map("forge_id") @db.Uuid
+  createdById     String   @map("created_by") @db.Uuid
   title           String   @default("New conversation")
   claudeSessionId String?  @map("claude_session_id") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   forge     Forge     @relation(fields: [forgeId], references: [id], onDelete: Cascade)
   createdBy User      @relation(fields: [createdById], references: [id], onDelete: Restrict)
@@ -138,6 +142,47 @@ model Message {
 
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+enum BumpLevel {
+  major
+  minor
+  patch
+}
+
+enum PromotionStatus {
+  checks_running
+  checks_failed
+  awaiting_approval
+  accepted
+  rejected
+}
+
+model PromotionRequest {
+  id            String          @id @default(uuid()) @db.Uuid
+  forgeId       String          @map("forge_id") @db.Uuid
+  requestedById String          @map("requested_by") @db.Uuid
+  prNumber      Int             @map("pr_number")
+  prUrl         String          @map("pr_url")
+  headSha       String          @map("head_sha")
+  bumpLevel     BumpLevel       @map("bump_level")
+  targetVersion String          @map("target_version")
+  status        PromotionStatus @default(checks_running)
+  imageRef      String?         @map("image_ref")
+  summary       Json?
+  approvedById  String?         @map("approved_by") @db.Uuid
+  rejectReason  String?         @map("reject_reason")
+  decidedAt     DateTime?       @map("decided_at") @db.Timestamptz
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  forge       Forge @relation(fields: [forgeId], references: [id], onDelete: Cascade)
+  requestedBy User  @relation("PromotionRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  approvedBy  User? @relation("PromotionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([forgeId])
+  @@index([status])
+  @@map("promotion_requests")
 }
 
 // ── Auth.js (next-auth) tables ───────────────────────────
