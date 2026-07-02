@@ -2,10 +2,17 @@
 import { Octokit } from '@octokit/rest';
 import { createAppAuth } from '@octokit/auth-app';
 import type {
+  BranchProtectionOptions,
+  CheckResult,
   CreatedRepo,
   CreateRepoOptions,
   ForgeFiles,
   GitHubClient,
+  MergeOptions,
+  MergeResult,
+  OpenPrOptions,
+  PullRequestInfo,
+  PullRequestRef,
 } from './types';
 
 const RETRY_DELAYS_MS = [200, 400, 800, 1600, 3200] as const;
@@ -226,6 +233,89 @@ export class OctokitGitHubClient implements GitHubClient {
       if (isStatus(err, 404)) return null;
       throw err;
     }
+  }
+
+  async createBranch(fullName: string, fromBranch: string, newBranch: string): Promise<void> {
+    const [owner, repo] = parseFullName(fullName);
+    const { data: ref } = await this.client.git.getRef({
+      owner, repo, ref: `heads/${fromBranch}`,
+    });
+    await this.client.git.createRef({
+      owner, repo, ref: `refs/heads/${newBranch}`, sha: ref.object.sha,
+    });
+  }
+
+  async setBranchProtection(
+    fullName: string,
+    branch: string,
+    opts: BranchProtectionOptions,
+  ): Promise<void> {
+    const [owner, repo] = parseFullName(fullName);
+    await this.client.repos.updateBranchProtection({
+      owner, repo, branch,
+      required_status_checks: {
+        strict: opts.requireUpToDate,
+        contexts: [...opts.requiredChecks],
+      },
+      enforce_admins: false,
+      required_pull_request_reviews: null,
+      restrictions: null,
+    });
+  }
+
+  async openPullRequest(fullName: string, opts: OpenPrOptions): Promise<PullRequestRef> {
+    const [owner, repo] = parseFullName(fullName);
+    const { data } = await this.client.pulls.create({
+      owner, repo, head: opts.head, base: opts.base, title: opts.title, body: opts.body,
+    });
+    return { number: data.number, url: data.html_url, headSha: data.head.sha };
+  }
+
+  async getPullRequest(fullName: string, number: number): Promise<PullRequestInfo> {
+    const [owner, repo] = parseFullName(fullName);
+    const { data } = await this.client.pulls.get({ owner, repo, pull_number: number });
+    return {
+      number: data.number,
+      state: data.state === 'open' ? 'open' : 'closed',
+      merged: Boolean(data.merged),
+      headSha: data.head.sha,
+      commits: data.commits ?? 0,
+      changedFiles: data.changed_files ?? 0,
+      additions: data.additions ?? 0,
+      deletions: data.deletions ?? 0,
+    };
+  }
+
+  async getRefCheckResults(fullName: string, ref: string): Promise<CheckResult[]> {
+    const [owner, repo] = parseFullName(fullName);
+    const { data } = await this.client.checks.listForRef({ owner, repo, ref, per_page: 100 });
+    return data.check_runs.map((c) => ({
+      name: c.name,
+      status: c.status as CheckResult['status'],
+      conclusion: (c.conclusion ?? null) as CheckResult['conclusion'],
+    }));
+  }
+
+  async mergePullRequest(
+    fullName: string,
+    number: number,
+    opts?: MergeOptions,
+  ): Promise<MergeResult> {
+    const [owner, repo] = parseFullName(fullName);
+    const { data } = await this.client.pulls.merge({
+      owner, repo, pull_number: number, merge_method: opts?.method ?? 'squash',
+    });
+    return { sha: data.sha, merged: data.merged };
+  }
+
+  async closePullRequest(fullName: string, number: number): Promise<void> {
+    const [owner, repo] = parseFullName(fullName);
+    await this.client.pulls.update({ owner, repo, pull_number: number, state: 'closed' });
+  }
+
+  async createGitTag(fullName: string, tag: string, sha: string): Promise<void> {
+    const [owner, repo] = parseFullName(fullName);
+    await this.client.git.createRef({ owner, repo, ref: `refs/tags/${tag}`, sha });
   }
 }
 
