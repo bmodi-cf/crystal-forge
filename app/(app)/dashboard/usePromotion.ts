@@ -16,13 +16,19 @@ export function usePromotion(forgeId: string): {
 } {
   const [promotion, setPromotion] = useState<Promotion | null>(null);
   const cancelled = useRef(false);
+  // True once the first fetch for the current forgeId has resolved. Until then we don't
+  // yet know whether there's an active promotion, so we keep polling.
+  const hasFetched = useRef(false);
 
   const refetch = useCallback(async () => {
     try {
       const res = await fetch(`/api/forges/${forgeId}/promotion`);
       if (!res.ok) return;
       const body = (await res.json()) as { promotion: Promotion | null };
-      if (!cancelled.current) setPromotion(body.promotion);
+      if (!cancelled.current) {
+        hasFetched.current = true;
+        setPromotion(body.promotion);
+      }
     } catch {
       // Network blip — leave previous state in place.
     }
@@ -30,6 +36,7 @@ export function usePromotion(forgeId: string): {
 
   useEffect(() => {
     cancelled.current = false;
+    hasFetched.current = false;
     void refetch();
     return () => {
       cancelled.current = true;
@@ -37,8 +44,11 @@ export function usePromotion(forgeId: string): {
   }, [refetch]);
 
   useEffect(() => {
-    // Only poll while an active request is in flight.
-    if (promotion && !ACTIVE_PROMOTION_STATUSES.includes(promotion.status)) return;
+    // Poll while we haven't resolved the first fetch yet, or while the resolved
+    // promotion is in an active status. Stop once resolved to null or a terminal status.
+    const isResolvedInactive =
+      hasFetched.current && (!promotion || !ACTIVE_PROMOTION_STATUSES.includes(promotion.status));
+    if (isResolvedInactive) return;
     const handle = setInterval(() => void refetch(), POLL_INTERVAL_MS);
     return () => clearInterval(handle);
   }, [promotion, refetch]);
