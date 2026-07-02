@@ -78,4 +78,80 @@ export interface GitHubClient {
    * responsible for not persisting them. Throws on any auth failure.
    */
   getInstallationToken(): Promise<string>;
+
+  /** Create `newBranch` pointing at the head of `fromBranch`. */
+  createBranch(fullName: string, fromBranch: string, newBranch: string): Promise<void>;
+
+  /** Apply/replace branch protection on `branch`. Idempotent. */
+  setBranchProtection(
+    fullName: string,
+    branch: string,
+    opts: BranchProtectionOptions,
+  ): Promise<void>;
+
+  /** Open a PR from `opts.head` into `opts.base`. */
+  openPullRequest(fullName: string, opts: OpenPrOptions): Promise<PullRequestRef>;
+
+  /** Fetch PR state + diff stats. */
+  getPullRequest(fullName: string, number: number): Promise<PullRequestInfo>;
+
+  /** Normalized check-run results for a commit ref. */
+  getRefCheckResults(fullName: string, ref: string): Promise<CheckResult[]>;
+
+  /** Merge a PR. Throws if not mergeable. */
+  mergePullRequest(
+    fullName: string,
+    number: number,
+    opts?: MergeOptions,
+  ): Promise<MergeResult>;
+
+  /** Close a PR without merging. */
+  closePullRequest(fullName: string, number: number): Promise<void>;
+
+  /** Create a lightweight git tag `tag` at `sha`. */
+  createGitTag(fullName: string, tag: string, sha: string): Promise<void>;
 }
+
+export type BranchProtectionOptions = {
+  /** Status-check contexts that must pass before merge. */
+  requiredChecks: readonly string[];
+  /** Require the PR branch be up to date with the base before merge. */
+  requireUpToDate: boolean;
+};
+
+export type OpenPrOptions = {
+  head: string; // e.g. 'dev'
+  base: string; // e.g. 'main'
+  title: string;
+  body: string;
+};
+
+export type PullRequestRef = {
+  number: number;
+  url: string;
+  headSha: string;
+};
+
+export type CheckConclusion =
+  | 'success' | 'failure' | 'neutral' | 'cancelled'
+  | 'timed_out' | 'action_required' | 'skipped' | null;
+
+export type CheckResult = {
+  name: string;
+  status: 'queued' | 'in_progress' | 'completed';
+  conclusion: CheckConclusion;
+};
+
+export type PullRequestInfo = {
+  number: number;
+  state: 'open' | 'closed';
+  merged: boolean;
+  headSha: string;
+  commits: number;
+  changedFiles: number;
+  additions: number;
+  deletions: number;
+};
+
+export type MergeOptions = { method: 'merge' | 'squash' | 'rebase' };
+export type MergeResult = { sha: string; merged: boolean };
