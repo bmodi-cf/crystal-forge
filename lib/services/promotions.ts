@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { canWriteForge, canReadForge } from '@/lib/acl';
+import { canWriteForge, canReadForge, toAcl } from '@/lib/acl';
 import { getGitHubClient } from '@/lib/github/client';
 import { getRegistryClient } from '@/lib/registry/client';
 import type { GitHubClient, CheckResult } from '@/lib/github/types';
@@ -34,9 +34,10 @@ export type PromotionDto = {
   approvedBy: { id: string; name: string } | null;
   createdAt: string;
   decidedAt: string | null;
+  rejectReason: string | null;
 };
 
-const ACTIVE = ['checks_running', 'checks_failed', 'awaiting_approval'] as const;
+export const ACTIVE = ['checks_running', 'checks_failed', 'awaiting_approval'] as const;
 
 const promotionInclude = {
   requestedBy: { select: { id: true, name: true } },
@@ -64,6 +65,7 @@ function toDto(row: NonNullable<Row>): PromotionDto {
     approvedBy: row.approvedBy,
     createdAt: row.createdAt.toISOString(),
     decidedAt: row.decidedAt ? row.decidedAt.toISOString() : null,
+    rejectReason: row.rejectReason ?? null,
   };
 }
 
@@ -81,12 +83,9 @@ export async function requestPromotion(
   forgeId: string,
   input: { bumpLevel: BumpLevel },
   github: GitHubClient = getGitHubClient(),
-  registry: RegistryClient = getRegistryClient(), // reserved for symmetry; not used here
 ): Promise<PromotionDto> {
-  void registry;
   const forge = await loadForgeForAcl(forgeId);
-  const acl = { id: forge.id, createdById: forge.createdById, groups: forge.groups.map((g) => g.group.name) };
-  if (!canWriteForge(currentUser, acl)) {
+  if (!canWriteForge(currentUser, toAcl(forge))) {
     throw new ForbiddenError(`Cannot request promotion for forge ${forgeId}`);
   }
 
@@ -246,9 +245,8 @@ export async function getForgePromotion(
   forgeId: string,
 ): Promise<PromotionDto | null> {
   const forge = await loadForgeForAcl(forgeId);
-  const acl = { id: forge.id, createdById: forge.createdById, groups: forge.groups.map((g) => g.group.name) };
   // canReadForge is sufficient to view a forge's promotion status
-  if (!canReadForge(currentUser, acl)) throw new ForbiddenError(`Cannot read forge ${forgeId}`);
+  if (!canReadForge(currentUser, toAcl(forge))) throw new ForbiddenError(`Cannot read forge ${forgeId}`);
   const row = await prisma.promotionRequest.findFirst({
     where: { forgeId },
     orderBy: { createdAt: 'desc' },

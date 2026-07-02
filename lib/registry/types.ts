@@ -10,4 +10,9 @@ export interface RegistryClient {
   listTags(repo: string): Promise<string[]>;
 }
 
-export class RegistryError extends Error {}
+export class RegistryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RegistryError';
+  }
+}

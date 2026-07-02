@@ -1,10 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { requestPromotion, refreshPromotionGates, getForgePromotion } from '@/lib/services/promotions';
+import { requestPromotion, refreshPromotionGates, getForgePromotion, ACTIVE } from '@/lib/services/promotions';
 import { requestPromotionInput } from '@/lib/services/promotions-schema';
 import { respondToServiceError } from '@/lib/http';
-
-const ACTIVE_STATUSES = ['checks_running', 'checks_failed', 'awaiting_approval'];
 
 export async function POST(
   req: NextRequest,
@@ -48,7 +46,7 @@ export async function GET(
   try {
     let promotion = await getForgePromotion(session.user, id);
     // Refresh gates on read while the request is still in an active state.
-    if (promotion && ACTIVE_STATUSES.includes(promotion.status)) {
+    if (promotion && (ACTIVE as readonly string[]).includes(promotion.status)) {
       promotion = await refreshPromotionGates(promotion.id);
     }
     return NextResponse.json({ promotion });

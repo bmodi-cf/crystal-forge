@@ -138,7 +138,7 @@ export type CheckConclusion =
 
 export type CheckResult = {
   name: string;
-  status: 'queued' | 'in_progress' | 'completed';
+  status: 'queued' | 'in_progress' | 'completed' | 'waiting' | 'requested' | 'pending';
   conclusion: CheckConclusion;
 };
 

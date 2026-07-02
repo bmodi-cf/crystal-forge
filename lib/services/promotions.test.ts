@@ -14,8 +14,7 @@ function ghWithForge(): FakeGitHubClient {
 
 describe('requestPromotion', () => {
   let gh: FakeGitHubClient;
-  let reg: FakeRegistryClient;
-  beforeEach(() => { gh = ghWithForge(); reg = new FakeRegistryClient(); });
+  beforeEach(() => { gh = ghWithForge(); });
 
   it('opens a PR, computes v1.0.0 for the first release, and stores a pending request', async () => {
     await withCleanDb(async (prisma) => {
@@ -27,7 +26,7 @@ describe('requestPromotion', () => {
       gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
       await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
 
-      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'minor' }, gh, reg);
+      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'minor' }, gh);
 
       expect(dto.targetVersion).toBe('v1.0.0'); // first release ignores bump level
       expect(dto.prNumber).toBe(1);
@@ -46,7 +45,7 @@ describe('requestPromotion', () => {
       });
       gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
       await expect(
-        requestPromotion(stranger, forge.id, { bumpLevel: 'patch' }, gh, reg),
+        requestPromotion(stranger, forge.id, { bumpLevel: 'patch' }, gh),
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
   });
@@ -60,9 +59,9 @@ describe('requestPromotion', () => {
       });
       gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
       await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
-      await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, reg);
+      await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh);
       await expect(
-        requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, reg),
+        requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh),
       ).rejects.toThrow(/in progress/i);
     });
   });
@@ -70,8 +69,7 @@ describe('requestPromotion', () => {
 
 describe('refreshPromotionGates', () => {
   let gh: FakeGitHubClient;
-  let reg: FakeRegistryClient;
-  beforeEach(() => { gh = ghWithForge(); reg = new FakeRegistryClient(); });
+  beforeEach(() => { gh = ghWithForge(); });
 
   it('transitions to awaiting_approval when all required checks pass', async () => {
     await withCleanDb(async (prisma) => {
@@ -81,7 +79,7 @@ describe('refreshPromotionGates', () => {
       });
       gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
       await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
-      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, reg);
+      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh);
       gh.setRefChecks('test-owner/aquaflow', dto.headSha, [
         { name: 'build', status: 'completed', conclusion: 'success' },
         { name: 'typecheck', status: 'completed', conclusion: 'success' },
@@ -102,7 +100,7 @@ describe('refreshPromotionGates', () => {
       });
       gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
       await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
-      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, reg);
+      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh);
       gh.setRefChecks('test-owner/aquaflow', dto.headSha, [
         { name: 'build', status: 'completed', conclusion: 'failure' },
       ]);
@@ -129,7 +127,7 @@ async function seedAwaiting(prisma: PrismaClient, gh: FakeGitHubClient, reg: Fak
   });
   gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
   await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
-  const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, reg);
+  const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh);
   // registry has the candidate image the CI build pushed:
   reg.seedTag('aquaflow', `sha-${dto.headSha}`);
   gh.setRefChecks('test-owner/aquaflow', dto.headSha,
@@ -169,6 +167,7 @@ describe('acceptPromotion / rejectPromotion', () => {
       const { admin, dto } = await seedAwaiting(prisma, gh, reg);
       const rejected = await rejectPromotion(admin, dto.id, { reason: 'not yet' }, gh);
       expect(rejected.status).toBe('rejected');
+      expect(rejected.rejectReason).toBe('not yet');
       expect(gh.getPullRequestState('test-owner/aquaflow', dto.prNumber)).toEqual({ state: 'closed', merged: false });
     });
   });

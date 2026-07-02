@@ -26,6 +26,7 @@ function makePromotion(status: Promotion['status']): Promotion {
     approvedBy: null,
     createdAt: '2026-07-02T00:00:00.000Z',
     decidedAt: null,
+    rejectReason: null,
   };
 }
 

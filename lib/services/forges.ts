@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { canReadForge, canWriteForge, forgeReadFilter } from '@/lib/acl';
+import { canReadForge, canWriteForge, forgeReadFilter, toAcl } from '@/lib/acl';
 import { env } from '@/lib/env';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { getGitHubClient } from '@/lib/github/client';
@@ -140,12 +140,7 @@ export async function getForge(currentUser: SessionUser, id: string): Promise<Fo
   if (!row) {
     throw new NotFoundError('forge', id);
   }
-  const aclShape = {
-    id: row.id,
-    createdById: row.createdById,
-    groups: row.groups.map((fg) => fg.group.name),
-  };
-  if (!canReadForge(currentUser, aclShape)) {
+  if (!canReadForge(currentUser, toAcl(row))) {
     throw new ForbiddenError(`Cannot read forge ${id}`);
   }
   return toDto(row);
@@ -282,12 +277,7 @@ export async function updateForge(
     const existing = await tx.forge.findUnique({ where: { id }, include: forgeInclude });
     if (!existing) throw new NotFoundError('forge', id);
 
-    const aclShape = {
-      id: existing.id,
-      createdById: existing.createdById,
-      groups: existing.groups.map((fg) => fg.group.name),
-    };
-    if (!canWriteForge(currentUser, aclShape)) {
+    if (!canWriteForge(currentUser, toAcl(existing))) {
       throw new ForbiddenError(`Cannot update forge ${id}`);
     }
 
@@ -344,12 +334,7 @@ export async function deleteForge(
   });
   if (!existing) throw new NotFoundError('forge', id);
 
-  const aclShape = {
-    id: existing.id,
-    createdById: existing.createdById,
-    groups: existing.groups.map((fg) => fg.group.name),
-  };
-  if (!canWriteForge(currentUser, aclShape)) {
+  if (!canWriteForge(currentUser, toAcl(existing))) {
     throw new ForbiddenError(`Cannot delete forge ${id}`);
   }
 
@@ -368,11 +353,7 @@ export async function canCurrentUserWriteForge(
     include: { groups: { include: { group: true } } },
   });
   if (!row) return false;
-  return canWriteForge(currentUser, {
-    id: row.id,
-    createdById: row.createdById,
-    groups: row.groups.map((fg) => fg.group.name),
-  });
+  return canWriteForge(currentUser, toAcl(row));
 }
 
 async function safeDeleteRepo(client: GitHubClient, fullName: string): Promise<void> {
