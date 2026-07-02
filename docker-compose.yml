@@ -19,8 +19,24 @@ services:
       timeout: 5s
       retries: 10
 
+  registry:
+    image: registry:2
+    container_name: crystal-forge-registry
+    ports:
+      # Loopback only — nginx terminates TLS in front (see P1 runbook). Forge
+      # containers can't reach it directly, same posture as postgres above.
+      - "127.0.0.1:5000:5000"
+    networks:
+      - crystal-forge-net
+    volumes:
+      - crystal-forge-registry-data:/var/lib/registry
+    # Durable pilot infra: self-restart on reboot (unlike postgres, which
+    # forge-launch.sh relaunches each session).
+    restart: unless-stopped
+
 volumes:
   crystal-forge-pgdata:
+  crystal-forge-registry-data:
 
 networks:
   crystal-forge-net:
