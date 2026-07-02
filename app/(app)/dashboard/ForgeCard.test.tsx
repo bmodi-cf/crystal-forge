@@ -13,7 +13,6 @@ const forge: Forge = {
   id: 'forge-1',
   name: 'Aquaflow Designer',
   description: 'Hydraulic modeling toolkit.',
-  status: 'active',
   tone: 'navy',
   initials: 'AD',
   groups: ['Engineering', 'R&D'],
@@ -39,11 +38,6 @@ describe('ForgeCard', () => {
     const link = screen.getByRole('link', { name: /view on github/i });
     expect(link).toHaveAttribute('href', 'https://github.com/bmodi-cf/aquaflow-designer');
     expect(link).toHaveAttribute('target', '_blank');
-  });
-
-  it('shows the status label in uppercase form', () => {
-    render(<ForgeCard forge={forge} canWrite runtime={null} onRuntimeAction={() => {}} />);
-    expect(screen.getByText(/ACTIVE/i)).toBeInTheDocument();
   });
 
   it('does not render edit / delete buttons when callbacks are absent', () => {

@@ -11,12 +11,8 @@ import { useForgeRuntimes } from './useForgeRuntimes';
 import type { RuntimeAction } from './ForgeCardRuntime';
 import { ForgeFormModal } from './ForgeFormModal';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
-import { cn } from '@/lib/utils';
 import type { Forge } from '@/lib/services/types';
 import type { GroupDto } from '@/lib/services/groups';
-
-const FILTERS = ['all', 'active', 'draft', 'archived'] as const;
-type Filter = (typeof FILTERS)[number];
 
 type Props = {
   initialForges: Forge[];
@@ -52,7 +48,6 @@ export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin, c
     }
   }
 
-  const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -60,19 +55,9 @@ export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin, c
   const [deleting, setDeleting] = useState<Forge | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
-  const counts = useMemo(() => {
-    const acc: { all: number } & Record<Forge['status'], number> = { all: 0, active: 0, draft: 0, archived: 0 };
-    for (const f of forges) {
-      acc.all++;
-      acc[f.status]++;
-    }
-    return acc;
-  }, [forges]);
-
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return forges.filter((f) => {
-      if (filter !== 'all' && f.status !== filter) return false;
       if (!q) return true;
       return (
         f.name.toLowerCase().includes(q) ||
@@ -80,7 +65,7 @@ export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin, c
         f.groups.some((g) => g.toLowerCase().includes(q))
       );
     });
-  }, [forges, filter, query]);
+  }, [forges, query]);
 
   async function handleConfirmDelete() {
     if (!deleting) return;
@@ -110,9 +95,7 @@ export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin, c
         <div>
           <h1 className="text-[32px] font-semibold tracking-[-0.02em]">Forges</h1>
           <div className="mt-1.5 text-sm text-ink-dim">
-            <b className="font-medium text-ink">{counts.all}</b> applications ·{' '}
-            <b className="font-medium text-ink">{counts.active}</b> active ·{' '}
-            <b className="font-medium text-ink">{counts.draft}</b> in draft
+            <b className="font-medium text-ink">{forges.length}</b> applications
           </div>
         </div>
         <Button onClick={() => setCreateOpen(true)} className="gap-2">
@@ -131,33 +114,12 @@ export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin, c
             className="pl-8"
           />
         </div>
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Status filter">
-          {FILTERS.map((f) => {
-            const isOn = filter === f;
-            return (
-              <button
-                key={f}
-                role="tab"
-                aria-selected={isOn}
-                onClick={() => setFilter(f)}
-                className={cn(
-                  'rounded-md border px-2.5 py-1 text-[12px] font-medium uppercase tracking-wide transition',
-                  isOn
-                    ? 'border-gold/40 bg-gold/[0.15] text-gold-soft'
-                    : 'border-border bg-white/[0.04] text-ink-dim hover:border-border-strong',
-                )}
-              >
-                {f === 'all' ? `All (${counts.all})` : `${f} (${counts[f]})`}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {visible.length === 0 ? (
         <div className="rounded-[14px] border border-dashed border-border bg-white/[0.015] py-16 text-center text-ink-dim">
-          <h4 className="mb-1.5 text-base font-medium text-ink">No forges match your filters.</h4>
-          <p>Try clearing the search or switching status.</p>
+          <h4 className="mb-1.5 text-base font-medium text-ink">No forges match your search.</h4>
+          <p>Try clearing the search.</p>
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-[1.125rem]">

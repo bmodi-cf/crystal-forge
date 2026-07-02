@@ -1,4 +1,4 @@
-import type { ForgeStatus, ForgeTone, MessageRole } from '@prisma/client';
+import type { ForgeTone, MessageRole } from '@prisma/client';
 
 export type SessionUser = {
   id: string;
@@ -14,7 +14,6 @@ export type Forge = {
   id: string;
   name: string;
   description: string | null;
-  status: ForgeStatus;
   tone: ForgeTone;
   initials: string;
   groups: string[];

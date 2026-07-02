@@ -14,7 +14,6 @@ const FORGE: Forge = {
   id: 'forge-1',
   name: 'Aquaflow',
   description: 'Hydraulics',
-  status: 'draft',
   tone: 'navy',
   initials: 'AQ',
   groups: ['Engineering'],

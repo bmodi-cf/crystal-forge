@@ -67,12 +67,6 @@ model UserRole {
   @@map("user_roles")
 }
 
-enum ForgeStatus {
-  active
-  draft
-  archived
-}
-
 enum ForgeTone {
   navy
   gold
@@ -83,7 +77,6 @@ model Forge {
   id           String      @id @default(uuid()) @db.Uuid
   name         String      @unique
   description  String?
-  status       ForgeStatus @default(draft)
   tone         ForgeTone   @default(navy)
   initials     String
   repoFullName String      @unique @map("repo_full_name")
@@ -96,7 +89,6 @@ model Forge {
   conversations Conversation[]
 
   @@index([createdById])
-  @@index([status])
   @@map("forges")
 }
 

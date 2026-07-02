@@ -88,7 +88,6 @@ export async function makeForge(
     name: string;
     createdById: string;
     groups?: string[];
-    status?: 'active' | 'draft' | 'archived';
     repoFullName?: string; // override for tests that care about value
   },
 ) {
@@ -99,7 +98,6 @@ export async function makeForge(
       name: data.name,
       initials: data.name.slice(0, 2).toUpperCase(),
       tone: 'navy',
-      status: data.status ?? 'active',
       createdById: data.createdById,
       repoFullName,
     },
