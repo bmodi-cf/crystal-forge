@@ -1,10 +1,10 @@
 import { prisma } from '@/lib/prisma';
-import { canWriteForge } from '@/lib/acl';
+import { canWriteForge, canReadForge } from '@/lib/acl';
 import { getGitHubClient } from '@/lib/github/client';
 import { getRegistryClient } from '@/lib/registry/client';
 import type { GitHubClient, CheckResult } from '@/lib/github/types';
 import type { RegistryClient } from '@/lib/registry/types';
-import { DEV_BRANCH, PROD_BRANCH } from '@/lib/github/branches';
+import { DEV_BRANCH, PROD_BRANCH, REQUIRED_CHECKS } from '@/lib/github/branches';
 import { nextVersion, type BumpLevel } from '@/lib/versioning/semver';
 import { slugifyForgeName } from '@/lib/github/slug';
 import type { SessionUser } from './types';
@@ -124,4 +124,77 @@ export async function requestPromotion(
     include: promotionInclude,
   });
   return toDto(created);
+}
+
+function computeStatus(gates: CheckResult[]): 'checks_running' | 'checks_failed' | 'awaiting_approval' {
+  const byName = new Map(gates.map((g) => [g.name, g]));
+  for (const req of REQUIRED_CHECKS) {
+    const g = byName.get(req);
+    if (g && g.status === 'completed' && g.conclusion !== 'success' && g.conclusion !== 'skipped') {
+      return 'checks_failed';
+    }
+  }
+  const allDone = REQUIRED_CHECKS.every((req) => {
+    const g = byName.get(req);
+    return g && g.status === 'completed' && (g.conclusion === 'success' || g.conclusion === 'skipped');
+  });
+  return allDone ? 'awaiting_approval' : 'checks_running';
+}
+
+export async function refreshPromotionGates(
+  id: string,
+  github: GitHubClient = getGitHubClient(),
+): Promise<PromotionDto> {
+  const row = await loadRow(id);
+  if (!row) throw new NotFoundError('promotion', id);
+  const forge = await prisma.forge.findUniqueOrThrow({ where: { id: row.forgeId } });
+
+  const gates = await github.getRefCheckResults(forge.repoFullName, row.headSha);
+  const pr = await github.getPullRequest(forge.repoFullName, row.prNumber);
+  const summary: PromotionSummary = {
+    forgeName: forge.name,
+    commits: pr.commits,
+    changedFiles: pr.changedFiles,
+    additions: pr.additions,
+    deletions: pr.deletions,
+    gates,
+  };
+
+  // Only advance forward from an active checks state; never override a decided request.
+  const nextStatus = ([...ACTIVE] as string[]).includes(row.status)
+    ? computeStatus(gates)
+    : row.status;
+
+  const updated = await prisma.promotionRequest.update({
+    where: { id },
+    data: { summary: summary as unknown as object, status: nextStatus as typeof row.status },
+    include: promotionInclude,
+  });
+  return toDto(updated);
+}
+
+export async function listPendingPromotions(currentUser: SessionUser): Promise<PromotionDto[]> {
+  if (!currentUser.isAdmin) throw new ForbiddenError('Admin only');
+  const rows = await prisma.promotionRequest.findMany({
+    where: { status: { in: [...ACTIVE] } },
+    orderBy: { createdAt: 'desc' },
+    include: promotionInclude,
+  });
+  return rows.map(toDto);
+}
+
+export async function getForgePromotion(
+  currentUser: SessionUser,
+  forgeId: string,
+): Promise<PromotionDto | null> {
+  const forge = await loadForgeForAcl(forgeId);
+  const acl = { id: forge.id, createdById: forge.createdById, groups: forge.groups.map((g) => g.group.name) };
+  // canReadForge is sufficient to view a forge's promotion status
+  if (!canReadForge(currentUser, acl)) throw new ForbiddenError(`Cannot read forge ${forgeId}`);
+  const row = await prisma.promotionRequest.findFirst({
+    where: { forgeId },
+    orderBy: { createdAt: 'desc' },
+    include: promotionInclude,
+  });
+  return row ? toDto(row) : null;
 }
