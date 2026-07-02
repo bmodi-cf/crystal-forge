@@ -148,3 +148,69 @@ describe('FakeGitHubClient.getInstallationToken', () => {
     expect(tok).toBe('fake-installation-token');
   });
 });
+
+describe('FakeGitHubClient promotion methods', () => {
+  let gh: FakeGitHubClient;
+  beforeEach(async () => {
+    gh = new FakeGitHubClient({ owner: 'test-owner', baseUrl: 'https://github.com' });
+    await gh.createRepoFromTemplate({ name: 'app1', description: null, private: true });
+    gh.seedBranch('test-owner/app1', 'main', 'sha-main');
+  });
+
+  it('createBranch clones the head sha of the source branch', async () => {
+    await gh.createBranch('test-owner/app1', 'main', 'dev');
+    expect(gh.getBranches('test-owner/app1').sort()).toEqual(['dev', 'main']);
+  });
+
+  it('setBranchProtection stores the options', async () => {
+    await gh.setBranchProtection('test-owner/app1', 'main', {
+      requiredChecks: ['build', 'lint'],
+      requireUpToDate: true,
+    });
+    expect(gh.getProtection('test-owner/app1', 'main')).toEqual({
+      requiredChecks: ['build', 'lint'],
+      requireUpToDate: true,
+    });
+  });
+
+  it('openPullRequest returns an incrementing number + head sha', async () => {
+    await gh.createBranch('test-owner/app1', 'main', 'dev');
+    const pr = await gh.openPullRequest('test-owner/app1', {
+      head: 'dev', base: 'main', title: 'Promote', body: 'x',
+    });
+    expect(pr.number).toBe(1);
+    expect(pr.headSha).toBeTruthy();
+    expect(pr.url).toContain('test-owner/app1');
+  });
+
+  it('getRefCheckResults returns seeded checks', async () => {
+    gh.setRefChecks('test-owner/app1', 'sha-dev', [
+      { name: 'build', status: 'completed', conclusion: 'success' },
+    ]);
+    const checks = await gh.getRefCheckResults('test-owner/app1', 'sha-dev');
+    expect(checks).toEqual([{ name: 'build', status: 'completed', conclusion: 'success' }]);
+  });
+
+  it('mergePullRequest marks the PR merged and returns a sha', async () => {
+    await gh.createBranch('test-owner/app1', 'main', 'dev');
+    const pr = await gh.openPullRequest('test-owner/app1', {
+      head: 'dev', base: 'main', title: 'Promote', body: 'x',
+    });
+    const res = await gh.mergePullRequest('test-owner/app1', pr.number);
+    expect(res.merged).toBe(true);
+    expect(gh.getPullRequestState('test-owner/app1', pr.number)).toEqual({
+      state: 'closed', merged: true,
+    });
+  });
+
+  it('closePullRequest closes without merging', async () => {
+    await gh.createBranch('test-owner/app1', 'main', 'dev');
+    const pr = await gh.openPullRequest('test-owner/app1', {
+      head: 'dev', base: 'main', title: 'Promote', body: 'x',
+    });
+    await gh.closePullRequest('test-owner/app1', pr.number);
+    expect(gh.getPullRequestState('test-owner/app1', pr.number)).toEqual({
+      state: 'closed', merged: false,
+    });
+  });
+});
