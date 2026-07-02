@@ -19,6 +19,13 @@ dotenv.config({ path: '.env.local' });
   process.env.DATABASE_URL = parsed.toString();
 })();
 
+// Backstop: never let a machine's real FORGE_DEV_ORIGINS (from .env.local, e.g.
+// the pilot host list) leak into tests. lib/env.ts parses process.env once at
+// import; clearing it here — before any test file imports lib/env — pins
+// env.FORGE_DEV_ORIGINS to its 'localhost' default. Tests that care about the
+// value set env.FORGE_DEV_ORIGINS explicitly instead of inheriting it.
+delete process.env.FORGE_DEV_ORIGINS;
+
 import '@testing-library/jest-dom/vitest';
 
 // jsdom does not implement Element.prototype.scrollIntoView. Components that

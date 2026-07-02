@@ -274,26 +274,35 @@ describe('runtime service', () => {
   });
 
   it('injects FORGE_DEV_ORIGINS into the forge container env', async () => {
-    await withCleanDb(async (prisma) => {
-      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
-      const forge = await makeForge(prisma, {
-        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+    // Inject a concrete origins list the way a real deployment would configure
+    // it, rather than relying on the default — env is a mutable singleton, so
+    // set it for this test and restore afterwards.
+    const prevOrigins = env.FORGE_DEV_ORIGINS;
+    env.FORGE_DEV_ORIGINS = 'forge-pilot.crystalfountains.com,localhost';
+    try {
+      await withCleanDb(async (prisma) => {
+        const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+        const forge = await makeForge(prisma, {
+          name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+        });
+        const base = new FakeContainerManager();
+        const specs: CreateContainerSpec[] = [];
+        const recording: ContainerManager = {
+          create: (spec) => { specs.push(spec); return base.create(spec); },
+          exec: base.exec.bind(base),
+          inspect: base.inspect.bind(base),
+          stop: base.stop.bind(base),
+          remove: base.remove.bind(base),
+          list: base.list.bind(base),
+        };
+        const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
+        await svc.startForge(tom, forge.id);
+        await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+        expect(specs[0]?.env?.FORGE_DEV_ORIGINS).toBe('forge-pilot.crystalfountains.com,localhost');
       });
-      const base = new FakeContainerManager();
-      const specs: CreateContainerSpec[] = [];
-      const recording: ContainerManager = {
-        create: (spec) => { specs.push(spec); return base.create(spec); },
-        exec: base.exec.bind(base),
-        inspect: base.inspect.bind(base),
-        stop: base.stop.bind(base),
-        remove: base.remove.bind(base),
-        list: base.list.bind(base),
-      };
-      const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
-      await svc.startForge(tom, forge.id);
-      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
-      expect(specs[0]?.env?.FORGE_DEV_ORIGINS).toBe('localhost');
-    });
+    } finally {
+      env.FORGE_DEV_ORIGINS = prevOrigins;
+    }
   });
 
   it('injects GH_TOKEN into the forge container only when FORGE_GIT_TOKEN is set', async () => {
