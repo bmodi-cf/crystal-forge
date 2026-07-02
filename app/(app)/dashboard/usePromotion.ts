@@ -15,10 +15,15 @@ export function usePromotion(forgeId: string): {
   refetch: () => Promise<void>;
 } {
   const [promotion, setPromotion] = useState<Promotion | null>(null);
-  const cancelled = useRef(false);
   // True once the first fetch for the current forgeId has resolved. Until then we don't
-  // yet know whether there's an active promotion, so we keep polling.
-  const hasFetched = useRef(false);
+  // yet know whether there's an active promotion, so we keep polling. This MUST be state
+  // (not a ref): the common case is the first fetch resolving to `null`, which is
+  // `Object.is`-equal to the initial `promotion` state, so `setPromotion(null)` alone
+  // triggers no re-render in React 19 and the polling effect below would never
+  // re-evaluate. Flipping this state guarantees a re-render even when `promotion`
+  // itself doesn't change.
+  const [hasFetched, setHasFetched] = useState(false);
+  const cancelled = useRef(false);
 
   const refetch = useCallback(async () => {
     try {
@@ -26,8 +31,8 @@ export function usePromotion(forgeId: string): {
       if (!res.ok) return;
       const body = (await res.json()) as { promotion: Promotion | null };
       if (!cancelled.current) {
-        hasFetched.current = true;
         setPromotion(body.promotion);
+        setHasFetched(true);
       }
     } catch {
       // Network blip — leave previous state in place.
@@ -36,7 +41,7 @@ export function usePromotion(forgeId: string): {
 
   useEffect(() => {
     cancelled.current = false;
-    hasFetched.current = false;
+    setHasFetched(false);
     void refetch();
     return () => {
       cancelled.current = true;
@@ -47,11 +52,11 @@ export function usePromotion(forgeId: string): {
     // Poll while we haven't resolved the first fetch yet, or while the resolved
     // promotion is in an active status. Stop once resolved to null or a terminal status.
     const isResolvedInactive =
-      hasFetched.current && (!promotion || !ACTIVE_PROMOTION_STATUSES.includes(promotion.status));
+      hasFetched && (!promotion || !ACTIVE_PROMOTION_STATUSES.includes(promotion.status));
     if (isResolvedInactive) return;
     const handle = setInterval(() => void refetch(), POLL_INTERVAL_MS);
     return () => clearInterval(handle);
-  }, [promotion, refetch]);
+  }, [promotion, hasFetched, refetch]);
 
   return { promotion, refetch };
 }
