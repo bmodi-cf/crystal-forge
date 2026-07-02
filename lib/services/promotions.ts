@@ -183,6 +183,64 @@ export async function listPendingPromotions(currentUser: SessionUser): Promise<P
   return rows.map(toDto);
 }
 
+export async function acceptPromotion(
+  currentUser: SessionUser,
+  id: string,
+  github: GitHubClient = getGitHubClient(),
+  registry: RegistryClient = getRegistryClient(),
+): Promise<PromotionDto> {
+  if (!currentUser.isAdmin) throw new ForbiddenError('Admin only');
+  const row = await loadRow(id);
+  if (!row) throw new NotFoundError('promotion', id);
+  if (row.status !== 'awaiting_approval') {
+    throw new ValidationError(`Promotion ${id} is not awaiting approval (status ${row.status})`, {});
+  }
+  const forge = await prisma.forge.findUniqueOrThrow({ where: { id: row.forgeId } });
+  const slug = slugifyForgeName(forge.name);
+
+  // Merge dev -> main.
+  const merge = await github.mergePullRequest(forge.repoFullName, row.prNumber, { method: 'squash' });
+  // Tag the merge commit for traceability.
+  await github.createGitTag(forge.repoFullName, row.targetVersion, merge.sha);
+  // Retag the already-built candidate image to the release + latest (no rebuild).
+  await registry.tagManifest(slug, `sha-${row.headSha}`, [row.targetVersion, 'latest']);
+
+  const imageRef = `${process.env.REGISTRY_HOST ?? 'registry.crystalfountains.com'}/${slug}:${row.targetVersion}`;
+  const updated = await prisma.promotionRequest.update({
+    where: { id },
+    data: {
+      status: 'accepted',
+      approvedById: currentUser.id,
+      decidedAt: new Date(),
+      imageRef,
+    },
+    include: promotionInclude,
+  });
+  return toDto(updated);
+}
+
+export async function rejectPromotion(
+  currentUser: SessionUser,
+  id: string,
+  input: { reason?: string },
+  github: GitHubClient = getGitHubClient(),
+): Promise<PromotionDto> {
+  if (!currentUser.isAdmin) throw new ForbiddenError('Admin only');
+  const row = await loadRow(id);
+  if (!row) throw new NotFoundError('promotion', id);
+  if (row.status === 'accepted' || row.status === 'rejected') {
+    throw new ValidationError(`Promotion ${id} already decided`, {});
+  }
+  const forge = await prisma.forge.findUniqueOrThrow({ where: { id: row.forgeId } });
+  await github.closePullRequest(forge.repoFullName, row.prNumber);
+  const updated = await prisma.promotionRequest.update({
+    where: { id },
+    data: { status: 'rejected', approvedById: currentUser.id, decidedAt: new Date(), rejectReason: input.reason ?? null },
+    include: promotionInclude,
+  });
+  return toDto(updated);
+}
+
 export async function getForgePromotion(
   currentUser: SessionUser,
   forgeId: string,

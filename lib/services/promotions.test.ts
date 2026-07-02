@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach } from 'vitest';
+import type { PrismaClient } from '@prisma/client';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { FakeGitHubClient } from '@/lib/github/fake-client';
 import { FakeRegistryClient } from '@/lib/registry/fake-client';
-import { requestPromotion, refreshPromotionGates, listPendingPromotions } from './promotions';
+import { requestPromotion, refreshPromotionGates, listPendingPromotions, acceptPromotion, rejectPromotion } from './promotions';
 import { ForbiddenError } from '@/lib/errors';
 
 function ghWithForge(): FakeGitHubClient {
@@ -116,6 +117,59 @@ describe('listPendingPromotions', () => {
     await withCleanDb(async (prisma) => {
       const nonAdmin = await makeUser(prisma, { email: 'n@x', name: 'N', groups: [] });
       await expect(listPendingPromotions(nonAdmin)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+});
+
+async function seedAwaiting(prisma: PrismaClient, gh: FakeGitHubClient, reg: FakeRegistryClient) {
+  const owner = await makeUser(prisma, { email: 'o@x', name: 'Owner', groups: ['Eng'] });
+  const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin', groups: [], isAdmin: true });
+  const forge = await makeForge(prisma, {
+    name: 'Aquaflow', createdById: owner.id, groups: ['Eng'], repoFullName: 'test-owner/aquaflow',
+  });
+  gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
+  await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
+  const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, reg);
+  // registry has the candidate image the CI build pushed:
+  reg.seedTag('aquaflow', `sha-${dto.headSha}`);
+  gh.setRefChecks('test-owner/aquaflow', dto.headSha,
+    ['build', 'typecheck', 'lint', 'tests'].map((name) => ({ name, status: 'completed', conclusion: 'success' })));
+  await refreshPromotionGates(dto.id, gh);
+  return { admin, owner, forge, dto };
+}
+
+describe('acceptPromotion / rejectPromotion', () => {
+  let gh: FakeGitHubClient;
+  let reg: FakeRegistryClient;
+  beforeEach(() => { gh = ghWithForge(); reg = new FakeRegistryClient(); });
+
+  it('accept merges, tags git, retags the image, and records the release', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, dto } = await seedAwaiting(prisma, gh, reg);
+      const accepted = await acceptPromotion(admin, dto.id, gh, reg);
+      expect(accepted.status).toBe('accepted');
+      expect(accepted.imageRef).toContain('aquaflow');
+      expect(accepted.imageRef).toContain('v1.0.0');
+      expect(gh.getPullRequestState('test-owner/aquaflow', dto.prNumber)).toEqual({ state: 'closed', merged: true });
+      expect(reg.getTags('aquaflow').sort()).toEqual(
+        [`sha-${dto.headSha}`, 'latest', 'v1.0.0'].sort(),
+      );
+    });
+  });
+
+  it('accept is admin-only and requires awaiting_approval', async () => {
+    await withCleanDb(async (prisma) => {
+      const { owner, dto } = await seedAwaiting(prisma, gh, reg);
+      await expect(acceptPromotion(owner, dto.id, gh, reg)).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it('reject closes the PR and records the reason', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, dto } = await seedAwaiting(prisma, gh, reg);
+      const rejected = await rejectPromotion(admin, dto.id, { reason: 'not yet' }, gh);
+      expect(rejected.status).toBe('rejected');
+      expect(gh.getPullRequestState('test-owner/aquaflow', dto.prNumber)).toEqual({ state: 'closed', merged: false });
     });
   });
 });
