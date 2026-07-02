@@ -272,6 +272,24 @@ describe('createForge', () => {
     });
   });
 
+  it('creates a dev branch from main and protects main after writing forge files', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom Reed', groups: ['Engineering'] });
+      await createForge(
+        tom,
+        { name: 'Branchy App', description: '', groups: ['Engineering'] },
+        fake,
+        fakeDb,
+      );
+      const full = 'test-owner/branchy-app';
+      expect(fake.getBranches(full)).toContain('dev');
+      expect(fake.getProtection(full, 'main')).toEqual({
+        requiredChecks: ['build', 'typecheck', 'lint', 'tests'],
+        requireUpToDate: true,
+      });
+    });
+  });
+
   it('compensates by dropping the database AND deleting the repo when the DB row write fails', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });

@@ -5,6 +5,7 @@ import { env } from '@/lib/env';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { getGitHubClient } from '@/lib/github/client';
 import type { GitHubClient } from '@/lib/github/client';
+import { DEV_BRANCH, PROD_BRANCH, REQUIRED_CHECKS } from '@/lib/github/branches';
 import { getDatabaseProvisioner } from '@/lib/db/provisioner';
 import type { DatabaseProvisioner } from '@/lib/db/provisioner';
 import { slugifyForgeName, slugToDbName, dbNameToRole } from '@/lib/github/slug';
@@ -224,6 +225,15 @@ export async function createForge(
       claudeSettings: renderClaudeSettings(),
       claudeBlockScript: renderBlockScript(),
       claudeMd: renderClaudeMd(input.name, dbName),
+    });
+
+    // Branch dev FROM main so it inherits the just-written per-forge files,
+    // then protect main. Protection is a repo setting (not templatable); dev
+    // must be branched post-write (a template-copied dev would lack these files).
+    await client.createBranch(created.fullName, PROD_BRANCH, DEV_BRANCH);
+    await client.setBranchProtection(created.fullName, PROD_BRANCH, {
+      requiredChecks: REQUIRED_CHECKS,
+      requireUpToDate: true,
     });
   } catch (err) {
     await safeDeleteRepo(client, created.fullName);
