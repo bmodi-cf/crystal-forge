@@ -240,10 +240,22 @@ image builds with them.
 
 ## 8. Components & new work (summary)
 
+### 8.0 Template-carried vs. per-repo-provisioned (important)
+Branch protection is a **repo setting, not content**, so it is *never* copied by
+`createUsingTemplate` — it must be applied per repo. The `dev` branch must be branched **from
+`main` after `writeForgeFiles`** so it inherits the per-forge files (`forge.config.json`,
+`.env.example`, `CLAUDE.md`, Claude hook) that are generated at creation and cannot live in
+the template. A template-copied `dev` would lack those files and the runtime (which clones
+`dev`) would break. Therefore:
+- **Template carries (pure content):** production `Dockerfile`, CI workflow.
+- **Per-repo provisioning:** create `dev` from `main` (post file-write), apply `main` branch
+  protection.
+
 - **Template:** production `Dockerfile`; CI workflow (typecheck, lint, conditional tests).
-- **GitHub App:** at provisioning — create `dev` branch, set `main` as default-protected,
-  configure branch protection (required checks + up-to-date-before-merge). At request time —
-  open PR; at accept — merge + tag.
+- **GitHub App:** at provisioning — create `dev` **branched from `main` after the forge files
+  are written**, apply branch protection on `main` (required checks + up-to-date-before-merge;
+  protection is not templatable). At request time — open PR; at accept — merge + tag.
+- **Runtime:** clone checks out `dev` (was: default branch).
 - **Dashboard:** `PromotionRequest` model + service; Dev "Request to Production" action;
   Admin "Pending Promotions" queue with Accept/Reject; wiring to trigger the runner and read
   gate results.
