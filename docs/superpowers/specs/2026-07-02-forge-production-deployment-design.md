@@ -112,10 +112,11 @@ Mandatory:
    with no tests so it never blocks a team that hasn't written any.
 4. **Human approval by the admin** — the admin's **Accept** on the pending request (§4.2).
 
-Future gate:
+Future gate (firmly out of scope — **not** built or stubbed in this slice):
 5. **GitHub AI analysis report on the merge must pass** — a required status check produced by
-   an AI review of the PR. Designed for now as an additional required check on `main`;
-   wired in when available.
+   an AI review of the PR. The gate design leaves room for it (it will slot in as an
+   additional required status check + a summary panel), but no code, action, or placeholder
+   for it is delivered now.
 
 ### 3.4 Where checks run — self-hosted GitHub Actions runner on the pilot
 Automated checks (and later the AI report, and the production image build + push) run on a
@@ -171,12 +172,17 @@ slim runtime image running the production server, not `pnpm dev`). Every Forge r
 it. The image bundles the built app **and the committed `prisma/migrations/`** (see §7). It
 does **not** run migrations at build time.
 
-### 5.2 Tagging scheme
+### 5.2 Tagging scheme — semantic versioning
 - **Candidate tag (on request):** `registry.crystalfountains.com/<forge-slug>:sha-<gitsha>`
   — immutable, traceable to the exact commit, built and pushed during the pre-approval gates.
 - **Release tag (on Accept):** the same image additionally tagged
-  `:<version>` where version is a monotonic promotion counter per Forge (e.g. `v1`, `v2`, …)
-  plus a moving `:latest`. Rollback later = point prod at a prior `:vN` (future phase).
+  `:v<MAJOR>.<MINOR>.<PATCH>` (semver) plus a moving `:latest`.
+- **Version derivation:** the **requester picks a bump level** (major / minor / patch;
+  default **patch**) when clicking Request to Production. The dashboard computes the next
+  version from the Forge's **last accepted release** (`v1.0.0` for the first release). The
+  computed target version is stored on the `PromotionRequest` and shown to the admin before
+  Accept. Applied as the release tag on Accept.
+- Rollback later = point prod at a prior `:vX.Y.Z` (future phase).
 - Retag on Accept is a registry manifest operation — no rebuild.
 
 ### 5.3 Push credential
@@ -197,7 +203,9 @@ A first-class **PromotionRequest** persisted by the dashboard:
 - `prNumber` / `prUrl`, `headSha`
 - `status`: `pending` | `checks_running` | `checks_failed` | `awaiting_approval` |
   `accepted` | `rejected`
-- `gateResults`: per-gate status (build, typecheck, lint, tests, ai_report) + links to logs
+- `bumpLevel`: `major` | `minor` | `patch` (chosen by requester; default `patch`)
+- `targetVersion`: computed semver `vX.Y.Z` for this release
+- `gateResults`: per-gate status (build, typecheck, lint, tests) + links to logs
 - `summary`: human-readable summary of the change (see 6.3)
 - `approvedById` / `decidedAt` / `rejectReason` (nullable)
 - `imageRef`: the candidate image ref once built; release ref once accepted
@@ -210,8 +218,8 @@ A first-class **PromotionRequest** persisted by the dashboard:
 
 ### 6.3 Summary content
 The summary the admin reviews includes: Forge name, requester, commit range `main…dev`
-(commits + changed-file stats), gate results at a glance, and a link to the PR. The future
-**AI analysis report** slots in here as an additional summary panel + required gate.
+(commits + changed-file stats), gate results at a glance, and a link to the PR. The **AI
+analysis report** is a firmly-future addition (§3.3) — no panel is built in this slice.
 
 ## 7. State, data & DB migration (mostly deferred — see §0)
 
@@ -247,11 +255,10 @@ image builds with them.
 
 - **Tests-if-present detection:** how the CI decides a Forge "has tests" (presence of
   `*.test.ts(x)` / a `test` script that isn't a no-op). Needs a concrete rule.
-- **Version counter source:** where the monotonic per-Forge promotion version lives (likely
-  derived from accepted `PromotionRequest` count).
 - **Runner concurrency:** one self-hosted runner vs. a small pool if multiple Forges request
   at once; job isolation between Forges on a shared runner.
-- **AI analysis report:** provider/mechanism for the future required check (GitHub-native AI
-  review vs. a custom action calling the Claude API).
 - **Candidate image retention:** garbage-collection policy for `sha-*` candidate tags whose
   requests were rejected.
+- **Semver source of truth:** last-accepted `targetVersion` on `PromotionRequest` vs. git
+  tags on `main` — resolved in the plan (default: derive from the latest accepted
+  `PromotionRequest`, reconciled against `main`'s git tags).
