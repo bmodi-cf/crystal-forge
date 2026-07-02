@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { GitHubClient } from '@/lib/github/types';
+import { DEV_BRANCH } from '@/lib/github/branches';
 import { forgeClonePath, logPath as logPathFor } from './paths';
 import type { CommandRunner } from './runner-types';
 import { childProcessRunner } from './child-process-runner';
@@ -83,6 +84,12 @@ export async function ensureClone(
         { logPath: log, timeoutMs: QUICK_TIMEOUT_MS },
       ),
       'git remote set-url',
+    );
+    assertOk(
+      await runner.run('git', ['-C', cloneDir, 'checkout', DEV_BRANCH], {
+        logPath: log, timeoutMs: QUICK_TIMEOUT_MS,
+      }),
+      'git checkout dev',
     );
   }
 

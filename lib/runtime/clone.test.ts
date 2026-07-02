@@ -6,6 +6,7 @@ import path from 'node:path';
 import { ensureClone } from './clone';
 import type { CommandRunner, RunOpts } from './runner-types';
 import { FakeGitHubClient } from '@/lib/github/fake-client';
+import { DEV_BRANCH } from '@/lib/github/branches';
 
 let tmp: string;
 let prevHome: string | undefined;
@@ -67,6 +68,27 @@ describe('ensureClone', () => {
     expect(calls.find((c) => c.cmd === 'pnpm' && c.args[0] === 'prisma' && c.args[1] === 'generate')).toBeDefined();
 
     expect(await fs.readFile(path.join(cloneDir, '.env.local'), 'utf8')).toContain('DATABASE_URL=foo');
+  });
+
+  it('checks out the dev branch on a fresh clone', async () => {
+    const fakeGh = new FakeGitHubClient({ owner: 'bmodi-cf', baseUrl: 'https://github.com' });
+    const { runner, calls } = makeFakeRunner(async ({ cmd, args }) => {
+      if (cmd === 'git' && args[0] === 'clone') {
+        const dest = args[args.length - 1]!;
+        await fs.mkdir(path.join(dest, '.git'), { recursive: true });
+      }
+    });
+
+    await ensureClone(
+      { slug: 'devy', repoFullName: 'bmodi-cf/devy' },
+      fakeGh,
+      runner,
+    );
+
+    const cloneDir = path.join(tmp, 'clones', 'devy');
+    const checkout = calls.find((c) => c.cmd === 'git' && c.args.includes('checkout'));
+    expect(checkout).toBeDefined();
+    expect(checkout?.args).toEqual(['-C', cloneDir, 'checkout', DEV_BRANCH]);
   });
 
   it('is idempotent: a second call skips clone, env-copy, and install', async () => {
