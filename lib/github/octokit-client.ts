@@ -65,7 +65,20 @@ export class OctokitGitHubClient implements GitHubClient {
       await this.client.repos.update({ owner, repo, archived: true });
     } catch (err: unknown) {
       if (isStatus(err, 404)) return;
+      // An already-archived repo is read-only and rejects any update with a
+      // 403 ("Repository was archived so is read-only"). That's exactly the
+      // state archiveRepo wants, so confirm it and treat it as success.
+      if (isStatus(err, 403) && (await this.isArchived(owner, repo))) return;
       throw err;
+    }
+  }
+
+  private async isArchived(owner: string, repo: string): Promise<boolean> {
+    try {
+      const { data } = await this.client.repos.get({ owner, repo });
+      return data.archived === true;
+    } catch {
+      return false;
     }
   }
 

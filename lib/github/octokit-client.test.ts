@@ -255,6 +255,78 @@ describe('OctokitGitHubClient.writeForgeFiles', () => {
   });
 });
 
+describe('OctokitGitHubClient.archiveRepo', () => {
+  type UpdateArgs = { owner: string; repo: string; archived?: boolean };
+  type GetArgs = { owner: string; repo: string };
+
+  function makeOctokitForArchive(
+    updateBehavior: (args: UpdateArgs) => Promise<unknown>,
+    getBehavior?: (args: GetArgs) => Promise<unknown>,
+  ): Octokit {
+    return {
+      repos: {
+        update: vi.fn(updateBehavior),
+        get: vi.fn(getBehavior ?? (async () => ({ data: { archived: false } }))),
+      },
+    } as unknown as Octokit;
+  }
+
+  it('issues update with archived: true on the happy path', async () => {
+    const calls: UpdateArgs[] = [];
+    const octokit = makeOctokitForArchive(async (args) => {
+      calls.push(args);
+      return { data: {} };
+    });
+    const client = newClient(octokit);
+
+    await client.archiveRepo('bmodi-cf/showcase-gallery');
+
+    expect(calls).toEqual([
+      { owner: 'bmodi-cf', repo: 'showcase-gallery', archived: true },
+    ]);
+  });
+
+  it('swallows a 404 (repo already gone)', async () => {
+    const octokit = makeOctokitForArchive(async () => {
+      throw status(404);
+    });
+    const client = newClient(octokit);
+
+    await expect(
+      client.archiveRepo('bmodi-cf/showcase-gallery'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('treats a 403 on an already-archived repo as success (idempotent)', async () => {
+    // GitHub rejects any update to an archived repo with 403 "read-only".
+    const octokit = makeOctokitForArchive(
+      async () => {
+        throw status(403);
+      },
+      async () => ({ data: { archived: true } }),
+    );
+    const client = newClient(octokit);
+
+    await expect(
+      client.archiveRepo('bmodi-cf/showcase-gallery'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('rethrows a 403 that is a genuine permission error (repo not archived)', async () => {
+    const octokit = makeOctokitForArchive(
+      async () => {
+        throw status(403);
+      },
+      async () => ({ data: { archived: false } }),
+    );
+    const client = newClient(octokit);
+
+    await expect(
+      client.archiveRepo('bmodi-cf/showcase-gallery'),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+});
+
 describe('OctokitGitHubClient.getInstallationToken', () => {
   it('delegates to octokit auth({ type: "installation" })', async () => {
     const stub = {
