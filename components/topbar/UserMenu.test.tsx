@@ -28,4 +28,24 @@ describe('UserMenu', () => {
     // Wiring it to onSelect makes the button a silent no-op.
     expect(signOut).toHaveBeenCalledWith({ callbackUrl: '/login' });
   });
+
+  it('shows a "Pending Promotions" link to /promotions for admins', async () => {
+    const adminUser = { ...user, isAdmin: true } as SessionUser;
+    render(<UserMenu user={adminUser} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /maya chen/i }));
+
+    const link = await screen.findByRole('menuitem', { name: /pending promotions/i });
+    expect(link).toHaveAttribute('href', '/promotions');
+  });
+
+  it('does not show "Pending Promotions" for non-admins', async () => {
+    render(<UserMenu user={user} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /maya chen/i }));
+
+    // Wait for the menu to open by asserting a known item is present first.
+    await screen.findByText('Logout');
+    expect(screen.queryByText('Pending Promotions')).not.toBeInTheDocument();
+  });
 });
