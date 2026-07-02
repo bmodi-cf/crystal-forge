@@ -1,21 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Play, Square, ExternalLink } from 'lucide-react';
+import { Play, Square, ExternalLink, GitBranch, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { RuntimeStateView } from '@/lib/runtime/types';
 
 export type RuntimeAction = 'start' | 'stop';
 
-type Props = {
-  forgeId: string;
-  forgeName: string;
-  canWrite: boolean;
-  runtime: RuntimeStateView | null;
-  onAction: (action: RuntimeAction) => void | Promise<void>;
-};
+type RuntimeStatusKey = NonNullable<RuntimeStateView['status']> | 'stopped';
 
-const DOT_CLASS: Record<NonNullable<RuntimeStateView['status']> | 'stopped', string> = {
+const DOT_CLASS: Record<RuntimeStatusKey, string> = {
   stopped: 'bg-[#6b7785]',
   starting: 'bg-[#e0a948] animate-pulse',
   running: 'bg-[#4ad28b]',
@@ -24,7 +18,7 @@ const DOT_CLASS: Record<NonNullable<RuntimeStateView['status']> | 'stopped', str
   'setup-failed': 'bg-[#d96868]',
 };
 
-const LABEL: Record<NonNullable<RuntimeStateView['status']> | 'stopped', string> = {
+const LABEL: Record<RuntimeStatusKey, string> = {
   stopped: 'Stopped',
   starting: 'Starting…',
   running: 'Running',
@@ -33,8 +27,44 @@ const LABEL: Record<NonNullable<RuntimeStateView['status']> | 'stopped', string>
   'setup-failed': 'Setup failed',
 };
 
-export function ForgeCardRuntime({ forgeId: _id, forgeName: _name, canWrite, runtime, onAction }: Props) {
-  const status: keyof typeof LABEL = runtime?.status ?? 'stopped';
+/** Runtime status indicator: colored dot + label (+ setup error, when present). */
+export function RuntimeStatus({ runtime }: { runtime: RuntimeStateView | null }) {
+  const status: RuntimeStatusKey = runtime?.status ?? 'stopped';
+  const error = status === 'crashed' || status === 'setup-failed' ? runtime?.setupError : undefined;
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-[12px]">
+      <span className={cn('h-2 w-2 shrink-0 rounded-full', DOT_CLASS[status])} />
+      <span className="text-ink-dim">{LABEL[status]}</span>
+      {error ? (
+        <span className="truncate text-[10px] text-ink-faint" title={error}>
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+type Props = {
+  forgeName: string;
+  canWrite: boolean;
+  runtime: RuntimeStateView | null;
+  onAction: (action: RuntimeAction) => void | Promise<void>;
+  /** When set, renders a "view repo on GitHub" link on the right of the row. */
+  repoUrl?: string;
+  /** When set, renders a delete (trash) button on the right of the row. */
+  onDelete?: () => void;
+};
+
+const actionBtn =
+  'inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-ink-dim disabled:opacity-50 hover:bg-panel-3 hover:text-ink';
+const startBtn =
+  'inline-flex items-center gap-1 rounded-md border border-[#4ad28b]/40 bg-[#4ad28b]/10 px-2 py-1 text-[#4ad28b] disabled:opacity-50 hover:border-[#4ad28b]/60 hover:bg-[#4ad28b]/20';
+const iconOnlyBtn =
+  'inline-flex items-center rounded-md border border-border p-1.5 text-ink-dim hover:bg-panel-3 hover:text-ink';
+
+/** Control row: runtime action(s) on the left, repo + delete on the right. */
+export function ForgeCardRuntime({ forgeName, canWrite, runtime, onAction, repoUrl, onDelete }: Props) {
+  const status: RuntimeStatusKey = runtime?.status ?? 'stopped';
   const [busy, setBusy] = useState(false);
 
   async function go(action: RuntimeAction) {
@@ -48,16 +78,7 @@ export function ForgeCardRuntime({ forgeId: _id, forgeName: _name, canWrite, run
   const showStart = canWrite && (status === 'stopped' || status === 'crashed' || status === 'setup-failed');
 
   return (
-    <div className="flex items-center justify-between gap-2 border-t border-border pt-3.5 text-[12px]">
-      <div className="flex items-center gap-2">
-        <span className={cn('h-2 w-2 rounded-full', DOT_CLASS[status])} />
-        <span className="text-ink-dim">{LABEL[status]}</span>
-        {(status === 'crashed' || status === 'setup-failed') && runtime?.setupError ? (
-          <span className="ml-2 truncate text-[10px] text-ink-faint" title={runtime.setupError}>
-            {runtime.setupError}
-          </span>
-        ) : null}
-      </div>
+    <div className="mt-auto flex items-center justify-between gap-2 border-t border-border px-5 py-3.5 text-[12px]">
       <div className="flex items-center gap-1.5">
         {showOpen ? (
           <a
@@ -65,7 +86,7 @@ export function ForgeCardRuntime({ forgeId: _id, forgeName: _name, canWrite, run
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Open"
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-ink-dim hover:bg-panel-3 hover:text-ink"
+            className={actionBtn}
           >
             <ExternalLink className="h-3.5 w-3.5" /> Open
           </a>
@@ -76,7 +97,7 @@ export function ForgeCardRuntime({ forgeId: _id, forgeName: _name, canWrite, run
             onClick={() => go('stop')}
             disabled={busy || status === 'starting' || status === 'stopping'}
             aria-label="Stop"
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-ink-dim disabled:opacity-50 hover:bg-panel-3 hover:text-ink"
+            className={actionBtn}
           >
             <Square className="h-3.5 w-3.5" /> Stop
           </button>
@@ -87,9 +108,32 @@ export function ForgeCardRuntime({ forgeId: _id, forgeName: _name, canWrite, run
             onClick={() => go('start')}
             disabled={busy}
             aria-label="Start"
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-ink-dim disabled:opacity-50 hover:bg-panel-3 hover:text-ink"
+            className={startBtn}
           >
             <Play className="h-3.5 w-3.5" /> Start
+          </button>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-1.5">
+        {repoUrl ? (
+          <a
+            href={repoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`View on GitHub: ${forgeName}`}
+            className={iconOnlyBtn}
+          >
+            <GitBranch className="h-3.5 w-3.5" />
+          </a>
+        ) : null}
+        {onDelete ? (
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={`Delete ${forgeName}`}
+            className="inline-flex items-center rounded-md border border-border p-1.5 text-ink-dim transition hover:border-[rgba(217,104,104,0.4)] hover:bg-[rgba(217,104,104,0.12)] hover:text-[#ff9f9f]"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         ) : null}
       </div>
