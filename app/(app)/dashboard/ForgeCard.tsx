@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Pencil, SquareTerminal } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Forge } from '@/lib/services/types';
-import { ForgeCardRuntime, RuntimeStatus, type RuntimeAction } from './ForgeCardRuntime';
+import { ForgeCardRuntime, ForgeRuntimeActions, RuntimeStatus, type RuntimeAction } from './ForgeCardRuntime';
 import { RequestPromotionDialog, type BumpLevel } from './RequestPromotionDialog';
 import { usePromotion } from './usePromotion';
 import type { RuntimeStateView } from '@/lib/runtime/types';
@@ -47,30 +47,39 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
   return (
     <article className="relative flex min-h-[220px] flex-col overflow-hidden rounded-[14px] border border-border bg-panel transition hover:-translate-y-0.5 hover:border-border-strong hover:bg-panel-2">
       {/* Header — identity + runtime status (left column), Code Workspace launcher (right). Status sits bottom-left, in the space the tall button creates. */}
-      <div className="flex gap-3.5 px-5 py-4">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex gap-3.5">
-            <div className={`grid h-11 w-11 shrink-0 self-start place-items-center rounded-[10px] border text-base font-bold ${TONE_CLASSES[forge.tone]}`}>
-              {forge.initials}
+      <div className="px-5 py-4">
+        <div className="flex gap-3.5">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex gap-3.5">
+              <div className={`grid h-11 w-11 shrink-0 self-start place-items-center rounded-[10px] border text-base font-bold ${TONE_CLASSES[forge.tone]}`}>
+                {forge.initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate text-base font-semibold tracking-tight">{forge.name}</h3>
+                <div className="truncate text-[11px] text-ink-faint">{forge.createdBy.name}</div>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <h3 className="truncate text-base font-semibold tracking-tight">{forge.name}</h3>
-              <div className="truncate text-[11px] text-ink-faint">{forge.createdBy.name}</div>
+            <div className="mt-auto pt-2">
+              <RuntimeStatus runtime={runtime} />
             </div>
           </div>
-          <div className="mt-auto pt-2">
-            <RuntimeStatus runtime={runtime} />
-          </div>
+          <Link
+            href={`/forges/${forge.id}`}
+            onClick={() => { if (canWrite) void onRuntimeAction(forge, 'start'); }}
+            aria-label={`Open Claude Code Workspace for ${forge.name}`}
+            className="grid h-[72px] w-[88px] shrink-0 place-items-center gap-1 rounded-[10px] border border-[#4ad28b]/40 bg-[#4ad28b]/10 text-[#4ad28b] transition hover:border-[#4ad28b]/60 hover:bg-[#4ad28b]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4ad28b]/60"
+          >
+            <span className="text-center text-[10px] font-medium leading-[1.15]">Claude Code Workspace</span>
+            <SquareTerminal className="h-5 w-5" />
+          </Link>
         </div>
-        <Link
-          href={`/forges/${forge.id}`}
-          onClick={() => { if (canWrite) void onRuntimeAction(forge, 'start'); }}
-          aria-label={`Open Claude Code Workspace for ${forge.name}`}
-          className="grid h-[72px] w-[88px] shrink-0 place-items-center gap-1 rounded-[10px] border border-[#4ad28b]/40 bg-[#4ad28b]/10 text-[#4ad28b] transition hover:border-[#4ad28b]/60 hover:bg-[#4ad28b]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4ad28b]/60"
-        >
-          <span className="text-center text-[10px] font-medium leading-[1.15]">Claude Code Workspace</span>
-          <SquareTerminal className="h-5 w-5" />
-        </Link>
+
+        {/* Runtime actions — own row in the top section, buffered from the identity block above */}
+        <ForgeRuntimeActions
+          canWrite={canWrite}
+          runtime={runtime}
+          onAction={(action) => onRuntimeAction(forge, action)}
+        />
       </div>
 
       {/* Description — paragraph + groups; edit (description & groups) pinned bottom-right */}
@@ -102,12 +111,10 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
         </div>
       </div>
 
-      {/* Control — start/stop/open on the left, repo + delete + promotion on the right */}
+      {/* Control — Release / Git / Delete (runtime actions moved to the top section) */}
       <ForgeCardRuntime
         forgeName={forge.name}
         canWrite={canWrite}
-        runtime={runtime}
-        onAction={(action) => onRuntimeAction(forge, action)}
         repoUrl={forge.repoUrl}
         onDelete={onDelete ? () => onDelete(forge) : undefined}
         promotion={promotion}
