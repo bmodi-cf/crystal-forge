@@ -26,7 +26,7 @@
 
 These must exist for the end-to-end flow to actually run, but they are ops/other-repo work with their own execution and no TDD cycle. The code in this plan is written and tested against fakes, so it can be built before these land.
 
-**P1 — Infra runbook (pilot box):**
+**P1 — Infra runbook (pilot box):** *(procedure: `docs/runbooks/pilot-registry-infra.md`)*
 - `registry:2` container running behind the reverse proxy, TLS terminated with the existing `*.crystalfountains.com` wildcard cert, reachable as `registry.crystalfountains.com`.
 - DNS `A` record `registry.crystalfountains.com → pilot internal IP` (or wildcard DNS / prod `/etc/hosts`).
 - htpasswd service accounts: a **push** account (used by the runner + dashboard retag) and a **pull** account (future prod).
