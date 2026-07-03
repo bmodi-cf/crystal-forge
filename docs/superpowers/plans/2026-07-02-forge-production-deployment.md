@@ -30,13 +30,15 @@ These must exist for the end-to-end flow to actually run, but they are ops/other
 - `registry:2` container running behind the reverse proxy, TLS terminated with the existing `*.crystalfountains.com` wildcard cert, reachable as `registry.crystalfountains.com`.
 - DNS `A` record `registry.crystalfountains.com → pilot internal IP` (or wildcard DNS / prod `/etc/hosts`).
 - htpasswd service accounts: a **push** account (used by the runner + dashboard retag) and a **pull** account (future prod).
-- A self-hosted GitHub Actions runner registered to the org, online on the pilot.
+- A self-hosted GitHub Actions runner registered to the org, online on the pilot. Advertises the label **`forge-pilot`**; the runner's OS user is in the `docker` group and has a persistent `docker login registry.crystalfountains.com` (push account) so the `build` job can push without secrets in the workflow YAML.
 
 **P2 — Template repo (`crystal-forge-template-webapp`) changes:**
 - A production **`Dockerfile`** (multi-stage: install → `next build` → slim runtime running the production server; `COPY prisma/migrations`). Does NOT run migrations at build.
-- A **CI workflow** (`.github/workflows/promote-gates.yml`) triggered `on: pull_request` targeting `main`, running on the self-hosted runner, with jobs named **exactly** `build`, `typecheck`, `lint`, `tests` (each reports a status check of that name). `build` builds the production image and pushes it as `registry.crystalfountains.com/<slug>:sha-<headSha>`. `tests` detects presence of tests and self-skips to success when none exist (so it can be a required check without blocking test-less forges).
+- A **CI workflow** (`.github/workflows/promote-gates.yml`) triggered `on: pull_request` targeting `main`, running on the self-hosted runner (`runs-on: [self-hosted, forge-pilot]`), with jobs named **exactly** `build`, `typecheck`, `lint`, `tests` (each reports a status check of that name). `build` builds the production image and pushes it as `registry.crystalfountains.com/<slug>:sha-<headSha>`. `tests` detects presence of tests and self-skips to success when none exist (so it can be a required check without blocking test-less forges).
 
 > The required-check names in this plan (`build`, `typecheck`, `lint`, `tests`) MUST match the job/check names produced by P2's workflow. They are defined once in `lib/github/branches.ts` (Task 4) and referenced everywhere.
+
+> The runner label **`forge-pilot`** MUST match on both sides: P1 registers the runner with `--labels forge-pilot`, and P2's `promote-gates.yml` targets it via `runs-on: [self-hosted, forge-pilot]`. Unlike the check names, this label lives only in the template repo's workflow (this repo never references it) — keep the two in sync manually.
 
 ---
 
