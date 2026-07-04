@@ -97,11 +97,7 @@ export async function requestPromotion(
   }
 
   // Compute the target version from the last accepted release.
-  const lastAccepted = await prisma.promotionRequest.findFirst({
-    where: { forgeId, status: 'accepted' },
-    orderBy: { decidedAt: 'desc' },
-  });
-  const targetVersion = nextVersion(lastAccepted?.targetVersion ?? null, input.bumpLevel);
+  const targetVersion = nextVersion(await lastAcceptedVersion(forgeId), input.bumpLevel);
 
   const title = `Promote to production (${targetVersion})`;
   const body = `Automated promotion request for **${forge.name}** → \`${targetVersion}\`.`;
@@ -238,6 +234,24 @@ export async function rejectPromotion(
     include: promotionInclude,
   });
   return toDto(updated);
+}
+
+/** The forge's most recently decided accepted release version, or null before any release. */
+async function lastAcceptedVersion(forgeId: string): Promise<string | null> {
+  const lastAccepted = await prisma.promotionRequest.findFirst({
+    where: { forgeId, status: 'accepted' },
+    orderBy: { decidedAt: 'desc' },
+  });
+  return lastAccepted?.targetVersion ?? null;
+}
+
+export async function getForgeCurrentVersion(
+  currentUser: SessionUser,
+  forgeId: string,
+): Promise<string | null> {
+  const forge = await loadForgeForAcl(forgeId);
+  if (!canReadForge(currentUser, toAcl(forge))) throw new ForbiddenError(`Cannot read forge ${forgeId}`);
+  return lastAcceptedVersion(forgeId);
 }
 
 export async function getForgePromotion(

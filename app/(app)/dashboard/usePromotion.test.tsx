@@ -113,3 +113,42 @@ describe('usePromotion', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('usePromotion currentVersion', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('exposes the forge currentVersion returned by the API', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ promotion: null, currentVersion: 'v1.2.0' }),
+    });
+
+    const { result } = renderHook(() => usePromotion('f1'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.currentVersion).toBe('v1.2.0');
+  });
+
+  it('reports null currentVersion when the forge has no accepted release', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({ promotion: null, currentVersion: null }),
+    });
+
+    const { result } = renderHook(() => usePromotion('f1'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.currentVersion).toBeNull();
+  });
+});

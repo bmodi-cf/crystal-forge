@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { requestPromotion, refreshPromotionGates, getForgePromotion, ACTIVE } from '@/lib/services/promotions';
+import { requestPromotion, refreshPromotionGates, getForgePromotion, getForgeCurrentVersion, ACTIVE } from '@/lib/services/promotions';
 import { requestPromotionInput } from '@/lib/services/promotions-schema';
 import { respondToServiceError } from '@/lib/http';
 
@@ -49,7 +49,8 @@ export async function GET(
     if (promotion && (ACTIVE as readonly string[]).includes(promotion.status)) {
       promotion = await refreshPromotionGates(promotion.id);
     }
-    return NextResponse.json({ promotion });
+    const currentVersion = await getForgeCurrentVersion(session.user, id);
+    return NextResponse.json({ promotion, currentVersion });
   } catch (err) {
     return respondToServiceError(err);
   }

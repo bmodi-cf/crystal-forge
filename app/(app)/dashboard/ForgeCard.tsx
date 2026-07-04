@@ -27,7 +27,7 @@ type Props = {
 
 export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, onDelete }: Props) {
   const [promoOpen, setPromoOpen] = useState(false);
-  const { promotion, refetch: refetchPromotion } = usePromotion(forge.id);
+  const { promotion, currentVersion, refetch: refetchPromotion } = usePromotion(forge.id);
 
   async function submitPromotion(bump: BumpLevel) {
     const res = await fetch(`/api/forges/${forge.id}/promotion`, {
@@ -125,6 +125,7 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
         open={promoOpen}
         onOpenChange={setPromoOpen}
         forgeName={forge.name}
+        currentVersion={currentVersion}
         onConfirm={submitPromotion}
       />
     </article>

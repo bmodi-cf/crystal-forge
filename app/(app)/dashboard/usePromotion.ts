@@ -12,9 +12,11 @@ const POLL_INTERVAL_MS = 5000;
 
 export function usePromotion(forgeId: string): {
   promotion: Promotion | null;
+  currentVersion: string | null;
   refetch: () => Promise<void>;
 } {
   const [promotion, setPromotion] = useState<Promotion | null>(null);
+  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   // True once the first fetch for the current forgeId has resolved. Until then we don't
   // yet know whether there's an active promotion, so we keep polling. This MUST be state
   // (not a ref): the common case is the first fetch resolving to `null`, which is
@@ -29,9 +31,13 @@ export function usePromotion(forgeId: string): {
     try {
       const res = await fetch(`/api/forges/${forgeId}/promotion`);
       if (!res.ok) return;
-      const body = (await res.json()) as { promotion: Promotion | null };
+      const body = (await res.json()) as {
+        promotion: Promotion | null;
+        currentVersion: string | null;
+      };
       if (!cancelled.current) {
         setPromotion(body.promotion);
+        setCurrentVersion(body.currentVersion ?? null);
         setHasFetched(true);
       }
     } catch {
@@ -58,5 +64,5 @@ export function usePromotion(forgeId: string): {
     return () => clearInterval(handle);
   }, [promotion, hasFetched, refetch]);
 
-  return { promotion, refetch };
+  return { promotion, currentVersion, refetch };
 }

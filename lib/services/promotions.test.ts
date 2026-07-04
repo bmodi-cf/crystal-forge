@@ -4,7 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { FakeGitHubClient } from '@/lib/github/fake-client';
 import { FakeRegistryClient } from '@/lib/registry/fake-client';
-import { requestPromotion, refreshPromotionGates, listPendingPromotions, acceptPromotion, rejectPromotion } from './promotions';
+import { requestPromotion, refreshPromotionGates, listPendingPromotions, acceptPromotion, rejectPromotion, getForgeCurrentVersion } from './promotions';
 import { ForbiddenError } from '@/lib/errors';
 
 function ghWithForge(): FakeGitHubClient {
@@ -169,6 +169,52 @@ describe('acceptPromotion / rejectPromotion', () => {
       expect(rejected.status).toBe('rejected');
       expect(rejected.rejectReason).toBe('not yet');
       expect(gh.getPullRequestState('test-owner/aquaflow', dto.prNumber)).toEqual({ state: 'closed', merged: false });
+    });
+  });
+});
+
+describe('getForgeCurrentVersion', () => {
+  it('returns null before any accepted release, then the most recently decided accepted targetVersion', async () => {
+    await withCleanDb(async (prisma: PrismaClient) => {
+      const owner = await makeUser(prisma, { email: 'o@x', name: 'Owner', groups: ['Eng'] });
+      const forge = await makeForge(prisma, {
+        name: 'Aquaflow', createdById: owner.id, groups: ['Eng'],
+        repoFullName: 'test-owner/aquaflow',
+      });
+
+      expect(await getForgeCurrentVersion(owner, forge.id)).toBeNull();
+
+      const base = {
+        forgeId: forge.id, requestedById: owner.id, prUrl: 'https://x/pr',
+        bumpLevel: 'minor' as const,
+      };
+      await prisma.promotionRequest.create({ data: {
+        ...base, prNumber: 1, headSha: 'a', targetVersion: 'v1.0.0',
+        status: 'accepted', decidedAt: new Date('2026-07-01T00:00:00Z'),
+      }});
+      await prisma.promotionRequest.create({ data: {
+        ...base, prNumber: 2, headSha: 'b', targetVersion: 'v1.1.0',
+        status: 'accepted', decidedAt: new Date('2026-07-02T00:00:00Z'),
+      }});
+      // Rejected later than both accepted rows — must not win.
+      await prisma.promotionRequest.create({ data: {
+        ...base, prNumber: 3, headSha: 'c', targetVersion: 'v9.9.9',
+        status: 'rejected', decidedAt: new Date('2026-07-03T00:00:00Z'),
+      }});
+
+      expect(await getForgeCurrentVersion(owner, forge.id)).toBe('v1.1.0');
+    });
+  });
+
+  it('requires read access to the forge', async () => {
+    await withCleanDb(async (prisma: PrismaClient) => {
+      const owner = await makeUser(prisma, { email: 'o@x', name: 'Owner', groups: ['Eng'] });
+      const outsider = await makeUser(prisma, { email: 's@x', name: 'Stranger', groups: [] });
+      const forge = await makeForge(prisma, {
+        name: 'Aquaflow', createdById: owner.id, groups: ['Eng'],
+        repoFullName: 'test-owner/aquaflow',
+      });
+      await expect(getForgeCurrentVersion(outsider, forge.id)).rejects.toBeInstanceOf(ForbiddenError);
     });
   });
 });
