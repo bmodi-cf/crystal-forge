@@ -119,6 +119,18 @@ export type BranchProtectionOptions = {
   requireUpToDate: boolean;
 };
 
+/**
+ * GitHub refuses branch protection on private repos below a paid plan
+ * (403 "Upgrade to GitHub Pro or make this repository public…"). Callers
+ * may treat this as a degraded-but-acceptable outcome rather than a failure.
+ */
+export class BranchProtectionUnavailableError extends Error {
+  constructor(fullName: string, branch: string) {
+    super(`Branch protection unavailable for ${fullName}@${branch} (private repo on a free plan)`);
+    this.name = 'BranchProtectionUnavailableError';
+  }
+}
+
 export type OpenPrOptions = {
   head: string; // e.g. 'dev'
   base: string; // e.g. 'main'

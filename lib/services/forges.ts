@@ -6,6 +6,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { getGitHubClient } from '@/lib/github/client';
 import type { GitHubClient } from '@/lib/github/client';
 import { DEV_BRANCH, PROD_BRANCH, REQUIRED_CHECKS } from '@/lib/github/branches';
+import { BranchProtectionUnavailableError } from '@/lib/github/types';
 import { getDatabaseProvisioner } from '@/lib/db/provisioner';
 import type { DatabaseProvisioner } from '@/lib/db/provisioner';
 import { slugifyForgeName, slugToDbName, dbNameToRole } from '@/lib/github/slug';
@@ -226,10 +227,18 @@ export async function createForge(
     // then protect main. Protection is a repo setting (not templatable); dev
     // must be branched post-write (a template-copied dev would lack these files).
     await client.createBranch(created.fullName, PROD_BRANCH, DEV_BRANCH);
-    await client.setBranchProtection(created.fullName, PROD_BRANCH, {
-      requiredChecks: REQUIRED_CHECKS,
-      requireUpToDate: true,
-    });
+    try {
+      await client.setBranchProtection(created.fullName, PROD_BRANCH, {
+        requiredChecks: REQUIRED_CHECKS,
+        requireUpToDate: true,
+      });
+    } catch (err) {
+      // Free GitHub plans refuse protection on private repos. Promotion gates
+      // are still enforced dashboard-side at accept time, so degrade rather
+      // than fail creation; GitHub-side enforcement returns on a paid plan.
+      if (!(err instanceof BranchProtectionUnavailableError)) throw err;
+      console.warn(`[createForge] ${err.message} — created without GitHub-side protection`);
+    }
   } catch (err) {
     await safeDeleteRepo(client, created.fullName);
     throw err;

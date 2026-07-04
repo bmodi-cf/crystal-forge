@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { Octokit } from '@octokit/rest';
 import { OctokitGitHubClient } from './octokit-client';
 import type { ForgeFiles } from './types';
+import { BranchProtectionUnavailableError } from './types';
 
 function status(code: number) {
   const e = new Error(`HTTP ${code}`) as Error & { status: number };
@@ -340,5 +341,36 @@ describe('OctokitGitHubClient.getInstallationToken', () => {
     expect(await client.getInstallationToken()).toBe('ghs_xyz');
     expect((stub as unknown as { auth: ReturnType<typeof vi.fn> }).auth)
       .toHaveBeenCalledWith({ type: 'installation' });
+  });
+});
+
+describe('OctokitGitHubClient.setBranchProtection', () => {
+  const opts = { requiredChecks: ['build'], requireUpToDate: true };
+
+  function protectionClient(err: Error) {
+    const stub = {
+      repos: { updateBranchProtection: vi.fn().mockRejectedValue(err) },
+    } as unknown as Octokit;
+    return new OctokitGitHubClient({
+      owner: 'o', templateRepo: 't/r',
+      appId: '1', privateKey: 'k', installationId: 'i',
+      octokit: stub,
+    });
+  }
+
+  it('maps the plan-limitation 403 to BranchProtectionUnavailableError', async () => {
+    const planErr = status(403);
+    planErr.message = 'Upgrade to GitHub Pro or make this repository public to enable this feature.';
+    await expect(
+      protectionClient(planErr).setBranchProtection('o/private-repo', 'main', opts),
+    ).rejects.toBeInstanceOf(BranchProtectionUnavailableError);
+  });
+
+  it('lets other 403s (e.g. insufficient permissions) surface unchanged', async () => {
+    const permErr = status(403);
+    permErr.message = 'Resource not accessible by integration';
+    await expect(
+      protectionClient(permErr).setBranchProtection('o/private-repo', 'main', opts),
+    ).rejects.toMatchObject({ status: 403, name: 'Error' });
   });
 });

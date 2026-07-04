@@ -1,6 +1,7 @@
 // lib/github/octokit-client.ts
 import { Octokit } from '@octokit/rest';
 import { createAppAuth } from '@octokit/auth-app';
+import { BranchProtectionUnavailableError } from './types';
 import type {
   BranchProtectionOptions,
   CheckResult,
@@ -251,16 +252,24 @@ export class OctokitGitHubClient implements GitHubClient {
     opts: BranchProtectionOptions,
   ): Promise<void> {
     const [owner, repo] = parseFullName(fullName);
-    await this.client.repos.updateBranchProtection({
-      owner, repo, branch,
-      required_status_checks: {
-        strict: opts.requireUpToDate,
-        contexts: [...opts.requiredChecks],
-      },
-      enforce_admins: false,
-      required_pull_request_reviews: null,
-      restrictions: null,
-    });
+    try {
+      await this.client.repos.updateBranchProtection({
+        owner, repo, branch,
+        required_status_checks: {
+          strict: opts.requireUpToDate,
+          contexts: [...opts.requiredChecks],
+        },
+        enforce_admins: false,
+        required_pull_request_reviews: null,
+        restrictions: null,
+      });
+    } catch (err: unknown) {
+      // Free plans refuse protection on private repos with this specific 403.
+      if (isStatus(err, 403) && err instanceof Error && err.message.includes('Upgrade to GitHub')) {
+        throw new BranchProtectionUnavailableError(fullName, branch);
+      }
+      throw err;
+    }
   }
 
   async openPullRequest(fullName: string, opts: OpenPrOptions): Promise<PullRequestRef> {

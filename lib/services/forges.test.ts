@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { FakeGitHubClient } from '@/lib/github/fake-client';
+import { BranchProtectionUnavailableError } from '@/lib/github/types';
 import { FakeDatabaseProvisioner } from '@/lib/db/fake-provisioner';
 import { listForges, getForge, createForge, updateForge, deleteForge } from './forges';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
@@ -287,6 +288,29 @@ describe('createForge', () => {
         requiredChecks: ['build', 'typecheck', 'lint', 'tests'],
         requireUpToDate: true,
       });
+    });
+  });
+
+  it('still creates the forge when branch protection is unavailable on the GitHub plan', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      fake.failNextCall(
+        'setBranchProtection',
+        new BranchProtectionUnavailableError('test-owner/plan-limited', 'main'),
+      );
+      const dto = await createForge(
+        tom,
+        { name: 'Plan Limited', description: '', groups: ['Engineering'] },
+        fake,
+        fakeDb,
+      );
+      expect(dto.repoFullName).toBe('test-owner/plan-limited');
+      // Repo, dev branch, and DB all survive; main is simply left unprotected.
+      expect(fake.listRepos()).toHaveLength(1);
+      expect(fake.getBranches('test-owner/plan-limited')).toContain('dev');
+      expect(fake.getProtection('test-owner/plan-limited', 'main')).toBeUndefined();
+      expect(fakeDb.list()).toHaveLength(1);
+      expect(await prisma.forge.count()).toBe(1);
     });
   });
 
