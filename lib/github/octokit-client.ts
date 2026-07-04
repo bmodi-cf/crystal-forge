@@ -272,6 +272,11 @@ export class OctokitGitHubClient implements GitHubClient {
     }
   }
 
+  async setRepoTopics(fullName: string, topics: readonly string[]): Promise<void> {
+    const [owner, repo] = parseFullName(fullName);
+    await this.client.repos.replaceAllTopics({ owner, repo, names: [...topics] });
+  }
+
   async openPullRequest(fullName: string, opts: OpenPrOptions): Promise<PullRequestRef> {
     const [owner, repo] = parseFullName(fullName);
     const { data } = await this.client.pulls.create({

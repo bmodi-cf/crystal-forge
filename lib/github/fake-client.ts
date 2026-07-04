@@ -26,6 +26,7 @@ type Method =
   | 'writeForgeFiles'
   | 'createBranch'
   | 'setBranchProtection'
+  | 'setRepoTopics'
   | 'openPullRequest'
   | 'getPullRequest'
   | 'getRefCheckResults'
@@ -38,6 +39,7 @@ export class FakeGitHubClient implements GitHubClient {
   private readonly baseUrl: string;
   private readonly repos = new Map<string, Repo>();
   private readonly files = new Map<string, ForgeFiles>();
+  private readonly topics = new Map<string, string[]>();
   private readonly nextErrors = new Map<Method, Error>();
 
   // --- promotion state ---
@@ -82,6 +84,7 @@ export class FakeGitHubClient implements GitHubClient {
     this.maybeFail('deleteRepo');
     this.repos.delete(fullName);
     this.files.delete(fullName);
+    this.topics.delete(fullName);
   }
 
   async writeForgeFiles(fullName: string, files: ForgeFiles): Promise<void> {
@@ -113,6 +116,14 @@ export class FakeGitHubClient implements GitHubClient {
     const p = this.protections.get(fullName) ?? new Map<string, BranchProtectionOptions>();
     p.set(branch, { requiredChecks: [...opts.requiredChecks], requireUpToDate: opts.requireUpToDate });
     this.protections.set(fullName, p);
+  }
+
+  async setRepoTopics(fullName: string, topics: readonly string[]): Promise<void> {
+    this.maybeFail('setRepoTopics');
+    if (!this.repos.has(fullName)) {
+      throw new Error(`repo ${fullName} not found`);
+    }
+    this.topics.set(fullName, [...topics]);
   }
 
   async openPullRequest(fullName: string, opts: OpenPrOptions): Promise<PullRequestRef> {
@@ -197,6 +208,10 @@ export class FakeGitHubClient implements GitHubClient {
 
   getBranches(fullName: string): string[] {
     return [...(this.branches.get(fullName)?.keys() ?? [])];
+  }
+
+  getTopics(fullName: string): string[] {
+    return this.topics.get(fullName) ?? [];
   }
 
   getProtection(fullName: string, branch: string): BranchProtectionOptions | undefined {

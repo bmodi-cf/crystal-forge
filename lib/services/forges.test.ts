@@ -291,6 +291,30 @@ describe('createForge', () => {
     });
   });
 
+  it('tags the new repo with the crystal-forge topic', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      await createForge(tom, { name: 'Topical', description: '', groups: ['Engineering'] }, fake, fakeDb);
+      expect(fake.getTopics('test-owner/topical')).toEqual(['crystal-forge']);
+    });
+  });
+
+  it('still creates the forge when topic tagging fails (best-effort)', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      fake.failNextCall('setRepoTopics', new Error('rate limited'));
+      const dto = await createForge(
+        tom,
+        { name: 'Untagged', description: '', groups: ['Engineering'] },
+        fake,
+        fakeDb,
+      );
+      expect(dto.repoFullName).toBe('test-owner/untagged');
+      expect(fake.listRepos()).toHaveLength(1);
+      expect(await prisma.forge.count()).toBe(1);
+    });
+  });
+
   it('still creates the forge when branch protection is unavailable on the GitHub plan', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });

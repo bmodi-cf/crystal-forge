@@ -89,6 +89,9 @@ export interface GitHubClient {
     opts: BranchProtectionOptions,
   ): Promise<void>;
 
+  /** Replace the repo's topics. Idempotent. */
+  setRepoTopics(fullName: string, topics: readonly string[]): Promise<void>;
+
   /** Open a PR from `opts.head` into `opts.base`. */
   openPullRequest(fullName: string, opts: OpenPrOptions): Promise<PullRequestRef>;
 

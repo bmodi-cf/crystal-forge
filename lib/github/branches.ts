@@ -11,3 +11,10 @@ export const PROD_BRANCH = 'main' as const;
  * when a Forge has no tests, so requiring it never blocks a test-less Forge.
  */
 export const REQUIRED_CHECKS = ['build', 'typecheck', 'lint', 'tests'] as const;
+
+/**
+ * Topic applied to every forge repo at creation so the org repo list can be
+ * filtered (`topic:crystal-forge` / `-topic:crystal-forge`). Best-effort —
+ * cosmetic only, never blocks creation.
+ */
+export const FORGE_TOPIC = 'crystal-forge' as const;

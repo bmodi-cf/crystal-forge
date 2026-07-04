@@ -5,7 +5,7 @@ import { env } from '@/lib/env';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { getGitHubClient } from '@/lib/github/client';
 import type { GitHubClient } from '@/lib/github/client';
-import { DEV_BRANCH, PROD_BRANCH, REQUIRED_CHECKS } from '@/lib/github/branches';
+import { DEV_BRANCH, FORGE_TOPIC, PROD_BRANCH, REQUIRED_CHECKS } from '@/lib/github/branches';
 import { BranchProtectionUnavailableError } from '@/lib/github/types';
 import { getDatabaseProvisioner } from '@/lib/db/provisioner';
 import type { DatabaseProvisioner } from '@/lib/db/provisioner';
@@ -238,6 +238,14 @@ export async function createForge(
       // than fail creation; GitHub-side enforcement returns on a paid plan.
       if (!(err instanceof BranchProtectionUnavailableError)) throw err;
       console.warn(`[createForge] ${err.message} — created without GitHub-side protection`);
+    }
+
+    // Tag the repo so the org repo list can filter forges (topic:crystal-forge).
+    // Cosmetic — never fails creation.
+    try {
+      await client.setRepoTopics(created.fullName, [FORGE_TOPIC]);
+    } catch (err) {
+      console.warn(`[createForge] failed to set topics on ${created.fullName}:`, err);
     }
   } catch (err) {
     await safeDeleteRepo(client, created.fullName);
