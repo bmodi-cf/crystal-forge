@@ -52,7 +52,9 @@ The runbook is complete when all of these hold:
 - [ ] `registry.crystalfountains.com` resolves on the box (real DNS, or `/etc/hosts` stopgap).
 - [ ] `pull` can read but not write; `push` can read and write (verified end-to-end).
 - [ ] Dashboard `.env.local` has `REGISTRY_HOST/USERNAME/PASSWORD` matching the `push` account.
-- [ ] A self-hosted org runner labelled `forge-pilot` shows **Idle** (via `install-gh-runner.sh`).
+- [ ] A self-hosted runner labelled `forge-pilot` shows **Idle** on the **`CrystalFountainsInc`**
+      org (via `install-gh-runner.sh`). Forge repos, the template repo, and the `crystal-forge-api`
+      GitHub App installation must all live in that org — org runners only serve org repos.
 
 ---
 
@@ -66,7 +68,7 @@ Collect these before starting; the agent must STOP and request any that are miss
 | `push` account password | Steps R3, R6, verify | read+write account. |
 | `pull` account password | Step R3, verify | read-only account. |
 | Real DNS access **or** decision to use `/etc/hosts` | Step R5 | Pilot currently uses `/etc/hosts`. |
-| `gh` CLI authed as **org admin**, or a runner registration token | Step R7 | See `install-gh-runner.sh`. |
+| `gh` CLI authed as **org admin** with the **`admin:org`** scope (`gh auth refresh -h github.com -s admin:org` — default scopes are NOT enough and fail as 404), or a runner registration token | Step R7 | See `install-gh-runner.sh`. |
 
 ---
 
@@ -287,8 +289,12 @@ REGISTRY_USERNAME=push REGISTRY_PASSWORD=<PUSH_PW> ./install-gh-runner.sh
 ```
 See the script header for token acquisition (`gh api` vs `REG_TOKEN`) and the label-sync note.
 
-**Verify:** the runner shows **Idle** under `https://github.com/bmodi-cf` → Settings → Actions →
-Runners; and `sudo <runner-dir>/svc.sh status` is running.
+**Verify:** the runner shows **Idle** under `https://github.com/CrystalFountainsInc` → Settings →
+Actions → Runners; and `sudo <runner-dir>/svc.sh status` is running.
+
+> **Why the org, not `bmodi-cf`:** GitHub has no account-level runners for personal user
+> accounts, and org runners only serve repos inside that org — so forge repos are created
+> under the `CrystalFountainsInc` org (see `GITHUB_REPO_OWNER`) and the runner registers there.
 
 ---
 

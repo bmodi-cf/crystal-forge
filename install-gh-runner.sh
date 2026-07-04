@@ -37,7 +37,7 @@
 #   3. Otherwise the script tells you where to mint one and exits.
 #
 # Overridable env vars (defaults in parens):
-#   GH_ORG (bmodi-cf)                RUNNER_LABELS (forge-pilot)
+#   GH_ORG (CrystalFountainsInc)     RUNNER_LABELS (forge-pilot)
 #   RUNNER_NAME (<host>-forge-runner)  RUNNER_DIR (~/actions-runner)
 #   RUNNER_VERSION (latest release)  RUNNER_GROUP (Default)
 #   REGISTRY_HOST (registry.crystalfountains.com)
@@ -58,7 +58,7 @@ if [[ "${EUID}" -eq 0 ]]; then
 fi
 
 # ── Config (env-overridable) ────────────────────────────────────────────────
-GH_ORG="${GH_ORG:-bmodi-cf}"
+GH_ORG="${GH_ORG:-CrystalFountainsInc}"
 RUNNER_LABELS="${RUNNER_LABELS:-forge-pilot}"
 RUNNER_NAME="${RUNNER_NAME:-$(hostname -s)-forge-runner}"
 RUNNER_DIR="${RUNNER_DIR:-${HOME}/actions-runner}"
