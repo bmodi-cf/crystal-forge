@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import Link from 'next/link';
 import type { SessionUser } from '@/lib/services/types';
 import { UserMenu } from './UserMenu';
 
@@ -12,7 +13,15 @@ export function Topbar({ user }: { user: SessionUser }) {
           <b className="font-semibold text-gold-soft">Crystal</b> Forge
         </div>
       </div>
-      <UserMenu user={user} />
+      <div className="flex items-center gap-6">
+        <Link
+          href="/launch"
+          className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"
+        >
+          Launch
+        </Link>
+        <UserMenu user={user} />
+      </div>
     </header>
   );
 }

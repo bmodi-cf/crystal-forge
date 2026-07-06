@@ -4,6 +4,11 @@ import { Topbar } from './Topbar';
 
 vi.mock('next-auth/react', () => ({ signOut: vi.fn() }));
 
+vi.mock('next/link', () => ({
+  default: ({ children, href }: { children: React.ReactNode; href: string }) =>
+    <a href={href}>{children}</a>,
+}));
+
 const user = {
   id: 'u',
   entraOid: null,
@@ -24,5 +29,11 @@ describe('Topbar', () => {
   it('renders the user initials in the avatar', () => {
     render(<Topbar user={user} />);
     expect(screen.getByText('MC')).toBeInTheDocument();
+  });
+
+  it('renders a Launch nav link', () => {
+    render(<Topbar user={user} />);
+    const link = screen.getByRole('link', { name: /launch/i });
+    expect(link).toHaveAttribute('href', '/launch');
   });
 });
