@@ -1,7 +1,9 @@
 import http from 'node:http';
 
 export function probe(port: number, opts: { timeoutMs?: number } = {}): Promise<boolean> {
-  const timeoutMs = opts.timeoutMs ?? 1000;
+  // Generous default: on a loaded host (several forges compiling at once) a
+  // healthy dev server can legitimately take multiple seconds to answer.
+  const timeoutMs = opts.timeoutMs ?? 5000;
   return new Promise<boolean>((resolve) => {
     let settled = false;
     const finish = (ok: boolean) => {

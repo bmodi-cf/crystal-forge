@@ -182,6 +182,59 @@ describe('runtime service', () => {
     });
   });
 
+  it('probe timeout marks the forge crashed but keeps the container alive', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const fakes = makeFakes();
+      const svc = makeRuntimeService({
+        ...fakes,
+        prisma,
+        probe: async () => false, // server never answers within the per-request budget
+        probeTimeoutMs: 50,
+        probeIntervalMs: 5,
+      });
+      await svc.startForge(tom, forge.id);
+      const crashed = await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'crashed');
+      // The dev server may still be coming up — a slow start must not destroy
+      // the container (and the compile caches inside it).
+      const containerId = crashed!.containerId!;
+      expect(containerId).toMatch(/^fake-/);
+      expect((await fakes._containers.inspect(containerId)).exists).toBe(true);
+      expect((await fakes._containers.inspect(containerId)).running).toBe(true);
+    });
+  });
+
+  it('restarting a probe-crashed forge removes the kept container before creating a fresh one', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const fakes = makeFakes();
+      let healthy = false;
+      const svc = makeRuntimeService({
+        ...fakes,
+        prisma,
+        probe: async () => healthy,
+        probeTimeoutMs: 50,
+        probeIntervalMs: 5,
+      });
+      await svc.startForge(tom, forge.id);
+      const crashed = await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'crashed');
+      const staleId = crashed!.containerId!;
+      // Docker names are unique (forge-<slug>): the fresh start must remove the
+      // kept container or the real container create would fail on a name clash.
+      healthy = true;
+      await svc.startForge(tom, forge.id);
+      const ok = await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+      expect((await fakes._containers.inspect(staleId)).exists).toBe(false);
+      expect(ok!.containerId).not.toBe(staleId);
+    });
+  });
+
   it('startForge provisions the scoped role before setting its password (self-heals a missing role)', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });

@@ -29,6 +29,10 @@ export type RuntimeDeps = {
   probe: (port: number) => Promise<boolean>;
   portStart: number;
   portEnd: number;
+  /** Overall health-probe deadline; defaults to PROBE_TIMEOUT_MS. */
+  probeTimeoutMs?: number;
+  /** Delay between probe attempts; defaults to PROBE_INTERVAL_MS. */
+  probeIntervalMs?: number;
 };
 
 export type RuntimeService = {
@@ -39,7 +43,10 @@ export type RuntimeService = {
 };
 
 const PROBE_INTERVAL_MS = 1000;
-const PROBE_TIMEOUT_MS = 30_000;
+// The pilot host has a single vCPU: several forges starting at once can keep a
+// perfectly healthy dev server slower than the per-request probe budget for a
+// long stretch. Give bring-up minutes, not seconds.
+const PROBE_TIMEOUT_MS = 120_000;
 
 export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
   const startInflight = new Map<string, Promise<RuntimeStateEntry>>();
@@ -89,7 +96,17 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       if (existing.status === 'stopping') {
         throw new RuntimeBusyError('Forge is currently stopping; try again shortly');
       }
-      // crashed / setup-failed → clear and continue to fresh start.
+      // crashed / setup-failed → clear and continue to fresh start. A
+      // probe-crashed entry still owns a live container named forge-<slug>;
+      // tear it down first or the fresh create() would collide on the name.
+      if (existing.containerId) {
+        try {
+          await deps.containerManager.stop(existing.containerId);
+          await deps.containerManager.remove(existing.containerId);
+        } catch (err) {
+          console.error('[runtime/startForge] stale container teardown failed', { id: existing.containerId, err });
+        }
+      }
       await mutateState((s) => { delete s[forgeId]; });
     }
 
@@ -179,7 +196,7 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       ['-c', `while true; do pnpm dev --port 3000; echo "[forge] dev server exited (code $?); restarting in 2s"; sleep 2; done >> ${CONTAINER_WORKDIR}/.forge-dev.log 2>&1`],
       { workdir: CONTAINER_WORKDIR, detached: true });
 
-    const deadline = Date.now() + PROBE_TIMEOUT_MS;
+    const deadline = Date.now() + (deps.probeTimeoutMs ?? PROBE_TIMEOUT_MS);
     while (Date.now() < deadline) {
       if (await deps.probe(port)) {
         const final: RuntimeStateEntry = { ...baseEntry, containerId, status: 'running' };
@@ -192,13 +209,17 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
         }
         return;
       }
-      await sleep(PROBE_INTERVAL_MS);
+      await sleep(deps.probeIntervalMs ?? PROBE_INTERVAL_MS);
     }
-    // Didn't become healthy within PROBE_TIMEOUT_MS — record crashed and stop.
-    // The client poller surfaces it; the supervisor inside the container keeps
-    // trying to build/start, so a later manual restart can still succeed.
-    await deps.containerManager.remove(containerId).catch(() => {});
-    await mutateState((s) => { const e = s[forgeId]; if (e) e.status = 'crashed'; });
+    // Didn't become healthy within the probe deadline — record crashed but KEEP
+    // the container: the supervisor inside it keeps trying to build/start, and a
+    // slow start is usually still converging (warm caches intact). The client
+    // poller surfaces the status; a manual restart tears this container down
+    // (beginStart) and brings up a fresh one.
+    await mutateState((s) => {
+      const e = s[forgeId];
+      if (e) { e.status = 'crashed'; e.containerId = containerId; }
+    });
   }
 
   async function doStop(currentUser: SessionUser, forgeId: string): Promise<void> {
