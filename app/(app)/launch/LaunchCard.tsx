@@ -1,7 +1,6 @@
 'use client';
 
 import type { Forge } from '@/lib/services/types';
-import { TONE_CLASSES } from '@/components/forge-tone';
 
 type Props = {
   forge: Forge;
@@ -19,10 +18,7 @@ export function LaunchCard({ forge, slug }: Props) {
       className="group relative flex min-h-[220px] flex-col justify-end overflow-hidden rounded-[14px] border border-border bg-panel p-6 transition hover:-translate-y-1 hover:border-border-strong hover:bg-panel-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
     >
       {/* Empty upper area — reserved for a future hero image */}
-      <div className={`mb-4 grid h-14 w-14 shrink-0 place-items-center rounded-[10px] border text-lg font-bold ${TONE_CLASSES[forge.tone]}`}>
-        {forge.initials}
-      </div>
-      <h3 className="text-2xl font-bold tracking-tight">{forge.name}</h3>
+      <h3 className="break-words text-4xl font-bold tracking-tight">{forge.name}</h3>
       <div className="mt-3 flex flex-wrap gap-1.5">
         {forge.groups.map((g, i) => (
           <span

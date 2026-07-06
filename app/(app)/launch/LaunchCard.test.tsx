@@ -18,12 +18,12 @@ const forge: Forge = {
 };
 
 describe('LaunchCard', () => {
-  it('renders name, initials, and group tags', () => {
+  it('renders name and group tags, without the initials box', () => {
     render(<LaunchCard forge={forge} slug="aquaflow-designer" />);
     expect(screen.getByText('Aquaflow Designer')).toBeInTheDocument();
-    expect(screen.getByText('AD')).toBeInTheDocument();
     expect(screen.getByText('Engineering')).toBeInTheDocument();
     expect(screen.getByText('R&D')).toBeInTheDocument();
+    expect(screen.queryByText('AD')).not.toBeInTheDocument();
   });
 
   it('is a single link opening the running app in a new window', () => {

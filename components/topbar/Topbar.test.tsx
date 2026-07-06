@@ -36,4 +36,10 @@ describe('Topbar', () => {
     const link = screen.getByRole('link', { name: /launch/i });
     expect(link).toHaveAttribute('href', '/launch');
   });
+
+  it('renders an Edit nav link back to the dashboard', () => {
+    render(<Topbar user={user} />);
+    const link = screen.getByRole('link', { name: /edit/i });
+    expect(link).toHaveAttribute('href', '/dashboard');
+  });
 });

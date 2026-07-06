@@ -15,6 +15,12 @@ export function Topbar({ user }: { user: SessionUser }) {
       </div>
       <div className="flex items-center gap-6">
         <Link
+          href="/dashboard"
+          className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"
+        >
+          Edit
+        </Link>
+        <Link
           href="/launch"
           className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"
         >

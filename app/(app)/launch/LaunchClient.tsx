@@ -18,9 +18,6 @@ export function LaunchClient({ forges }: Props) {
   return (
     <main className="mx-auto w-full max-w-6xl px-8 py-8">
       <h1 className="text-xl font-semibold tracking-tight">Launch</h1>
-      <p className="mt-1 text-[13px] text-ink-dim">
-        Running forges you have access to — click a card to open the app in a new window.
-      </p>
       {running.length === 0 ? (
         <div className="mt-20 text-center text-ink-dim">
           <p>No forges are running right now.</p>
