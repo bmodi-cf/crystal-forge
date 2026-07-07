@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { LaunchCard } from './LaunchCard';
 import type { Forge } from '@/lib/services/types';
 
@@ -32,5 +32,18 @@ describe('LaunchCard', () => {
     expect(link).toHaveAttribute('href', '/app/aquaflow-designer/');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it("shows the forge's own splash-logo.png as a hero image", () => {
+    render(<LaunchCard forge={forge} slug="aquaflow-designer" />);
+    const img = screen.getByRole('presentation', { hidden: true });
+    expect(img).toHaveAttribute('src', '/app/aquaflow-designer/splash-logo.png');
+  });
+
+  it('hides the hero image if the forge has none (image fails to load)', () => {
+    render(<LaunchCard forge={forge} slug="aquaflow-designer" />);
+    const img = screen.getByRole('presentation', { hidden: true });
+    fireEvent.error(img);
+    expect(screen.queryByRole('presentation', { hidden: true })).not.toBeInTheDocument();
   });
 });
