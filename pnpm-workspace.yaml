@@ -7,3 +7,11 @@ ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
   - msw
+allowBuilds:
+  '@prisma/engines': true
+  esbuild: true
+  msw: false
+  node-pty: true
+  prisma: true
+  sharp: false
+  unrs-resolver: false
