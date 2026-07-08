@@ -101,7 +101,6 @@ describe('reconciler diff engine', () => {
 
   it('stops and removes a container whose forge is no longer desired', async () => {
     await withCleanDb(async (prisma) => {
-      const user = await makeUser(prisma, { email: 'a@x.com', name: 'Admin' });
       // A container exists for a forge id that is not in desired state.
       const containers = new FakeContainerManager();
       const orphanId = await containers.create({ name: 'forge-old', image: 'reg/old:v1', labels: {
