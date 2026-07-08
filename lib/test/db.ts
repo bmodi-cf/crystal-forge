@@ -88,6 +88,8 @@ export async function makeForge(
     createdById: string;
     groups?: string[];
     repoFullName?: string; // override for tests that care about value
+    deployEnabled?: boolean;
+    deployVersion?: string | null;
   },
 ) {
   const slug = slugifyForgeName(data.name);
@@ -97,6 +99,8 @@ export async function makeForge(
       name: data.name,
       createdById: data.createdById,
       repoFullName,
+      deployEnabled: data.deployEnabled ?? false,
+      deployVersion: data.deployVersion ?? null,
     },
   });
   for (const name of data.groups ?? []) {

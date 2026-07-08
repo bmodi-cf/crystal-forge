@@ -70,6 +70,8 @@ model Forge {
   createdById  String    @map("created_by") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deployEnabled Boolean @default(false) @map("deploy_enabled")
+  deployVersion String? @map("deploy_version")
 
   createdBy         User               @relation(fields: [createdById], references: [id], onDelete: Restrict)
   groups            ForgeGroup[]
