@@ -5,6 +5,51 @@ export async function register(): Promise<void> {
   const { startWsServer } = await import('./lib/runtime/ws-server');
   const { env } = await import('./lib/env');
 
+  // Harden the dashboard's own database: it is created by docker-compose /
+  // migrations (not via the provisioner), so it keeps Postgres' default PUBLIC
+  // CONNECT grant — which would let any scoped forge role connect to it. Revoke
+  // it here (idempotent; the dashboard connects as a superuser, which bypasses
+  // the check). Forge databases are already hardened in provisionRole.
+  try {
+    const { getDatabaseProvisioner } = await import('./lib/db/provisioner');
+    const dashboardDb = new URL(process.env.DATABASE_URL ?? '').pathname.replace(/^\//, '');
+    if (dashboardDb) {
+      await getDatabaseProvisioner().hardenDatabase(dashboardDb);
+      console.info(`[instrumentation] hardened dashboard DB "${dashboardDb}" (revoked PUBLIC connect)`);
+    }
+  } catch (err) {
+    console.error('[instrumentation] dashboard DB hardening failed', err);
+  }
+
+  const mode = process.env.FORGE_DASHBOARD_MODE === 'prod' ? 'prod' : 'dev';
+
+  if (mode === 'prod') {
+    // Prod: declarative reconcile loop. Do NOT run the dev boot path (adopt
+    // surviving forges / liveness loop / WS server) — prod containers are
+    // managed by the reconcile loop, and the WS/PTY server is not started here.
+    const { startReconcileLoop } = await import('./lib/runtime/prod/reconciler');
+    const { startForgeContainer, stopForgeContainer } = await import('./lib/runtime/prod/prod-runtime');
+    const { getContainerManager } = await import('./lib/runtime/container');
+    const { getDatabaseProvisioner } = await import('./lib/db/provisioner');
+    const { probe } = await import('./lib/runtime/probe');
+    const { prisma } = await import('./lib/prisma');
+    const containerManager = getContainerManager();
+    const provisioner = getDatabaseProvisioner();
+    const prodDeps = { containerManager, provisioner, probe };
+    startReconcileLoop(
+      {
+        prisma,
+        containerManager,
+        start: (d) => startForgeContainer(prodDeps, d),
+        stop: (id) => stopForgeContainer(prodDeps, id),
+      },
+      env.FORGE_RECONCILE_INTERVAL_MS,
+    );
+    console.info('[instrumentation] prod reconcile loop started');
+    return;
+  }
+
+  // Dev (unchanged): reconcile surviving forges + liveness loop + WS server.
   // Reconcile persisted runtime state against Docker so forges that survived a
   // dashboard restart are adopted back as running (reachable immediately via
   // the file-backed proxy/HMR lookups), while dead containers and stale entries
@@ -23,22 +68,6 @@ export async function register(): Promise<void> {
       },
     });
   } catch (err) { console.error('[instrumentation] reconcileForges failed', err); }
-
-  // Harden the dashboard's own database: it is created by docker-compose /
-  // migrations (not via the provisioner), so it keeps Postgres' default PUBLIC
-  // CONNECT grant — which would let any scoped forge role connect to it. Revoke
-  // it here (idempotent; the dashboard connects as a superuser, which bypasses
-  // the check). Forge databases are already hardened in provisionRole.
-  try {
-    const { getDatabaseProvisioner } = await import('./lib/db/provisioner');
-    const dashboardDb = new URL(process.env.DATABASE_URL ?? '').pathname.replace(/^\//, '');
-    if (dashboardDb) {
-      await getDatabaseProvisioner().hardenDatabase(dashboardDb);
-      console.info(`[instrumentation] hardened dashboard DB "${dashboardDb}" (revoked PUBLIC connect)`);
-    }
-  } catch (err) {
-    console.error('[instrumentation] dashboard DB hardening failed', err);
-  }
 
   startLivenessLoop();
   console.info('[instrumentation] runtime liveness loop started');

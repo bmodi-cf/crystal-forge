@@ -6,7 +6,7 @@ import path from 'node:path';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { FakeContainerManager } from '@/lib/runtime/container/fake-container-manager';
 import { loadState } from '@/lib/runtime/state';
-import { makeReconciler } from './reconciler';
+import { makeReconciler, startReconcileLoop, getLatestDeploymentStatuses } from './reconciler';
 import type { DesiredForge } from './desired-state';
 
 let tmp: string;
@@ -171,6 +171,22 @@ describe('reconciler diff engine', () => {
       expect(t.stopped).toHaveLength(0);
       const entry = Object.values(await loadState())[0];
       expect(entry).toMatchObject({ slug: 'acme', status: 'running', port: 3300 });
+    });
+  });
+});
+
+describe('startReconcileLoop', () => {
+  it('runs a tick immediately and publishes statuses to the singleton', async () => {
+    await withCleanDb(async (prisma) => {
+      const user = await makeUser(prisma, { email: 'a@x.com', name: 'Admin' });
+      await makeForge(prisma, { name: 'Acme', createdById: user.id, deployEnabled: true, deployVersion: 'v1.0.0' });
+      const containers = new FakeContainerManager();
+      const t = tracker(containers);
+      const loop = startReconcileLoop({ prisma, containerManager: containers, start: t.start, stop: t.stop }, 60_000);
+      // Give the immediate tick a moment to complete.
+      await new Promise((r) => setTimeout(r, 50));
+      loop.stop();
+      expect(getLatestDeploymentStatuses().map((s) => s.slug)).toContain('acme');
     });
   });
 });

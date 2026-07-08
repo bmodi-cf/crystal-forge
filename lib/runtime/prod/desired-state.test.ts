@@ -14,14 +14,15 @@ describe('listDesiredForges', () => {
       const desired = await listDesiredForges(prisma);
 
       expect(desired).toHaveLength(1);
-      expect(desired[0]).toMatchObject({
+      const first = desired[0]!;
+      expect(first).toMatchObject({
         name: 'Acme Portal',
         slug: 'acme-portal',
         deployVersion: 'v1.2.3',
       });
       // dbName + role are derived and non-empty.
-      expect(desired[0].dbName.length).toBeGreaterThan(0);
-      expect(desired[0].role.length).toBeGreaterThan(0);
+      expect(first.dbName.length).toBeGreaterThan(0);
+      expect(first.role.length).toBeGreaterThan(0);
     });
   });
 });

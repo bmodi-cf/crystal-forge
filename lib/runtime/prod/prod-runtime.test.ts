@@ -30,8 +30,8 @@ describe('startForgeContainer', () => {
     expect(port).toBe(3055);
 
     const containers = d.containerManager as FakeContainerManager;
-    const spec = containers.created[0];
-    const [c] = await containers.list({ label: 'crystal-forge.forgeId' });
+    const spec = containers.created[0]!;
+    const c = (await containers.list({ label: 'crystal-forge.forgeId' }))[0]!;
     expect(spec.image).toBe('reg.example.com/acme-portal:v1.2.3');
     expect(spec.labels).toMatchObject({
       'crystal-forge.forgeId': 'f1',

@@ -149,3 +149,37 @@ export function makeReconciler(deps: ReconcilerDeps) {
     statuses: () => lastStatuses,
   };
 }
+
+let latest: DeploymentStatus[] = [];
+
+/** Statuses from the most recent reconcile tick (read by the Deployments API). */
+export function getLatestDeploymentStatuses(): DeploymentStatus[] {
+  return latest;
+}
+
+/**
+ * Start the declarative reconcile loop: one tick immediately, then every
+ * intervalMs. An in-flight guard skips a tick if the previous is still applying
+ * so a slow image pull cannot stack reconciles.
+ */
+export function startReconcileLoop(deps: ReconcilerDeps, intervalMs: number): { stop: () => void } {
+  const rec = makeReconciler(deps);
+  let inFlight = false;
+
+  async function tick(): Promise<void> {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      await rec.reconcileOnce();
+      latest = rec.statuses();
+    } catch (err) {
+      console.error('[reconciler] tick failed', err);
+    } finally {
+      inFlight = false;
+    }
+  }
+
+  void tick();
+  const handle = setInterval(() => { void tick(); }, intervalMs);
+  return { stop: () => clearInterval(handle) };
+}
