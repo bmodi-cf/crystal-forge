@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import type { SessionUser } from '@/lib/services/types';
 import { Topbar } from './Topbar';
@@ -25,6 +25,8 @@ const defaultUser: SessionUser = { ...user, role: 'DEFAULT_USER', isAdmin: false
 const adminUser: SessionUser = { ...user, role: 'ADMIN', isAdmin: true };
 
 describe('Topbar', () => {
+  afterEach(() => { delete process.env.FORGE_DASHBOARD_MODE; });
+
   it('renders the brand and product name', () => {
     render(<Topbar user={user} />);
     expect(screen.getByAltText(/crystal fountains/i)).toBeInTheDocument();
@@ -60,5 +62,19 @@ describe('Topbar', () => {
     rerender(<Topbar user={adminUser} />);
     const link = screen.getByRole('link', { name: /admin/i });
     expect(link).toHaveAttribute('href', '/admin');
+  });
+
+  it('hides the Edit link in prod mode', () => {
+    process.env.FORGE_DASHBOARD_MODE = 'prod';
+    render(<Topbar user={user} />);
+    expect(screen.queryByRole('link', { name: /edit/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /launch/i })).toBeInTheDocument();
+  });
+
+  it('shows the Deployments link to admins in prod mode', () => {
+    process.env.FORGE_DASHBOARD_MODE = 'prod';
+    render(<Topbar user={adminUser} />);
+    const link = screen.getByRole('link', { name: /deployments/i });
+    expect(link).toHaveAttribute('href', '/deployments');
   });
 });

@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { canEdit } from '@/lib/acl';
 import type { SessionUser } from '@/lib/services/types';
+import { isProdMode } from '@/lib/mode';
 import { UserMenu } from './UserMenu';
 
 export function Topbar({ user }: { user: SessionUser }) {
@@ -15,12 +16,20 @@ export function Topbar({ user }: { user: SessionUser }) {
         </div>
       </div>
       <div className="flex items-center gap-6">
-        {canEdit(user) && (
+        {!isProdMode() && canEdit(user) && (
           <Link
             href="/dashboard"
             className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"
           >
             Edit
+          </Link>
+        )}
+        {isProdMode() && user.isAdmin && (
+          <Link
+            href="/deployments"
+            className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"
+          >
+            Deployments
           </Link>
         )}
         <Link
