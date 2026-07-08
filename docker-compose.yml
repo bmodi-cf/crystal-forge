@@ -22,6 +22,11 @@ services:
   registry:
     image: registry:2
     container_name: crystal-forge-registry
+    environment:
+      # Enable the DELETE manifest API so forges can be removed from the registry.
+      # Deletion unlinks manifests/tags; disk space is reclaimed by
+      # `registry garbage-collect /etc/docker/registry/config.yml` (see README).
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
     ports:
       # Loopback only — nginx terminates TLS in front (see P1 runbook). Forge
       # containers can't reach it directly, same posture as postgres above.

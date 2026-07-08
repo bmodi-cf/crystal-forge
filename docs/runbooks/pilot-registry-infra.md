@@ -44,7 +44,8 @@ and approves the STOP points.
 The runbook is complete when all of these hold:
 
 - [ ] `registry:2` container `crystal-forge-registry` is `Up`, storage on volume
-      `crystal-forge_crystal-forge-registry-data` (→ `/var/lib/registry`).
+      `crystal-forge_crystal-forge-registry-data` (→ `/var/lib/registry`), with
+      `REGISTRY_STORAGE_DELETE_ENABLED=true` (DELETE manifest API on, for forge removal).
 - [ ] nginx is active with a `registry.crystalfountains.com` vhost: 80→443 redirect, TLS via the
       `*.crystalfountains.com` wildcard cert, `/v2/` → `127.0.0.1:5000`.
 - [ ] Two htpasswd files: `/etc/nginx/registry.htpasswd` (accounts `push`+`pull`, read) and
@@ -129,15 +130,35 @@ docker volume ls | grep crystal-forge-registry-data
 ```bash
 docker compose up -d registry     # image registry:2, loopback 127.0.0.1:5000, named volume
 ```
-Storage is the `registry:2` default (`filesystem`, `rootdirectory: /var/lib/registry`) — no extra
-config. Auth is **not** set on the container; it's enforced by nginx (Step R4).
+Storage is the `registry:2` default (`filesystem`, `rootdirectory: /var/lib/registry`). The one
+piece of non-default config is in `docker-compose.yml`:
+
+```yaml
+environment:
+  REGISTRY_STORAGE_DELETE_ENABLED: "true"   # enable the DELETE manifest API (forge removal)
+```
+
+Without it the registry rejects `DELETE /v2/<name>/manifests/<digest>` with `405 unsupported`,
+so forges could never be removed. The env var is baked into the service definition, so it
+survives container recreation. Auth is **not** set on the container; it's enforced by nginx
+(Step R4), whose `limit_except GET HEAD` already gates DELETE behind the push account.
 
 **Verify:**
 ```bash
 docker exec crystal-forge-registry wget -qO- http://127.0.0.1:5000/v2/ && echo "  <- registry up"
+docker inspect crystal-forge-registry \
+  --format '{{range .Config.Env}}{{println .}}{{end}}' | grep REGISTRY_STORAGE_DELETE_ENABLED
 ```
-(`{}` response = registry API alive.) Images persist at
+(`{}` response = registry API alive; the grep must print `...=true`.) Images persist at
 `/var/lib/docker/volumes/crystal-forge_crystal-forge-registry-data/_data`.
+
+> **Reclaiming disk after deletes.** A `DELETE` only unlinks the manifest/tags; blobs linger
+> until garbage collection. Reclaim with:
+> ```bash
+> docker exec crystal-forge-registry \
+>   registry garbage-collect /etc/docker/registry/config.yml   # add --delete-untagged to prune tagless manifests
+> ```
+> Run it when the registry is idle (GC assumes no concurrent pushes).
 
 ---
 
@@ -319,6 +340,16 @@ docker rmi   registry.crystalfountains.com/smoketest:p1 && docker pull registry.
 
 # 4. It persisted to the volume (survives container recreate).
 sudo ls /var/lib/docker/volumes/crystal-forge_crystal-forge-registry-data/_data/docker/registry/v2/repositories
+
+# 5. DELETE works (needs REGISTRY_STORAGE_DELETE_ENABLED=true). Resolve the digest, then delete it.
+ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+DIG=$(curl -fsS -I -u push:<PUSH_PW> -H "Accept: $ACCEPT" \
+        https://registry.crystalfountains.com/v2/smoketest/manifests/p1 \
+        | tr -d '\r' | awk -F': ' 'tolower($1)=="docker-content-digest"{print $2}')
+curl -fsS -o /dev/null -w '%{http_code}\n' -X DELETE -u push:<PUSH_PW> \
+     https://registry.crystalfountains.com/v2/smoketest/manifests/$DIG   # -> 202 Accepted
+curl -fsS -o /dev/null -w '%{http_code}\n' -X DELETE -u pull:<PULL_PW> \
+     https://registry.crystalfountains.com/v2/smoketest/manifests/$DIG   # -> 401 (pull can't delete)
 ```
 
 ---
