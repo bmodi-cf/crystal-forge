@@ -2,11 +2,14 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { listConversations, createConversation } from '@/lib/services/conversations';
 import { respondToServiceError } from '@/lib/http';
+import { devOnlyRouteGuard } from '@/lib/mode';
 
 export async function GET(
   _req: NextRequest,
   ctx: RouteContext<'/api/forges/[id]/conversations'>,
 ) {
+  const guard = devOnlyRouteGuard();
+  if (guard) return guard;
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await ctx.params;
@@ -20,6 +23,8 @@ export async function POST(
   _req: NextRequest,
   ctx: RouteContext<'/api/forges/[id]/conversations'>,
 ) {
+  const guard = devOnlyRouteGuard();
+  if (guard) return guard;
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await ctx.params;

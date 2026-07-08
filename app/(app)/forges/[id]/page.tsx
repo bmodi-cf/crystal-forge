@@ -4,6 +4,7 @@ import { canEdit } from '@/lib/acl';
 import { getForge, canCurrentUserWriteForge } from '@/lib/services/forges';
 import { listConversations, createConversation } from '@/lib/services/conversations';
 import { getRuntimeService } from '@/lib/services/runtime';
+import { isProdMode } from '@/lib/mode';
 import { ForgePageClient } from './ForgePageClient';
 
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic';
 export default async function ForgePage(
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (isProdMode()) notFound();
   const session = await auth();
   if (!session?.user) redirect('/login');
   if (!canEdit(session.user)) redirect('/launch');

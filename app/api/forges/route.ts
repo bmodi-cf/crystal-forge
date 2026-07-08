@@ -3,8 +3,11 @@ import { auth } from '@/lib/auth';
 import { createForge } from '@/lib/services/forges';
 import { createForgeInput } from '@/lib/services/forges-schema';
 import { respondToServiceError } from '@/lib/http';
+import { devOnlyRouteGuard } from '@/lib/mode';
 
 export async function POST(req: Request) {
+  const guard = devOnlyRouteGuard();
+  if (guard) return guard;
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

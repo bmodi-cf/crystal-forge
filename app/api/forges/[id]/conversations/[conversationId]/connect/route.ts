@@ -4,6 +4,7 @@ import { signTicket } from '@/lib/auth/ws-ticket';
 import { env } from '@/lib/env';
 import { assertCanConnect } from '@/lib/services/conversations';
 import { respondToServiceError } from '@/lib/http';
+import { devOnlyRouteGuard } from '@/lib/mode';
 
 const TICKET_TTL_MS = 60_000;
 
@@ -11,6 +12,8 @@ export async function POST(
   req: NextRequest,
   ctx: RouteContext<'/api/forges/[id]/conversations/[conversationId]/connect'>,
 ) {
+  const guard = devOnlyRouteGuard();
+  if (guard) return guard;
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id: forgeId, conversationId } = await ctx.params;

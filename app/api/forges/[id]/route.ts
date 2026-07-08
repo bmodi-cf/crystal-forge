@@ -3,11 +3,14 @@ import { auth } from '@/lib/auth';
 import { updateForge, deleteForge } from '@/lib/services/forges';
 import { updateForgeInput } from '@/lib/services/forges-schema';
 import { respondToServiceError } from '@/lib/http';
+import { devOnlyRouteGuard } from '@/lib/mode';
 
 export async function PATCH(
   req: NextRequest,
   ctx: RouteContext<'/api/forges/[id]'>,
 ) {
+  const guard = devOnlyRouteGuard();
+  if (guard) return guard;
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -38,6 +41,8 @@ export async function DELETE(
   _req: NextRequest,
   ctx: RouteContext<'/api/forges/[id]'>,
 ) {
+  const guard = devOnlyRouteGuard();
+  if (guard) return guard;
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

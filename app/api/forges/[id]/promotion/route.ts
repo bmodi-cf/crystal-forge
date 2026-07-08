@@ -3,11 +3,14 @@ import { auth } from '@/lib/auth';
 import { requestPromotion, refreshPromotionGates, getForgePromotion, getForgeCurrentVersion, ACTIVE } from '@/lib/services/promotions';
 import { requestPromotionInput } from '@/lib/services/promotions-schema';
 import { respondToServiceError } from '@/lib/http';
+import { devOnlyRouteGuard } from '@/lib/mode';
 
 export async function POST(
   req: NextRequest,
   ctx: RouteContext<'/api/forges/[id]/promotion'>,
 ) {
+  const guard = devOnlyRouteGuard();
+  if (guard) return guard;
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -38,6 +41,8 @@ export async function GET(
   _req: NextRequest,
   ctx: RouteContext<'/api/forges/[id]/promotion'>,
 ) {
+  const guard = devOnlyRouteGuard();
+  if (guard) return guard;
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
