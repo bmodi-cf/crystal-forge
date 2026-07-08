@@ -12,6 +12,7 @@ export class FakeContainerManager implements ContainerManager {
   private readonly exitQueue: number[] = [];
   private readonly failMatches: string[] = [];
   readonly execCalls: ExecCall[] = [];
+  readonly created: CreateContainerSpec[] = [];
 
   /** Queue the exit code the next exec() should return (default 0). */
   queueExit(code: number): void { this.exitQueue.push(code); }
@@ -24,6 +25,7 @@ export class FakeContainerManager implements ContainerManager {
   failCommand(match: string): void { this.failMatches.push(match); }
 
   async create(spec: CreateContainerSpec): Promise<string> {
+    this.created.push(spec);
     const id = `fake-${++this.seq}`;
     this.containers.set(id, { id, spec, running: true });
     return id;
