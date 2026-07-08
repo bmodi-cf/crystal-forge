@@ -40,6 +40,15 @@ const baseSchema = z.object({
   HARNESS_PG_PASSWORD: z.string().default('crystal'),
   DB_PROVISIONER_MODE: z.enum(['real', 'fake']).default('real'),
 
+  // Production dashboard mode. `prod` runs the declarative reconcile loop and
+  // disables all edit-mode surfaces; `dev` is the pilot dashboard unchanged.
+  FORGE_DASHBOARD_MODE: z.enum(['dev', 'prod']).default('dev'),
+  // On-prem registry host that prod pulls pinned forge images from. Also read
+  // directly by lib/registry and lib/services/promotions.
+  REGISTRY_HOST: z.string().default('registry.crystalfountains.com'),
+  // Reconcile-loop cadence in prod mode.
+  FORGE_RECONCILE_INTERVAL_MS: z.coerce.number().int().min(1000).default(15000),
+
   // Forge runtime: where forges run. `docker` spawns per-forge containers;
   // `fake` uses the in-memory ContainerManager (tests/e2e/offline).
   FORGE_RUNTIME_MODE: z.enum(['docker', 'fake']).default('docker'),
