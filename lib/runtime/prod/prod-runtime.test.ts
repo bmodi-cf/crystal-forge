@@ -43,7 +43,7 @@ describe('startForgeContainer', () => {
     expect(spec.env).toHaveProperty('FORGE_BASE_PATH', '/app/acme-portal');
     expect(spec.env).not.toHaveProperty('GH_TOKEN'); // no git in prod
     expect(spec.volumes ?? []).toEqual([]);          // no workspace/claude volumes
-    expect(spec.command).toBeUndefined();            // use the image's baked entrypoint
+    expect(spec.command).toEqual([]);                // empty = run image's baked CMD, NOT the keep-alive default
     expect(c.labels['crystal-forge.forgeId']).toBe('f1');
   });
 

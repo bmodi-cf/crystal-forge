@@ -86,7 +86,12 @@ export async function startForgeContainer(
     publish: { hostIp: '127.0.0.1', hostPort: port, containerPort: 3000 },
     volumes: [], // no workspace volume, no Claude volume
     network: env.FORGE_NETWORK,
-    // No command: run the image's baked entrypoint.
+    // Empty command (NOT undefined): run the image's baked ENTRYPOINT+CMD
+    // (docker-entrypoint.sh → prisma migrate deploy → node server.js). Omitting
+    // `command` would make ContainerManager inject its `sleep infinity` keep-alive
+    // default — correct for dev (which then execs the server in) but in prod it
+    // would override the image's CMD and the server would never start.
+    command: [],
   });
 
   const timeout = deps.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
