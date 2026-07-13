@@ -46,8 +46,18 @@ export async function startForgeContainer(
 ): Promise<{ containerId: string; port: number }> {
   const { forgeId, slug, deployVersion, dbName, role } = input;
 
-  // Per-forge prod DB: idempotent role, fresh password, scoped URL.
+  // Per-forge prod DB: create it, then idempotent role, fresh password, scoped URL.
+  // Unlike dev (where createForge creates the DB at forge-creation time), prod
+  // forges are enabled declaratively — a row flipped to deployEnabled via SQL or
+  // promotion, never through createForge — so the DB may not exist yet. Create it
+  // idempotently; the pinned image's entrypoint runs `prisma migrate deploy`
+  // against it. provisionRole then grants the role ALL on schema public.
   const password = randomBytes(24).toString('hex');
+  try {
+    await deps.provisioner.createDatabase(dbName);
+  } catch (err) {
+    if (!/already exists/i.test(err instanceof Error ? err.message : String(err))) throw err;
+  }
   await deps.provisioner.provisionRole(dbName, role);
   await deps.provisioner.setRolePassword(role, password);
   const databaseUrl = buildScopedDatabaseUrl({ role, password, database: dbName });

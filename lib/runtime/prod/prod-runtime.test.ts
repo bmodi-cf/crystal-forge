@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { FakeContainerManager } from '@/lib/runtime/container/fake-container-manager';
 import { FakeDatabaseProvisioner } from '@/lib/db/fake-provisioner';
 import { startForgeContainer, stopForgeContainer } from './prod-runtime';
+import { slugToDbName } from '@/lib/github/slug';
 
 const prevRegistry = process.env.REGISTRY_HOST;
 beforeEach(() => { process.env.REGISTRY_HOST = 'reg.example.com'; });
@@ -51,6 +52,19 @@ describe('startForgeContainer', () => {
     await expect(startForgeContainer(d, input)).rejects.toThrow(/did not become healthy/i);
     const remaining = await d.containerManager.list({ label: 'crystal-forge.forgeId' });
     expect(remaining).toHaveLength(0);
+  });
+
+  it('creates the per-forge database (prod forges are enabled via SQL, not createForge)', async () => {
+    const d = deps();
+    await startForgeContainer(d, input);
+    expect((d.provisioner as FakeDatabaseProvisioner).has(input.dbName)).toBe(true);
+  });
+
+  it('is idempotent when the database already exists', async () => {
+    const d = deps();
+    await (d.provisioner as FakeDatabaseProvisioner).createDatabase(slugToDbName(input.slug));
+    // A pre-existing DB (e.g. a prior boot, or a promoted forge) must not throw.
+    await expect(startForgeContainer(d, input)).resolves.toMatchObject({ port: 3055 });
   });
 });
 
