@@ -25,7 +25,9 @@ services:
     environment:
       # Enable the DELETE manifest API so forges can be removed from the registry.
       # Deletion unlinks manifests/tags; disk space is reclaimed by
-      # `registry garbage-collect /etc/docker/registry/config.yml` (see README).
+      # `registry garbage-collect /etc/docker/registry/config.yml`.
+      # ⚠️ NEVER add --delete-untagged: it corrupts our buildx OCI-index images by
+      # pruning their (untagged) child manifests. See docs/runbooks/pilot-registry-infra.md.
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
     ports:
       # Loopback only — nginx terminates TLS in front (see P1 runbook). Forge

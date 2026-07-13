@@ -156,9 +156,19 @@ docker inspect crystal-forge-registry \
 > until garbage collection. Reclaim with:
 > ```bash
 > docker exec crystal-forge-registry \
->   registry garbage-collect /etc/docker/registry/config.yml   # add --delete-untagged to prune tagless manifests
+>   registry garbage-collect /etc/docker/registry/config.yml
 > ```
 > Run it when the registry is idle (GC assumes no concurrent pushes).
+>
+> ⚠️ **NEVER pass `--delete-untagged`.** Our images are pushed by buildx as an OCI *image
+> index*; the platform (`linux/amd64`) and attestation child manifests it references carry
+> **no tags of their own**. `--delete-untagged` prunes those child manifests → orphans their
+> layer blobs → the sweep deletes them, silently corrupting the image (the index still 200s but
+> its children 404). This happened to `crystal-lattice` on 2026-07-08 and it was only
+> recoverable because the layers still existed in the pilot's local Docker engine. Plain GC (no
+> flag) is safe: it only removes blobs unreferenced by any manifest. If you ever must reclaim
+> tagless manifests, do it by explicit digest `DELETE`, never with `--delete-untagged`. And do
+> not GC at all against images that cannot be re-pushed from a build.
 
 ---
 
