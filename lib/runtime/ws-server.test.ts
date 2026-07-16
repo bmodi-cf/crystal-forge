@@ -137,4 +137,18 @@ describe('ws-server (direct streaming)', () => {
     expect(kill).toHaveBeenCalled();
     expect(stop).toHaveBeenCalled();
   });
+
+  it('acquires a token on connect and releases it on close', async () => {
+    const acquire = vi.fn(async () => true);
+    const release = vi.fn(() => {});
+    const { server } = await startServer({
+      loadRuntimeHandle: async () => ({ containerId: 'c1', port: 1, repoFullName: 'own/aquaflow' }),
+      tokenRefresher: { acquire, release },
+    });
+    const ws = open(server);
+    await opened(ws);
+    expect(acquire).toHaveBeenCalledWith('c1', 'own/aquaflow');
+    ws.close();
+    await vi.waitFor(() => expect(release).toHaveBeenCalledWith('c1'));
+  });
 });

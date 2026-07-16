@@ -9,6 +9,7 @@ import type { ConversationLite } from '@/lib/services/conversations';
 import { CONTAINER_WORKDIR } from './paths';
 import { loadRuntimeHandle as defaultLoadRuntimeHandle } from './state';
 import { claudeCredentialsEnv } from './claude-credentials';
+import type { TokenRefresher } from './token-refresher';
 
 export type WsServerOpts = {
   port: number;
@@ -16,10 +17,11 @@ export type WsServerOpts = {
   spawnPty?: (opts: SpawnOpts) => Session;
   startWatcher?: (conversationId: string, containerId: string, sessionId: string, deps: { appendMessage: AppendMessageFn }) => { stop: () => void };
   loadConversation?: (conversationId: string) => Promise<ConversationLite | null>;
-  loadRuntimeHandle?: (forgeId: string) => Promise<{ containerId: string; port: number } | null>;
+  loadRuntimeHandle?: (forgeId: string) => Promise<{ containerId: string; port: number; repoFullName?: string } | null>;
   appendMessage?: AppendMessageFn;
   ensureClaudeSessionId?: (conversationId: string) => Promise<string>;
   sessionExists?: (containerId: string, sessionId: string) => Promise<boolean>;
+  tokenRefresher?: TokenRefresher;
 };
 
 type ActiveSession = { ws: WebSocket; pty: Session; watcher: { stop: () => void } };
@@ -40,6 +42,8 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
   const sessionExists = opts.sessionExists ?? transcriptExists;
   const loadConversation = opts.loadConversation ?? loadConversationLite;
   const loadForgeHandle = opts.loadRuntimeHandle ?? defaultLoadRuntimeHandle;
+  const tokenRefresher: TokenRefresher =
+    opts.tokenRefresher ?? { acquire: async () => true, release: () => {} };
 
   const sessions = new Map<string, ActiveSession>();
   const http: HttpServer = createServer();
@@ -56,6 +60,13 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
     if (!conv) { ws.close(4404, 'Conversation not found'); return; }
     const handle = await loadForgeHandle(conv.forgeId);
     if (!handle) { ws.close(4404, 'Forge runtime not found'); return; }
+
+    if (handle.repoFullName) {
+      const hasToken = await tokenRefresher.acquire(handle.containerId, handle.repoFullName);
+      if (!hasToken) {
+        try { ws.send('\r\n[crystal-forge] GitHub token unavailable — git/gh may fail until it refreshes.\r\n'); } catch { /* socket closed */ }
+      }
+    }
 
     try {
       // Pinned per-conversation session id keys the transcript file the watcher
@@ -80,6 +91,7 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
       pty.onExit((code) => {
         watcher.stop();
         sessions.delete(cid);
+        tokenRefresher.release(handle.containerId);
         try { ws.close(4000, `pty exit ${code}`); } catch { /* already closed */ }
       });
       ws.on('message', (raw, isBinary) => {
@@ -102,6 +114,7 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
         pty.kill();
         watcher.stop();
         sessions.delete(cid);
+        tokenRefresher.release(handle.containerId);
       });
     } catch (err) {
       console.error('[runtime/ws] session setup failed', err);
