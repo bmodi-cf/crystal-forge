@@ -95,10 +95,6 @@ export class FakeGitHubClient implements GitHubClient {
     this.files.set(fullName, files);
   }
 
-  async getInstallationToken(): Promise<string> {
-    return 'fake-installation-token';
-  }
-
   async getScopedInstallationToken(
     repoFullName: string,
   ): Promise<{ token: string; expiresAt: string }> {

@@ -27,7 +27,7 @@ async function prewarmCloneFixture() {
     `require('http').createServer(function(_,res){res.end('Welcome to ${FORGE_NAME}')}).listen(+(process.env.PORT||3000));\n`,
   );
   // package.json: dev script invokes server.js; prisma script is a no-op so
-  // ensureClone's `pnpm prisma generate` step exits 0 without needing the CLI.
+  // container-setup's `pnpm prisma generate` step exits 0 without needing the CLI.
   await fs.writeFile(
     path.join(clone, 'package.json'),
     JSON.stringify(

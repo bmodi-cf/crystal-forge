@@ -14,10 +14,6 @@ export function clonesDir(): string {
   return path.join(forgeHome(), 'clones');
 }
 
-export function forgeClonePath(slug: string): string {
-  return path.join(clonesDir(), slug);
-}
-
 export function logPath(slug: string): string {
   return path.join(forgeHome(), 'logs', `${slug}.log`);
 }

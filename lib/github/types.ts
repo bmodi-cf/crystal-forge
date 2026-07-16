@@ -73,13 +73,6 @@ export interface GitHubClient {
   writeForgeFiles(fullName: string, files: ForgeFiles): Promise<void>;
 
   /**
-   * Mints an installation access token usable in `https://x-access-token:<token>@github.com/...`
-   * URLs (e.g. for `git clone`). Tokens are short-lived (~1h) and the caller is
-   * responsible for not persisting them. Throws on any auth failure.
-   */
-  getInstallationToken(): Promise<string>;
-
-  /**
    * Mints a repo-scoped installation token (contents + pull_requests write)
    * for `repoFullName` ("owner/repo"). Short-lived (~1h). Returns the token
    * and its expiry. Used for in-forge git/gh, refreshed while a session is open.

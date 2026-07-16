@@ -141,14 +141,6 @@ describe('FakeGitHubClient.writeForgeFiles', () => {
   });
 });
 
-describe('FakeGitHubClient.getInstallationToken', () => {
-  it('returns a deterministic stub token', async () => {
-    const fake = new FakeGitHubClient({ owner: 'o', baseUrl: 'https://github.com' });
-    const tok = await fake.getInstallationToken();
-    expect(tok).toBe('fake-installation-token');
-  });
-});
-
 describe('FakeGitHubClient.getScopedInstallationToken', () => {
   it('returns a deterministic token and far-future expiry for the repo', async () => {
     const fake = new FakeGitHubClient({ owner: 'test-owner', baseUrl: 'https://github.com' });

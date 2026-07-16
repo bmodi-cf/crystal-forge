@@ -141,15 +141,6 @@ export class OctokitGitHubClient implements GitHubClient {
     );
   }
 
-  async getInstallationToken(): Promise<string> {
-    // octokit-auth-app exposes this through the same client.auth() callable.
-    const auth = (this.client as unknown as {
-      auth: (opts: { type: 'installation' }) => Promise<{ token: string }>;
-    }).auth;
-    const result = await auth({ type: 'installation' });
-    return result.token;
-  }
-
   async getScopedInstallationToken(
     repoFullName: string,
   ): Promise<{ token: string; expiresAt: string }> {
