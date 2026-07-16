@@ -344,6 +344,31 @@ describe('OctokitGitHubClient.getInstallationToken', () => {
   });
 });
 
+describe('OctokitGitHubClient.getScopedInstallationToken', () => {
+  it('requests a token scoped to the repo with contents+PR write and returns token+expiry', async () => {
+    const authCalls: unknown[] = [];
+    const octokit = {
+      auth: async (opts: unknown) => {
+        authCalls.push(opts);
+        return { token: 'ghs_scoped', expiresAt: '2026-07-16T12:00:00.000Z' };
+      },
+    } as unknown as Octokit;
+    const client = new OctokitGitHubClient({
+      owner: 'test-owner',
+      templateRepo: 'test-owner/tmpl',
+      appId: '1', privateKey: 'k', installationId: '2',
+      octokit,
+    });
+    const res = await client.getScopedInstallationToken('test-owner/aquaflow');
+    expect(res).toEqual({ token: 'ghs_scoped', expiresAt: '2026-07-16T12:00:00.000Z' });
+    expect(authCalls[0]).toEqual({
+      type: 'installation',
+      repositoryNames: ['aquaflow'],
+      permissions: { contents: 'write', pull_requests: 'write' },
+    });
+  });
+});
+
 describe('OctokitGitHubClient.setBranchProtection', () => {
   const opts = { requiredChecks: ['build'], requireUpToDate: true };
 

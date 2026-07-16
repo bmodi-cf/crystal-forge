@@ -99,6 +99,15 @@ export class FakeGitHubClient implements GitHubClient {
     return 'fake-installation-token';
   }
 
+  async getScopedInstallationToken(
+    repoFullName: string,
+  ): Promise<{ token: string; expiresAt: string }> {
+    return {
+      token: `fake-scoped-token:${repoFullName}`,
+      expiresAt: '2999-01-01T00:00:00.000Z',
+    };
+  }
+
   async createBranch(fullName: string, fromBranch: string, newBranch: string): Promise<void> {
     this.maybeFail('createBranch');
     const b = this.branches.get(fullName);

@@ -79,6 +79,13 @@ export interface GitHubClient {
    */
   getInstallationToken(): Promise<string>;
 
+  /**
+   * Mints a repo-scoped installation token (contents + pull_requests write)
+   * for `repoFullName` ("owner/repo"). Short-lived (~1h). Returns the token
+   * and its expiry. Used for in-forge git/gh, refreshed while a session is open.
+   */
+  getScopedInstallationToken(repoFullName: string): Promise<{ token: string; expiresAt: string }>;
+
   /** Create `newBranch` pointing at the head of `fromBranch`. */
   createBranch(fullName: string, fromBranch: string, newBranch: string): Promise<void>;
 

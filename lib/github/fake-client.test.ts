@@ -149,6 +149,15 @@ describe('FakeGitHubClient.getInstallationToken', () => {
   });
 });
 
+describe('FakeGitHubClient.getScopedInstallationToken', () => {
+  it('returns a deterministic token and far-future expiry for the repo', async () => {
+    const fake = new FakeGitHubClient({ owner: 'test-owner', baseUrl: 'https://github.com' });
+    const res = await fake.getScopedInstallationToken('test-owner/aquaflow');
+    expect(res.token).toBe('fake-scoped-token:test-owner/aquaflow');
+    expect(new Date(res.expiresAt).getTime()).toBeGreaterThan(Date.now());
+  });
+});
+
 describe('FakeGitHubClient promotion methods', () => {
   let gh: FakeGitHubClient;
   beforeEach(async () => {

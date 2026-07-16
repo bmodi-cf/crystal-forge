@@ -150,6 +150,28 @@ export class OctokitGitHubClient implements GitHubClient {
     return result.token;
   }
 
+  async getScopedInstallationToken(
+    repoFullName: string,
+  ): Promise<{ token: string; expiresAt: string }> {
+    const repo = repoFullName.split('/')[1];
+    if (!repo) throw new Error(`repoFullName must be "owner/repo": ${repoFullName}`);
+    // octokit-auth-app returns a repo+permission-scoped installation token
+    // through the same client.auth() callable when given repositoryNames/permissions.
+    const auth = (this.client as unknown as {
+      auth: (opts: {
+        type: 'installation';
+        repositoryNames: string[];
+        permissions: Record<string, string>;
+      }) => Promise<{ token: string; expiresAt: string }>;
+    }).auth;
+    const result = await auth({
+      type: 'installation',
+      repositoryNames: [repo],
+      permissions: { contents: 'write', pull_requests: 'write' },
+    });
+    return { token: result.token, expiresAt: result.expiresAt };
+  }
+
   /**
    * PUT /repos/{owner}/{repo}/contents/{path}. Retries on 404 with bounded
    * backoff (template-cloned repo not yet visible). On 422 — which GitHub
