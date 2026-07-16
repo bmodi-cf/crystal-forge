@@ -41,18 +41,29 @@ describe('provisionFromEntra', () => {
 });
 
 describe('getSessionUserById', () => {
-  it('returns the user with groups[] and isAdmin populated', async () => {
+  it('returns the user with groups[], role and isAdmin populated', async () => {
     await withCleanDb(async (prisma) => {
       const user = await prisma.user.create({
-        data: { email: 'maya@x.com', name: 'Maya', initials: 'M' },
+        data: { email: 'maya@x.com', name: 'Maya', initials: 'M', role: 'ADMIN' },
       });
       const eng = await prisma.group.create({ data: { name: 'Engineering' } });
       await prisma.userGroup.create({ data: { userId: user.id, groupId: eng.id } });
-      await prisma.userRole.create({ data: { userId: user.id, role: 'admin' } });
 
       const session = await getSessionUserById(user.id);
       expect(session?.groups).toEqual(['Engineering']);
+      expect(session?.role).toBe('ADMIN');
       expect(session?.isAdmin).toBe(true);
+    });
+  });
+
+  it('defaults a plain user to DEFAULT_USER / non-admin', async () => {
+    await withCleanDb(async (prisma) => {
+      const user = await prisma.user.create({
+        data: { email: 'plain@x.com', name: 'Plain', initials: 'P' },
+      });
+      const session = await getSessionUserById(user.id);
+      expect(session?.role).toBe('DEFAULT_USER');
+      expect(session?.isAdmin).toBe(false);
     });
   });
 

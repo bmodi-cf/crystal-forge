@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Role } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import type { SessionUser } from '@/lib/services/types';
 import { slugifyForgeName } from '@/lib/github/slug';
@@ -36,7 +36,6 @@ export async function withCleanDb<T>(fn: (prisma: PrismaClient) => Promise<T>): 
   await prisma.forgeGroup.deleteMany();
   await prisma.promotionRequest.deleteMany();
   await prisma.forge.deleteMany();
-  await prisma.userRole.deleteMany();
   await prisma.userGroup.deleteMany();
   await prisma.account.deleteMany();
   await prisma.session.deleteMany();
@@ -51,7 +50,7 @@ export async function makeUser(
     email: string;
     name: string;
     groups?: string[];
-    isAdmin?: boolean;
+    role?: Role;
   },
 ): Promise<SessionUser> {
   const initials = data.name
@@ -60,17 +59,15 @@ export async function makeUser(
     .join('')
     .slice(0, 2)
     .toUpperCase();
+  const role = data.role ?? 'DEVELOPER';
   const user = await prisma.user.create({
-    data: { email: data.email, name: data.name, initials },
+    data: { email: data.email, name: data.name, initials, role },
   });
   for (const name of data.groups ?? []) {
     const group =
       (await prisma.group.findUnique({ where: { name } })) ??
       (await prisma.group.create({ data: { name } }));
     await prisma.userGroup.create({ data: { userId: user.id, groupId: group.id } });
-  }
-  if (data.isAdmin) {
-    await prisma.userRole.create({ data: { userId: user.id, role: 'admin' } });
   }
   return {
     id: user.id,
@@ -79,7 +76,8 @@ export async function makeUser(
     name: user.name,
     initials: user.initials,
     groups: data.groups ?? [],
-    isAdmin: data.isAdmin ?? false,
+    role,
+    isAdmin: role === 'ADMIN',
   };
 }
 

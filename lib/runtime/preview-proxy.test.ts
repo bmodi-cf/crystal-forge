@@ -6,7 +6,7 @@ import type { RuntimeStateFile } from './types';
 
 const user: SessionUser = {
   id: 'u1', entraOid: null, email: 'a@b.c', name: 'A', initials: 'A',
-  groups: ['eng'], isAdmin: false,
+  groups: ['eng'], isAdmin: false, role: 'DEVELOPER',
 };
 
 const runningState: RuntimeStateFile = {

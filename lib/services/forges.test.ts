@@ -20,7 +20,7 @@ describe('listForges', () => {
     await withCleanDb(async (prisma) => {
       // Forges are created by a third user so the "creator can read" clause
       // does not mask the group-overlap behavior under test.
-      const author = await makeUser(prisma, { email: 'auth@x', name: 'Author', groups: [], isAdmin: true });
+      const author = await makeUser(prisma, { email: 'auth@x', name: 'Author', groups: [], role: 'ADMIN' });
       const tom   = await makeUser(prisma, { email: 't@x', name: 'Tom Reed',   groups: ['Operations'] });
       const maya  = await makeUser(prisma, { email: 'm@x', name: 'Maya Chen',  groups: ['Engineering'] });
       await makeForge(prisma, { name: 'Aquaflow', createdById: author.id, groups: ['Engineering'] });
@@ -37,7 +37,7 @@ describe('listForges', () => {
   it('admin sees every Forge', async () => {
     await withCleanDb(async (prisma) => {
       const tom   = await makeUser(prisma, { email: 't@x', name: 'Tom Reed', groups: [] });
-      const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin',    groups: [], isAdmin: true });
+      const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin',    groups: [], role: 'ADMIN' });
       await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
       await makeForge(prisma, { name: 'B', createdById: tom.id, groups: ['Sales'] });
 
@@ -202,7 +202,7 @@ describe('createForge', () => {
     await withCleanDb(async (prisma) => {
       await prisma.group.create({ data: { name: 'HR' } });
       const admin = await makeUser(prisma, {
-        email: 'a@x', name: 'Admin', groups: [], isAdmin: true,
+        email: 'a@x', name: 'Admin', groups: [], role: 'ADMIN',
       });
       const forge = await createForge(admin, { name: 'X', description: '', groups: ['HR'] }, fake, fakeDb);
       expect(forge.groups).toEqual(['HR']);
@@ -382,7 +382,7 @@ describe('updateForge', () => {
   it('admin can update any forge', async () => {
     await withCleanDb(async (prisma) => {
       const tom   = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
-      const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin', groups: [], isAdmin: true });
+      const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin', groups: [], role: 'ADMIN' });
       const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
       const updated = await updateForge(admin, forge.id, { description: 'A2' });
       expect(updated.description).toBe('A2');
@@ -441,7 +441,7 @@ describe('updateForge', () => {
     await withCleanDb(async (prisma) => {
       await prisma.group.create({ data: { name: 'HR' } });
       const tom   = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
-      const admin = await makeUser(prisma, { email: 'ad@x', name: 'Admin', groups: [], isAdmin: true });
+      const admin = await makeUser(prisma, { email: 'ad@x', name: 'Admin', groups: [], role: 'ADMIN' });
       const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
       const updated = await updateForge(admin, forge.id, { groups: ['HR'] });
       expect(updated.groups).toEqual(['HR']);
@@ -471,7 +471,7 @@ describe('deleteForge', () => {
   it('admin can delete a forge they did not create', async () => {
     await withCleanDb(async (prisma) => {
       const tom   = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: [] });
-      const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin', groups: [], isAdmin: true });
+      const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin', groups: [], role: 'ADMIN' });
       const forge = await makeForge(prisma, { name: 'A', createdById: tom.id, groups: ['Engineering'] });
       await deleteForge(admin, forge.id, fake);
       const remaining = await prisma.forge.findUnique({ where: { id: forge.id } });

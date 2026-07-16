@@ -40,7 +40,6 @@ export async function getSessionUserById(id: string): Promise<SessionUser | null
     where: { id },
     include: {
       groups: { include: { group: true } },
-      roles: true,
     },
   });
   if (!user) return null;
@@ -51,7 +50,8 @@ export async function getSessionUserById(id: string): Promise<SessionUser | null
     name: user.name,
     initials: user.initials,
     groups: user.groups.map((ug) => ug.group.name),
-    isAdmin: user.roles.some((r) => r.role === 'admin'),
+    role: user.role,
+    isAdmin: user.role === 'ADMIN',
   };
 }
 

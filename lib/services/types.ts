@@ -1,4 +1,4 @@
-import type { ForgeTone, MessageRole } from '@prisma/client';
+import type { ForgeTone, MessageRole, Role } from '@prisma/client';
 
 export type SessionUser = {
   id: string;
@@ -7,6 +7,7 @@ export type SessionUser = {
   name: string;
   initials: string;
   groups: string[];
+  role: Role;
   isAdmin: boolean;
 };
 

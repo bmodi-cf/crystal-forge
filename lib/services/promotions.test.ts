@@ -121,7 +121,7 @@ describe('listPendingPromotions', () => {
 
 async function seedAwaiting(prisma: PrismaClient, gh: FakeGitHubClient, reg: FakeRegistryClient) {
   const owner = await makeUser(prisma, { email: 'o@x', name: 'Owner', groups: ['Eng'] });
-  const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin', groups: [], isAdmin: true });
+  const admin = await makeUser(prisma, { email: 'a@x', name: 'Admin', groups: [], role: 'ADMIN' });
   const forge = await makeForge(prisma, {
     name: 'Aquaflow', createdById: owner.id, groups: ['Eng'], repoFullName: 'test-owner/aquaflow',
   });
