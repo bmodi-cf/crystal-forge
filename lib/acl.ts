@@ -22,6 +22,11 @@ export function toAcl(forge: ForgeRowForAcl): ForgeForAcl {
   };
 }
 
+/** True when the user may reach the edit surface (create/edit forges, runtimes). */
+export function canEdit(user: SessionUser): boolean {
+  return user.role === 'ADMIN' || user.role === 'DEVELOPER';
+}
+
 export function canReadForge(user: SessionUser, forge: ForgeForAcl): boolean {
   if (user.isAdmin) return true;
   if (user.id === forge.createdById) return true;
