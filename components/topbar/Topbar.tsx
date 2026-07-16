@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import { canEdit } from '@/lib/acl';
 import type { SessionUser } from '@/lib/services/types';
 import { UserMenu } from './UserMenu';
 
@@ -14,18 +15,28 @@ export function Topbar({ user }: { user: SessionUser }) {
         </div>
       </div>
       <div className="flex items-center gap-6">
-        <Link
-          href="/dashboard"
-          className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"
-        >
-          Edit
-        </Link>
+        {canEdit(user) && (
+          <Link
+            href="/dashboard"
+            className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"
+          >
+            Edit
+          </Link>
+        )}
         <Link
           href="/launch"
           className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"
         >
           Launch
         </Link>
+        {user.isAdmin && (
+          <Link
+            href="/admin"
+            className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"
+          >
+            Admin
+          </Link>
+        )}
         <UserMenu user={user} />
       </div>
     </header>
