@@ -866,7 +866,7 @@ export default function AdminPromotionsPage() {
 }
 ```
 
-- [ ] **Step 6: CONFIRM DELETION, then remove the old promotions route.** Per org policy ("never delete files without asking permission first") and CLAUDE.md, **ask the user to confirm** removing `app/(app)/promotions/` before deleting. On approval:
+- [ ] **Step 6: Remove the old promotions route.** Deletion of `app/(app)/promotions/` was **explicitly approved by the user on 2026-07-16** (standing approval — do not re-ask). Only after Steps 4–5 have copied `PromotionsClient` to `/admin/promotions`, run:
 
 ```bash
 git rm -r app/\(app\)/promotions
