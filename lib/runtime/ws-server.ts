@@ -68,6 +68,13 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
       }
     }
 
+    let tokenReleased = false;
+    const releaseToken = () => {
+      if (tokenReleased) return;
+      tokenReleased = true;
+      if (handle.repoFullName) tokenRefresher.release(handle.containerId);
+    };
+
     try {
       // Pinned per-conversation session id keys the transcript file the watcher
       // tails AND the claude invocation: resume if it already ran, else start it.
@@ -86,13 +93,6 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
       const watcher = startWatcher(cid, handle.containerId, sessionId, { appendMessage });
       const active: ActiveSession = { ws, pty, watcher };
       sessions.set(cid, active);
-
-      let tokenReleased = false;
-      const releaseToken = () => {
-        if (tokenReleased) return;
-        tokenReleased = true;
-        if (handle.repoFullName) tokenRefresher.release(handle.containerId);
-      };
 
       pty.onData((chunk) => { try { ws.send(chunk, { binary: false }); } catch { /* socket closed */ } });
       pty.onExit((code) => {
@@ -125,6 +125,7 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
       });
     } catch (err) {
       console.error('[runtime/ws] session setup failed', err);
+      releaseToken();
       try { ws.close(4500, 'Failed to start session'); } catch { /* noop */ }
     }
   });

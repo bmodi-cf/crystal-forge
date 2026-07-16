@@ -182,4 +182,17 @@ describe('ws-server (direct streaming)', () => {
     expect(release).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledWith('c1');
   });
+
+  it('releases the token when session setup fails after acquiring it', async () => {
+    const acquire = vi.fn(async () => true);
+    const release = vi.fn(() => {});
+    const { server } = await startServer({
+      loadRuntimeHandle: async () => ({ containerId: 'c1', port: 1, repoFullName: 'own/aquaflow' }),
+      tokenRefresher: { acquire, release },
+      spawnPty: vi.fn(() => { throw new Error('docker exec failed'); }),
+    });
+    expect(await closedCode(open(server))).toBe(4500);
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
 });
