@@ -377,26 +377,18 @@ describe('runtime service', () => {
         list: base.list.bind(base),
       };
       const setupCalls: Array<{ slug: string; repoFullName: string; token: string; logPath: string }> = [];
-      const prev = env.FORGE_GIT_TOKEN;
-      try {
-        // Set a PAT even though it must no longer be injected — this proves
-        // removal, not just absence of configuration.
-        env.FORGE_GIT_TOKEN = 'ghp_pilot_token';
-        const svc = makeRuntimeService({
-          ...makeFakes(),
-          prisma,
-          containerManager: recording,
-          setup: async (_mgr, _id, opts) => { setupCalls.push(opts); },
-        });
-        await svc.startForge(tom, forge.id);
-        await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
-        expect(specs[0]?.env).not.toHaveProperty('GH_TOKEN');
-        expect(setupCalls.at(-1)?.token).toBe('fake-scoped-token:own/aquaflow');
-        const state = await loadState();
-        expect(state[forge.id]?.repoFullName).toBe('own/aquaflow');
-      } finally {
-        env.FORGE_GIT_TOKEN = prev;
-      }
+      const svc = makeRuntimeService({
+        ...makeFakes(),
+        prisma,
+        containerManager: recording,
+        setup: async (_mgr, _id, opts) => { setupCalls.push(opts); },
+      });
+      await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+      expect(specs[0]?.env).not.toHaveProperty('GH_TOKEN');
+      expect(setupCalls.at(-1)?.token).toBe('fake-scoped-token:own/aquaflow');
+      const state = await loadState();
+      expect(state[forge.id]?.repoFullName).toBe('own/aquaflow');
     });
   });
 

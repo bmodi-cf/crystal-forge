@@ -32,12 +32,6 @@ const baseSchema = z.object({
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_APP_PRIVATE_KEY: z.string().optional(),
   GITHUB_APP_INSTALLATION_ID: z.string().optional(),
-  // Personal access token injected into each forge container as GH_TOKEN so the
-  // agent's own `git` and `gh` operations authenticate (the App token only clones
-  // the repo once at setup and is then stripped). Optional: when unset, in-forge
-  // git push/pull stays unauthenticated. A single shared token — fine for the
-  // single-user pilot; a multi-user deployment would need per-user tokens.
-  FORGE_GIT_TOKEN: z.string().optional(),
 
   // Per-forge database provisioning (shared crystal-forge-pg container).
   HARNESS_PG_HOST: z.string().default('localhost'),

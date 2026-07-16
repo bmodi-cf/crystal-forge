@@ -26,7 +26,24 @@ export async function register(): Promise<void> {
   startLivenessLoop();
   console.info('[instrumentation] runtime liveness loop started');
   try {
-    const ws = await startWsServer({ port: env.CRYSTAL_FORGE_WS_PORT, secret: env.CRYSTAL_FORGE_WS_SECRET });
+    const { getGitHubClient } = await import('@/lib/github/client');
+    const { getContainerManager } = await import('@/lib/runtime/container');
+    const { createTokenRefresher } = await import('./lib/runtime/token-refresher');
+    const { writeForgeGitToken } = await import('./lib/runtime/gh-credential');
+
+    const github = getGitHubClient();
+    const mgr = getContainerManager();
+    const tokenRefresher = createTokenRefresher({
+      mint: (repo) => github.getScopedInstallationToken(repo),
+      write: (id, token) => writeForgeGitToken(mgr, id, token),
+      onError: (id, err) => console.error('[runtime/token] refresh failed for', id, err),
+    });
+
+    const ws = await startWsServer({
+      port: env.CRYSTAL_FORGE_WS_PORT,
+      secret: env.CRYSTAL_FORGE_WS_SECRET,
+      tokenRefresher,
+    });
     console.info(`[instrumentation] runtime WS server listening on ${ws.port}`);
   } catch (err) {
     console.error('[instrumentation] WS server failed to start', err);
