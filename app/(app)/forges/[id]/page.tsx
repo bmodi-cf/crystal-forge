@@ -1,5 +1,6 @@
 import { auth } from '@/lib/auth';
 import { redirect, notFound } from 'next/navigation';
+import { canEdit } from '@/lib/acl';
 import { getForge, canCurrentUserWriteForge } from '@/lib/services/forges';
 import { listConversations, createConversation } from '@/lib/services/conversations';
 import { getRuntimeService } from '@/lib/services/runtime';
@@ -12,6 +13,7 @@ export default async function ForgePage(
 ) {
   const session = await auth();
   if (!session?.user) redirect('/login');
+  if (!canEdit(session.user)) redirect('/launch');
   const { id } = await params;
   let forge: Awaited<ReturnType<typeof getForge>>;
   try { forge = await getForge(session.user, id); } catch { notFound(); }

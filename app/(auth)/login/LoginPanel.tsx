@@ -11,7 +11,7 @@ export function LoginPanel({ devUsers }: { devUsers: DevUser[] }) {
 
   async function handleEntra() {
     setPending(true);
-    await signIn('microsoft-entra-id', { callbackUrl: '/dashboard' });
+    await signIn('microsoft-entra-id', { callbackUrl: '/' });
   }
 
   async function handleDev() {
@@ -23,7 +23,7 @@ export function LoginPanel({ devUsers }: { devUsers: DevUser[] }) {
       body: JSON.stringify({ email: devEmail }),
     });
     if (res.ok) {
-      window.location.href = '/dashboard';
+      window.location.href = '/';
     } else {
       setPending(false);
       alert(`Dev sign-in failed: ${res.status}`);
