@@ -10,10 +10,6 @@ export function stateFilePath(): string {
   return path.join(forgeHome(), 'state.json');
 }
 
-export function clonesDir(): string {
-  return path.join(forgeHome(), 'clones');
-}
-
 export function logPath(slug: string): string {
   return path.join(forgeHome(), 'logs', `${slug}.log`);
 }
