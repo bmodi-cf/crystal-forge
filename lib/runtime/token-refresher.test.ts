@@ -80,4 +80,26 @@ describe('createTokenRefresher', () => {
     await fireLast(); // nothing live to fire
     expect(mint).toHaveBeenCalledTimes(1); // no re-mint after release
   });
+
+  it('does not write or leak a timer if release() runs while the mint is still in-flight', async () => {
+    const { scheduler, jobs } = fakeScheduler();
+    let resolveMint!: (v: { token: string; expiresAt: string }) => void;
+    const mintPromise = new Promise<{ token: string; expiresAt: string }>((resolve) => {
+      resolveMint = resolve;
+    });
+    const mint = vi.fn(() => mintPromise);
+    const write = vi.fn(async () => {});
+    const r = createTokenRefresher({ mint, write, scheduler, refreshMs: 1000, retryMs: 100 });
+
+    // Start acquire but don't await it yet — it suspends inside tick() on `await deps.mint(...)`.
+    const acquirePromise = r.acquire('cid', 'own/repo');
+    // Release while the mint is still in-flight: ref-count hits zero, entry is stopped+deleted.
+    r.release('cid');
+    // Now let the in-flight mint resolve, and let tick's continuation run.
+    resolveMint({ token: 't1', expiresAt: 'x' });
+    await acquirePromise;
+
+    expect(write).not.toHaveBeenCalled();
+    expect(jobs.every((j) => j.cancelled)).toBe(true); // no leaked, un-cancellable timer
+  });
 });

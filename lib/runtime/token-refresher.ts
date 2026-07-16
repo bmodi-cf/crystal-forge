@@ -13,6 +13,11 @@ export type TokenRefresherDeps = {
 };
 
 export type TokenRefresher = {
+  /**
+   * Eventual consistency caveat: a second concurrent `acquire` for the same containerId
+   * issued before the first's in-flight mint resolves may return `false` even though a
+   * token is about to be written — the return value only reflects token state at that instant.
+   */
   acquire(containerId: string, repoFullName: string): Promise<boolean>;
   release(containerId: string): void;
 };
@@ -44,10 +49,13 @@ export function createTokenRefresher(deps: TokenRefresherDeps): TokenRefresher {
     if (!e || e.stopped) return; // released mid-flight
     try {
       const { token } = await deps.mint(e.repoFullName);
+      if (entries.get(containerId) !== e || e.stopped) return; // released/replaced mid-mint
       await deps.write(containerId, token);
+      if (entries.get(containerId) !== e || e.stopped) return; // released/replaced mid-write
       e.hasToken = true;
       e.handle = scheduler.schedule(() => { void tick(containerId); }, refreshMs);
     } catch (err) {
+      if (entries.get(containerId) !== e || e.stopped) return; // released/replaced mid-mint (error path)
       deps.onError?.(containerId, err);
       e.handle = scheduler.schedule(() => { void tick(containerId); }, retryMs);
     }
