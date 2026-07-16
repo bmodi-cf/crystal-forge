@@ -1,7 +1,14 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll } from 'vitest';
 import { withCleanDb, makeUser } from '@/lib/test/db';
-import { provisionFromEntra, getSessionUserById, getUserBySessionToken } from './users';
+import {
+  provisionFromEntra,
+  getSessionUserById,
+  getUserBySessionToken,
+  listUsersForAdmin,
+  setUserRole,
+} from './users';
+import { ForbiddenError, ValidationError, NotFoundError } from '@/lib/errors';
 
 beforeAll(async () => {
   // Confirm DB is reachable
@@ -88,6 +95,69 @@ describe('getUserBySessionToken', () => {
       expect((await getUserBySessionToken('live-tok', prisma))?.id).toBe(tom.id);
       expect(await getUserBySessionToken('dead-tok', prisma)).toBeNull();
       expect(await getUserBySessionToken('nope', prisma)).toBeNull();
+    });
+  });
+});
+
+describe('admin user management', () => {
+  it('listUsersForAdmin returns users for an admin, ordered by name', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Zed Admin', role: 'ADMIN' });
+      await makeUser(prisma, { email: 'b@x.com', name: 'Amy Dev', role: 'DEVELOPER' });
+      const rows = await listUsersForAdmin(admin);
+      expect(rows.map((r) => r.name)).toEqual(['Amy Dev', 'Zed Admin']);
+      expect(rows.find((r) => r.email === 'b@x.com')?.role).toBe('DEVELOPER');
+    });
+  });
+
+  it('listUsersForAdmin rejects a non-admin', async () => {
+    await withCleanDb(async (prisma) => {
+      const dev = await makeUser(prisma, { email: 'd@x.com', name: 'Dev', role: 'DEVELOPER' });
+      await expect(listUsersForAdmin(dev)).rejects.toThrow(ForbiddenError);
+    });
+  });
+
+  it('setUserRole updates a target user', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      const target = await makeUser(prisma, { email: 't@x.com', name: 'Target', role: 'DEFAULT_USER' });
+      const res = await setUserRole(admin, target.id, 'DEVELOPER');
+      expect(res.role).toBe('DEVELOPER');
+      const reread = await getSessionUserById(target.id);
+      expect(reread?.role).toBe('DEVELOPER');
+    });
+  });
+
+  it('setUserRole rejects a non-admin caller', async () => {
+    await withCleanDb(async (prisma) => {
+      const dev = await makeUser(prisma, { email: 'd@x.com', name: 'Dev', role: 'DEVELOPER' });
+      const target = await makeUser(prisma, { email: 't@x.com', name: 'T', role: 'DEFAULT_USER' });
+      await expect(setUserRole(dev, target.id, 'ADMIN')).rejects.toThrow(ForbiddenError);
+    });
+  });
+
+  it('setUserRole forbids changing your own role', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      await expect(setUserRole(admin, admin.id, 'DEVELOPER')).rejects.toThrow(ForbiddenError);
+    });
+  });
+
+  it('setUserRole rejects an unknown role value', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      const target = await makeUser(prisma, { email: 't@x.com', name: 'T', role: 'DEFAULT_USER' });
+      // @ts-expect-error deliberately invalid role
+      await expect(setUserRole(admin, target.id, 'SUPERUSER')).rejects.toThrow(ValidationError);
+    });
+  });
+
+  it('setUserRole throws NotFoundError for unknown user', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      await expect(
+        setUserRole(admin, '00000000-0000-0000-0000-000000000000', 'DEVELOPER'),
+      ).rejects.toThrow(NotFoundError);
     });
   });
 });

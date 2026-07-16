@@ -1,6 +1,9 @@
-import type { PrismaClient } from '@prisma/client';
+import { Role, type PrismaClient } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import type { SessionUser } from './types';
+
+const ROLE_VALUES: Role[] = ['ADMIN', 'DEVELOPER', 'DEFAULT_USER'];
 
 export function computeInitials(name: string): string {
   return name
@@ -73,4 +76,41 @@ export async function getUserBySessionToken(
   const session = await client.session.findUnique({ where: { sessionToken } });
   if (!session || session.expires <= new Date()) return null;
   return getSessionUserById(session.userId);
+}
+
+export async function listUsersForAdmin(
+  currentUser: SessionUser,
+): Promise<{ id: string; name: string; email: string; role: Role }[]> {
+  if (!currentUser.isAdmin) throw new ForbiddenError('Admin only');
+  return prisma.user.findMany({
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, email: true, role: true },
+  });
+}
+
+export async function setUserRole(
+  currentUser: SessionUser,
+  targetUserId: string,
+  role: Role,
+): Promise<{ id: string; role: Role }> {
+  if (!currentUser.isAdmin) throw new ForbiddenError('Admin only');
+  if (targetUserId === currentUser.id) {
+    throw new ForbiddenError('You cannot change your own role');
+  }
+  if (!ROLE_VALUES.includes(role)) {
+    throw new ValidationError('Unknown role', {
+      role: [`Must be one of ${ROLE_VALUES.join(', ')}`],
+    });
+  }
+  const existing = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: { id: true },
+  });
+  if (!existing) throw new NotFoundError('User', targetUserId);
+  const updated = await prisma.user.update({
+    where: { id: targetUserId },
+    data: { role },
+    select: { id: true, role: true },
+  });
+  return updated;
 }
