@@ -14,7 +14,7 @@
 - **Never put a secret in argv** — tokens pass through the exec *environment* only, never command arguments (they would leak into `docker ps`/process listings/logs). Mirror the existing clone at `lib/runtime/container-setup.ts:38`.
 - **Tests colocated** as `*.test.ts` next to source. Unit runner: `pnpm test <file>` (= `vitest run <file>`); filter by name with `-t "<name>"`.
 - **`GITHUB_CLIENT_MODE=fake`** must keep working offline — every new interface method gets a `FakeGitHubClient` implementation.
-- **Do not delete files or interface methods** without asking (org rule): keep the existing `getInstallationToken()`; only *add* the scoped variant.
+- **Deleting in-repo dead code is pre-approved** (git is the backup) — prefer removing superseded code over leaving clutter. `getInstallationToken()` and the dead host-side `clone.ts` are removed once their last callers are gone (Task 4b). Deleting anything *outside* the repo still needs approval.
 - Container constants: `CLAUDE_HOME = /home/forge` (the agent's `$HOME`, a persistent volume), `CONTAINER_WORKDIR = /workspace` (from `lib/runtime/paths.ts`).
 - Token lifetime is ~1h (GitHub-fixed); refresh cadence **45 min**, failure-retry **5 min**.
 - Verify each task with `pnpm typecheck` before committing.
@@ -35,6 +35,7 @@
 - `lib/runtime/ws-server.ts` — acquire/release the refresher around a session; terminal notice on mint failure.
 - `instrumentation.ts` — construct the real `TokenRefresher` and pass it to `startWsServer`.
 - `lib/env.ts` — remove `FORGE_GIT_TOKEN`.
+- **Deletions (Task 4b):** `lib/runtime/clone.ts` + `lib/runtime/clone.test.ts` (dead host-side clone, superseded by the in-container clone); `forgeClonePath` from `lib/runtime/paths.ts`; `getInstallationToken` from `lib/github/{types,octokit-client,fake-client}.ts` and its two test blocks.
 
 ---
 
@@ -630,6 +631,69 @@ git commit -m "feat(runtime): store repoFullName, scope clone token, drop PAT en
 
 ---
 
+## Task 4b: Delete dead host-side clone code and remove `getInstallationToken`
+
+Must run **after** Task 4 (which was the last thing still calling `getInstallationToken`). At this point `getInstallationToken`'s only remaining reference is `clone.ts` (itself dead) plus tests.
+
+**Files:**
+- Delete: `lib/runtime/clone.ts`, `lib/runtime/clone.test.ts`
+- Modify: `lib/runtime/paths.ts` (remove `forgeClonePath`)
+- Modify: `lib/github/types.ts` (remove `getInstallationToken` from the interface, `:75-80`)
+- Modify: `lib/github/octokit-client.ts:144-151` (remove the method)
+- Modify: `lib/github/fake-client.ts:98-100` (remove the method)
+- Modify: `lib/github/octokit-client.test.ts:331` and `lib/github/fake-client.test.ts:144` (delete the `getInstallationToken` describe blocks)
+- Modify: `tests/e2e/forge-orchestration.spec.ts:29-30` (reword the stale `ensureClone` comment)
+
+- [ ] **Step 1: Confirm no live callers remain**
+
+```bash
+grep -rn "ensureClone\|forgeClonePath" --include=*.ts . | grep -v node_modules
+grep -rn "getInstallationToken" --include=*.ts . | grep -v node_modules
+```
+
+Expected: `ensureClone`/`forgeClonePath` appear only in `clone.ts` (and a comment); `getInstallationToken` appears only in `clone.ts`, the interface, the two impls, and the two test blocks — **no** production caller outside `clone.ts`. If anything else shows up, stop and reassess.
+
+- [ ] **Step 2: Delete the dead clone files**
+
+```bash
+git rm lib/runtime/clone.ts lib/runtime/clone.test.ts
+```
+
+- [ ] **Step 3: Remove `forgeClonePath` from `lib/runtime/paths.ts`**
+
+Delete the `forgeClonePath` function (`:17`). Leave `logPath` and the rest intact.
+
+- [ ] **Step 4: Remove `getInstallationToken` everywhere**
+
+- `lib/github/types.ts`: delete the `getInstallationToken(): Promise<string>;` declaration and its doc comment (`:75-80`).
+- `lib/github/octokit-client.ts`: delete the `async getInstallationToken()` method (`:144-151`).
+- `lib/github/fake-client.ts`: delete the `async getInstallationToken()` method (`:98-100`).
+- `lib/github/octokit-client.test.ts`: delete the `describe('OctokitGitHubClient.getInstallationToken', …)` block (`:331`).
+- `lib/github/fake-client.test.ts`: delete the `describe('FakeGitHubClient.getInstallationToken', …)` block (`:144`).
+
+- [ ] **Step 5: Reword the stale e2e comment**
+
+In `tests/e2e/forge-orchestration.spec.ts` (`:29-30`), replace the comment that references `ensureClone` with one that reflects reality:
+
+```ts
+  // package.json: dev script invokes server.js; prisma script is a no-op so
+  // container-setup's `pnpm prisma generate` step exits 0 without needing the CLI.
+```
+
+- [ ] **Step 6: Typecheck, test, lint**
+
+Run: `pnpm typecheck && pnpm test && pnpm lint`
+Expected: clean. TypeScript will flag any missed reference to the removed method — fix and re-run.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A
+git commit -m "refactor(github): drop unused getInstallationToken and dead clone.ts"
+```
+
+---
+
 ## Task 5: Seed the gh credential store at container setup
 
 **Files:**
@@ -888,6 +952,7 @@ Expected: `0` (no container-level `GH_TOKEN`), `gh has token`, `git auth OK`.
 
 **Spec coverage:**
 - Repo-scoped mint (`contents`+PR) → Task 1. ✅
+- Remove unused `getInstallationToken` + dead host-side `clone.ts` → Task 4b. ✅
 - `gh hosts.yml` single source, token via env not argv → Task 2. ✅
 - Session-gated, ref-counted, 45m/5m refresh, non-blocking failure → Task 3. ✅
 - `repoFullName` for scoping; clone tightened; PAT env removed → Task 4. ✅
@@ -898,7 +963,7 @@ Expected: `0` (no container-level `GH_TOKEN`), `gh has token`, `git auth OK`.
 - Testing via `GITHUB_CLIENT_MODE=fake`, no new e2e → covered by unit tasks. ✅
 
 **Deviations from spec (deliberate):**
-- Spec said remove `getInstallationToken()` if unused; it has a live caller (`clone.ts`) and the org rule forbids deleting without asking, so it is **kept**; the scoped variant is added alongside.
+- `getInstallationToken()`'s only caller besides the switched clone was `clone.ts`, which is itself dead (host-side clone superseded by the in-container clone). Both are removed in Task 4b — matching the spec's "remove if unused" and the user's preference to clean up rather than clutter.
 - Spec mentioned "emit a one-line notice to the terminal" — implemented as a single `ws.send` line when the initial mint fails (Task 6d), kept decoupled from the refresher via `acquire`'s boolean return.
 
 **Type consistency:** `getScopedInstallationToken(repoFullName) → { token, expiresAt }` used identically in Tasks 1, 3, 4, 7. `TokenRefresher.acquire/release` signatures match across Tasks 3, 6, 7. `loadRuntimeHandle` return type extended in Task 4 and consumed with the same shape in Task 6. No placeholder steps; every code step shows complete code.
