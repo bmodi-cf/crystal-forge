@@ -134,6 +134,17 @@ describe('getForge', () => {
 });
 
 describe('createForge', () => {
+  it('rejects forge creation by a DEFAULT_USER', async () => {
+    await withCleanDb(async (prisma) => {
+      const consumer = await makeUser(prisma, {
+        email: 'consumer@x.com', name: 'Con Sumer', groups: ['Engineering'], role: 'DEFAULT_USER',
+      });
+      await expect(
+        createForge(consumer, { name: 'Nope', description: '', groups: ['Engineering'] }, fake, fakeDb),
+      ).rejects.toThrow(ForbiddenError);
+    });
+  });
+
   it('creates a Forge AND a GitHub repo AND writes forge.config.json + .env.example AND provisions the per-forge database', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom Reed', groups: ['Engineering'] });

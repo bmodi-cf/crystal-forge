@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { canReadForge, canWriteForge, forgeReadFilter, toAcl } from '@/lib/acl';
+import { canEdit, canReadForge, canWriteForge, forgeReadFilter, toAcl } from '@/lib/acl';
 import { env } from '@/lib/env';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { getGitHubClient } from '@/lib/github/client';
@@ -173,6 +173,10 @@ export async function createForge(
   client: GitHubClient = getGitHubClient(),
   provisioner: DatabaseProvisioner = getDatabaseProvisioner(),
 ): Promise<Forge> {
+  if (!canEdit(currentUser)) {
+    throw new ForbiddenError('Your role cannot create forges');
+  }
+
   // 1. Pre-check name uniqueness in DB (cheaper than going to GitHub first).
   const dup = await prisma.forge.findUnique({ where: { name: input.name } });
   if (dup) {
