@@ -119,6 +119,7 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
     const baseEntry: RuntimeStateEntry = {
       forgeId, slug, status: 'starting',
       containerId: '', port, startedAt, logPath: log,
+      repoFullName: row.repoFullName,
     };
     await mutateState((s) => { s[forgeId] = baseEntry; });
     return { launch: true, entry: baseEntry, repoFullName: row.repoFullName, dbName, role };
@@ -160,10 +161,6 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
         FORGE_BASE_PATH: `/app/${slug}`,
         FORGE_DEV_ORIGINS: env.FORGE_DEV_ORIGINS,
         DATABASE_URL: databaseUrl,
-        // PAT for the agent's own git/gh operations. `gh` reads GH_TOKEN
-        // automatically; container-setup runs `gh auth setup-git` so plain git
-        // does too. Only injected when configured (empty would confuse gh).
-        ...(env.FORGE_GIT_TOKEN ? { GH_TOKEN: env.FORGE_GIT_TOKEN } : {}),
       },
       publish: { hostIp: '127.0.0.1', hostPort: port, containerPort: 3000 },
       volumes: [
@@ -177,7 +174,7 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
     await mutateState((s) => { const e = s[forgeId]; if (e) e.containerId = containerId; });
 
     try {
-      const token = await deps.githubClient.getInstallationToken();
+      const token = (await deps.githubClient.getScopedInstallationToken(repoFullName)).token;
       await deps.setup(deps.containerManager, containerId, { slug, repoFullName, token, logPath: log });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

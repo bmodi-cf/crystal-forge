@@ -12,6 +12,7 @@ import type { ContainerManager, CreateContainerSpec } from '@/lib/runtime/contai
 import { makeRuntimeService } from './runtime';
 import { env } from '@/lib/env';
 import { ForbiddenError } from '@/lib/errors';
+import { loadState } from '@/lib/runtime/state';
 
 let tmp: string;
 let prevHome: string | undefined;
@@ -358,11 +359,12 @@ describe('runtime service', () => {
     }
   });
 
-  it('injects GH_TOKEN into the forge container only when FORGE_GIT_TOKEN is set', async () => {
+  it('does not inject GH_TOKEN and clones with a repo-scoped token, persisting repoFullName', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
       const forge = await makeForge(prisma, {
         name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+        repoFullName: 'own/aquaflow',
       });
       const base = new FakeContainerManager();
       const specs: CreateContainerSpec[] = [];
@@ -374,42 +376,24 @@ describe('runtime service', () => {
         remove: base.remove.bind(base),
         list: base.list.bind(base),
       };
+      const setupCalls: Array<{ slug: string; repoFullName: string; token: string; logPath: string }> = [];
       const prev = env.FORGE_GIT_TOKEN;
       try {
+        // Set a PAT even though it must no longer be injected — this proves
+        // removal, not just absence of configuration.
         env.FORGE_GIT_TOKEN = 'ghp_pilot_token';
-        const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
+        const svc = makeRuntimeService({
+          ...makeFakes(),
+          prisma,
+          containerManager: recording,
+          setup: async (_mgr, _id, opts) => { setupCalls.push(opts); },
+        });
         await svc.startForge(tom, forge.id);
         await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
-        expect(specs[0]?.env?.GH_TOKEN).toBe('ghp_pilot_token');
-      } finally {
-        env.FORGE_GIT_TOKEN = prev;
-      }
-    });
-  });
-
-  it('omits GH_TOKEN from the forge container env when FORGE_GIT_TOKEN is unset', async () => {
-    await withCleanDb(async (prisma) => {
-      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
-      const forge = await makeForge(prisma, {
-        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
-      });
-      const base = new FakeContainerManager();
-      const specs: CreateContainerSpec[] = [];
-      const recording: ContainerManager = {
-        create: (spec) => { specs.push(spec); return base.create(spec); },
-        exec: base.exec.bind(base),
-        inspect: base.inspect.bind(base),
-        stop: base.stop.bind(base),
-        remove: base.remove.bind(base),
-        list: base.list.bind(base),
-      };
-      const prev = env.FORGE_GIT_TOKEN;
-      try {
-        env.FORGE_GIT_TOKEN = undefined;
-        const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
-        await svc.startForge(tom, forge.id);
-        await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
-        expect(specs[0]?.env && 'GH_TOKEN' in specs[0].env).toBe(false);
+        expect(specs[0]?.env).not.toHaveProperty('GH_TOKEN');
+        expect(setupCalls.at(-1)?.token).toBe('fake-scoped-token:own/aquaflow');
+        const state = await loadState();
+        expect(state[forge.id]?.repoFullName).toBe('own/aquaflow');
       } finally {
         env.FORGE_GIT_TOKEN = prev;
       }

@@ -76,6 +76,18 @@ describe('runtime state', () => {
     expect(await loadRuntimeHandle('missing')).toBeNull();
   });
 
+  it('loadRuntimeHandle returns repoFullName when present in state', async () => {
+    await mutateState((s) => {
+      s['f1'] = {
+        forgeId: 'f1', slug: 'aquaflow', status: 'running',
+        containerId: 'c1', port: 3210, startedAt: '2026-07-16T00:00:00Z',
+        logPath: '/tmp/x.log', repoFullName: 'own/aquaflow',
+      };
+    });
+    const h = await loadRuntimeHandle('f1');
+    expect(h).toEqual({ containerId: 'c1', port: 3210, repoFullName: 'own/aquaflow' });
+  });
+
   it('loadState backs up corrupt files and returns empty state', async () => {
     await fs.mkdir(tmp, { recursive: true });
     await fs.writeFile(path.join(tmp, 'state.json'), 'this is not json', 'utf8');

@@ -13,6 +13,8 @@ export type RuntimeStateEntry = {
   port: number;
   startedAt: string; // ISO
   logPath: string;
+  /** "owner/repo" for the forge's GitHub repo; used to scope the in-forge token. Optional for entries written before this feature. */
+  repoFullName?: string;
   setupError?: string;
 };
 
