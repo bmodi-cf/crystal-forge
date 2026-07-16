@@ -9,7 +9,11 @@ describe('setupForgeContainer', () => {
     // Simulate a fresh container: the `test -d .git` (call 1) and
     // `test -d node_modules` (call 11) probes report ABSENT (exit 1) so the
     // clone and install steps actually run; every other step succeeds (exit 0).
-    // (call 5 is the gh-credential-store write inserted after `gh auth setup-git`.)
+    // Call sequence: 1 test -d .git, 2 git clone, 3 remote set-url, 4 write the
+    // gh credential store (must run BEFORE gh auth setup-git — see
+    // container-setup.ts step 1b), 5 gh auth setup-git, 6 .env.local seed,
+    // 7 basePath inject, 8 chmod hook, 9 restart-app.sh, 10 settings.json,
+    // 11 test -d node_modules.
     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1].forEach((code) => m.queueExit(code));
     await setupForgeContainer(m, id, {
       slug: 'acme', repoFullName: 'org/acme', token: 'gh_tok', logPath: '/tmp/acme.log',
@@ -18,6 +22,11 @@ describe('setupForgeContainer', () => {
     expect(cmds.some((c) => c.includes('git clone'))).toBe(true);
     expect(cmds.some((c) => c.includes('remote set-url origin https://github.com/org/acme.git'))).toBe(true);
     expect(cmds.some((c) => c.includes('gh auth setup-git'))).toBe(true); // git credential helper
+    // The gh credential store write must be queued before `gh auth setup-git`.
+    const credWriteIdx = cmds.findIndex((c) => c.includes('/home/forge/.config/gh/hosts.yml'));
+    const setupGitIdx = cmds.findIndex((c) => c.includes('gh auth setup-git'));
+    expect(credWriteIdx).toBeGreaterThanOrEqual(0);
+    expect(credWriteIdx).toBeLessThan(setupGitIdx);
     expect(cmds.some((c) => c.includes('next.config.base.ts'))).toBe(true); // basePath inject
     expect(cmds.some((c) => c === 'pnpm install')).toBe(true);
     expect(cmds.some((c) => c === 'pnpm prisma generate')).toBe(true);

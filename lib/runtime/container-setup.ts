@@ -47,20 +47,27 @@ export async function setupForgeContainer(
     );
   }
 
-  // 1b. Register `gh` as git's credential helper so the agent's own git pull/push
-  //     authenticate via the PAT injected as GH_TOKEN at container creation. The
-  //     helper config is written to ~/.gitconfig on the persistent home volume, so
-  //     it survives restarts. Best-effort (`|| true`): when no token is configured
-  //     gh exits non-zero, which must not abort setup. Runs every start (idempotent)
-  //     so already-cloned forges pick it up too.
-  await exec('sh', ['-c', 'gh auth setup-git || true'], { timeoutMs: QUICK_TIMEOUT_MS });
-
-  // 1c. Seed the gh credential store with the create-time scoped token so git/gh
+  // 1b. Seed the gh credential store with the create-time scoped token so git/gh
   //     work before the session-gated refresher takes over. The refresher
   //     (dashboard side) overwrites this while a conversation is open; when idle
   //     the token simply expires. Container-level GH_TOKEN is intentionally not
-  //     set, so hosts.yml is the sole source for both git and gh.
+  //     set, so config.yml/hosts.yml is the sole source for both git and gh. Must
+  //     run BEFORE `gh auth setup-git`: on gh >= 2.40 (this image runs 2.95.0),
+  //     invoking `gh` against a config dir with no version marker triggers a
+  //     multi-account migration that calls `GET /user` — which an installation
+  //     token can't do — aborting every `gh` call with CowardlyRefusalError.
+  //     Writing the versioned store first means `gh auth setup-git` (and every
+  //     later `gh`/git invocation) sees already-migrated config and never
+  //     attempts that call.
   await writeForgeGitToken(mgr, id, opts.token);
+
+  // 1c. Register `gh` as git's credential helper so the agent's own git pull/push
+  //     authenticate via the token seeded above (and kept fresh by the session-
+  //     gated refresher). The helper config is written to ~/.gitconfig on the
+  //     persistent home volume, so it survives restarts. Best-effort (`|| true`):
+  //     if this ever fails, it must not abort setup. Runs every start (idempotent)
+  //     so already-cloned forges pick it up too.
+  await exec('sh', ['-c', 'gh auth setup-git || true'], { timeoutMs: QUICK_TIMEOUT_MS });
 
   // 2. Seed .env.local from .env.example when present and missing.
   await exec('sh', ['-c',
