@@ -14,11 +14,11 @@ model User {
   email     String   @unique
   name      String
   initials  String
+  role      Role     @default(DEFAULT_USER)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   groups        UserGroup[]
-  roles         UserRole[]
   forges        Forge[]
   conversations Conversation[]
 
@@ -56,18 +56,9 @@ model UserGroup {
 }
 
 enum Role {
-  admin
-}
-
-model UserRole {
-  userId    String   @map("user_id") @db.Uuid
-  role      Role
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@id([userId, role])
-  @@map("user_roles")
+  ADMIN
+  DEVELOPER
+  DEFAULT_USER
 }
 
 enum ForgeTone {
