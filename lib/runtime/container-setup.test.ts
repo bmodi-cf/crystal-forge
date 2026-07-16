@@ -7,9 +7,10 @@ describe('setupForgeContainer', () => {
     const m = new FakeContainerManager();
     const id = await m.create({ name: 'x', image: 'img' });
     // Simulate a fresh container: the `test -d .git` (call 1) and
-    // `test -d node_modules` (call 10) probes report ABSENT (exit 1) so the
+    // `test -d node_modules` (call 11) probes report ABSENT (exit 1) so the
     // clone and install steps actually run; every other step succeeds (exit 0).
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 1].forEach((code) => m.queueExit(code));
+    // (call 5 is the gh-credential-store write inserted after `gh auth setup-git`.)
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1].forEach((code) => m.queueExit(code));
     await setupForgeContainer(m, id, {
       slug: 'acme', repoFullName: 'org/acme', token: 'gh_tok', logPath: '/tmp/acme.log',
     });
@@ -68,6 +69,18 @@ describe('setupForgeContainer', () => {
     });
     const cmds = m.execCalls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
     expect(cmds.some((c) => c === 'pnpm prisma migrate deploy')).toBe(true);
+  });
+
+  it('seeds the gh credential store with the create-time token', async () => {
+    const m = new FakeContainerManager();
+    const id = await m.create({ name: 'x', image: 'img' });
+    await setupForgeContainer(m, id, {
+      slug: 'acme', repoFullName: 'org/acme', token: 'ghs_seed', logPath: '/tmp/acme.log',
+    });
+    const wrote = m.execCalls.find((c) =>
+      c.cmd === 'sh' && c.args.at(-1)?.includes('/home/forge/.config/gh/hosts.yml'));
+    expect(wrote).toBeTruthy();
+    expect(wrote!.opts?.env).toEqual({ FORGE_GH_TOKEN: 'ghs_seed' });
   });
 
   it('throws when a step exits non-zero', async () => {

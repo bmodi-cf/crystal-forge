@@ -1,5 +1,6 @@
 import { CONTAINER_WORKDIR } from './paths';
 import type { ContainerManager, ExecOpts } from './container/types';
+import { writeForgeGitToken } from './gh-credential';
 
 const W = CONTAINER_WORKDIR;
 const CLONE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -53,6 +54,13 @@ export async function setupForgeContainer(
   //     gh exits non-zero, which must not abort setup. Runs every start (idempotent)
   //     so already-cloned forges pick it up too.
   await exec('sh', ['-c', 'gh auth setup-git || true'], { timeoutMs: QUICK_TIMEOUT_MS });
+
+  // 1c. Seed the gh credential store with the create-time scoped token so git/gh
+  //     work before the session-gated refresher takes over. The refresher
+  //     (dashboard side) overwrites this while a conversation is open; when idle
+  //     the token simply expires. Container-level GH_TOKEN is intentionally not
+  //     set, so hosts.yml is the sole source for both git and gh.
+  await writeForgeGitToken(mgr, id, opts.token);
 
   // 2. Seed .env.local from .env.example when present and missing.
   await exec('sh', ['-c',
