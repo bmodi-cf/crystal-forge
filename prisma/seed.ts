@@ -28,10 +28,11 @@ const GROUPS = [
 ] as const;
 
 const USERS = [
-  { email: 'maya.chen@crystalfountains.com',  name: 'Maya Chen',   initials: 'MC', groups: ['Engineering', 'R&D'] },
-  { email: 'tom.reed@crystalfountains.com',   name: 'Tom Reed',    initials: 'TR', groups: ['Operations', 'Service'] },
-  { email: 'alice.green@crystalfountains.com', name: 'Alice Green', initials: 'AG', groups: ['Marketing'] },
-  { email: 'admin@crystalfountains.com',      name: 'Platform Admin', initials: 'PA', groups: [], isAdmin: true },
+  { email: 'maya.chen@crystalfountains.com',  name: 'Maya Chen',   initials: 'MC', groups: ['Engineering', 'R&D'], role: 'DEVELOPER' },
+  { email: 'tom.reed@crystalfountains.com',   name: 'Tom Reed',    initials: 'TR', groups: ['Operations', 'Service'], role: 'DEVELOPER' },
+  { email: 'alice.green@crystalfountains.com', name: 'Alice Green', initials: 'AG', groups: ['Marketing'], role: 'DEVELOPER' },
+  { email: 'sam.viewer@crystalfountains.com', name: 'Sam Viewer',  initials: 'SV', groups: ['Marketing'], role: 'DEFAULT_USER' },
+  { email: 'admin@crystalfountains.com',      name: 'Platform Admin', initials: 'PA', groups: [], role: 'ADMIN' },
 ] as const;
 
 type ForgeSeed = {
@@ -147,7 +148,6 @@ async function main() {
   await prisma.conversation.deleteMany();
   await prisma.forgeGroup.deleteMany();
   await prisma.forge.deleteMany();
-  await prisma.userRole.deleteMany();
   await prisma.userGroup.deleteMany();
   await prisma.account.deleteMany();
   await prisma.session.deleteMany();
@@ -164,15 +164,12 @@ async function main() {
   const userRecords = await Promise.all(
     USERS.map(async (u) => {
       const user = await prisma.user.create({
-        data: { email: u.email, name: u.name, initials: u.initials },
+        data: { email: u.email, name: u.name, initials: u.initials, role: u.role },
       });
       for (const groupName of u.groups) {
         const group = groupByName.get(groupName);
         if (!group) throw new Error(`Unknown group: ${groupName}`);
         await prisma.userGroup.create({ data: { userId: user.id, groupId: group.id } });
-      }
-      if ('isAdmin' in u && u.isAdmin) {
-        await prisma.userRole.create({ data: { userId: user.id, role: 'admin' } });
       }
       return user;
     }),
