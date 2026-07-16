@@ -151,4 +151,35 @@ describe('ws-server (direct streaming)', () => {
     ws.close();
     await vi.waitFor(() => expect(release).toHaveBeenCalledWith('c1'));
   });
+
+  it('releases the token exactly once when ws-close and pty-exit both fire for one session', async () => {
+    const acquire = vi.fn(async () => true);
+    const release = vi.fn(() => {});
+    let exitCb: ((code: number) => void) | null = null;
+    const kill = vi.fn(() => {
+      // Simulate node-pty: kill() causes the child to exit, which later fires onExit.
+      exitCb?.(0);
+    });
+    const { server } = await startServer({
+      loadRuntimeHandle: async () => ({ containerId: 'c1', port: 1, repoFullName: 'own/aquaflow' }),
+      tokenRefresher: { acquire, release },
+      spawnPty: () => ({
+        pid: 1,
+        write: vi.fn(),
+        resize: vi.fn(),
+        onData: vi.fn(),
+        onExit: (cb: (code: number) => void) => { exitCb = cb; },
+        kill,
+      }),
+    });
+    const ws = open(server);
+    await opened(ws);
+    // ws.on('close') calls pty.kill(), which (per the fake above) synchronously
+    // invokes the captured pty.onExit callback -- exercising both teardown paths
+    // for the same session, as real node-pty does asynchronously.
+    ws.close();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith('c1');
+  });
 });

@@ -87,11 +87,18 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
       const active: ActiveSession = { ws, pty, watcher };
       sessions.set(cid, active);
 
+      let tokenReleased = false;
+      const releaseToken = () => {
+        if (tokenReleased) return;
+        tokenReleased = true;
+        if (handle.repoFullName) tokenRefresher.release(handle.containerId);
+      };
+
       pty.onData((chunk) => { try { ws.send(chunk, { binary: false }); } catch { /* socket closed */ } });
       pty.onExit((code) => {
         watcher.stop();
         sessions.delete(cid);
-        tokenRefresher.release(handle.containerId);
+        releaseToken();
         try { ws.close(4000, `pty exit ${code}`); } catch { /* already closed */ }
       });
       ws.on('message', (raw, isBinary) => {
@@ -114,7 +121,7 @@ export function startWsServer(opts: WsServerOpts): Promise<{ stop: () => void; p
         pty.kill();
         watcher.stop();
         sessions.delete(cid);
-        tokenRefresher.release(handle.containerId);
+        releaseToken();
       });
     } catch (err) {
       console.error('[runtime/ws] session setup failed', err);
