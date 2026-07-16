@@ -14,6 +14,7 @@ const user = {
   name: 'Maya Chen',
   email: 'maya@crystalfountains.com',
   initials: 'MC',
+  role: 'DEVELOPER',
 } as SessionUser;
 
 describe('UserMenu', () => {
@@ -29,23 +30,14 @@ describe('UserMenu', () => {
     expect(signOut).toHaveBeenCalledWith({ callbackUrl: '/login' });
   });
 
-  it('shows a "Pending Promotions" link to /promotions for admins', async () => {
-    const adminUser = { ...user, isAdmin: true } as SessionUser;
+  it('does not render a Pending Promotions link (moved to /admin)', async () => {
+    const adminUser = { ...user, isAdmin: true, role: 'ADMIN' } as SessionUser;
     render(<UserMenu user={adminUser} />);
-
-    await userEvent.click(screen.getByRole('button', { name: /maya chen/i }));
-
-    const link = await screen.findByRole('menuitem', { name: /pending promotions/i });
-    expect(link).toHaveAttribute('href', '/promotions');
-  });
-
-  it('does not show "Pending Promotions" for non-admins', async () => {
-    render(<UserMenu user={user} />);
 
     await userEvent.click(screen.getByRole('button', { name: /maya chen/i }));
 
     // Wait for the menu to open by asserting a known item is present first.
     await screen.findByText('Logout');
-    expect(screen.queryByText('Pending Promotions')).not.toBeInTheDocument();
+    expect(screen.queryByText(/pending promotions/i)).not.toBeInTheDocument();
   });
 });

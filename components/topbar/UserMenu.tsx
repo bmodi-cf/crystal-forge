@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { signOut } from 'next-auth/react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -9,12 +8,11 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuLinkItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { SessionUser } from '@/lib/services/types';
-import { ChevronDown, LogOut, UserCircle, Bell, HelpCircle, ShieldCheck } from 'lucide-react';
+import { ChevronDown, LogOut, UserCircle, Bell, HelpCircle } from 'lucide-react';
 
 export function UserMenu({ user }: { user: SessionUser }) {
   return (
@@ -36,16 +34,6 @@ export function UserMenu({ user }: { user: SessionUser }) {
           <DropdownMenuItem className="gap-2.5"><Bell className="h-3.5 w-3.5" /> Notifications</DropdownMenuItem>
           <DropdownMenuItem className="gap-2.5"><HelpCircle className="h-3.5 w-3.5" /> Help & support</DropdownMenuItem>
         </DropdownMenuGroup>
-        {user.isAdmin && (
-          <>
-            <DropdownMenuSeparator className="bg-border" />
-            <DropdownMenuGroup>
-              <DropdownMenuLinkItem className="gap-2.5" render={<Link href="/promotions" />}>
-                <ShieldCheck className="h-3.5 w-3.5" /> Pending Promotions
-              </DropdownMenuLinkItem>
-            </DropdownMenuGroup>
-          </>
-        )}
         <DropdownMenuSeparator className="bg-border" />
         <DropdownMenuGroup>
           <DropdownMenuItem
