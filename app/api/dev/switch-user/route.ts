@@ -18,13 +18,19 @@ export async function POST(req: Request) {
   if (!session) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }
+  // Auth.js prefixes the session cookie with `__Secure-` and marks it Secure
+  // whenever it runs in a secure context (an https AUTH_URL). The dev-login
+  // cookie must use the SAME name/flag or `auth()` won't find it — e.g. on the
+  // https pilot, a plain `authjs.session-token` is silently ignored.
+  const useSecure = (process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? '').startsWith('https://');
+  const cookieName = useSecure ? '__Secure-authjs.session-token' : 'authjs.session-token';
   const res = NextResponse.json({ ok: true });
-  res.cookies.set('authjs.session-token', session.sessionToken, {
+  res.cookies.set(cookieName, session.sessionToken, {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
     expires: session.expires,
-    secure: process.env.NODE_ENV === 'production',
+    secure: useSecure,
   });
   return res;
 }
