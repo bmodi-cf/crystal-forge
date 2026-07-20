@@ -1,7 +1,7 @@
 # Reconnect surviving forges on dashboard restart
 
 **Date:** 2026-07-20
-**Status:** Design approved, pending implementation plan
+**Status:** Implemented on `dev` 2026-07-20 (unit-tested; pending pilot 2-on/2-off e2e)
 
 ## Problem
 

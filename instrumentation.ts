@@ -1,11 +1,28 @@
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   if (process.env.NODE_ENV === 'test') return;
-  const { bootCleanup, startLivenessLoop } = await import('./lib/runtime/runner');
+  const { reconcileForges, startLivenessLoop } = await import('./lib/runtime/runner');
   const { startWsServer } = await import('./lib/runtime/ws-server');
   const { env } = await import('./lib/env');
-  try { await bootCleanup(); }
-  catch (err) { console.error('[instrumentation] bootCleanup failed', err); }
+
+  // Reconcile persisted runtime state against Docker so forges that survived a
+  // dashboard restart are adopted back as running (reachable immediately via
+  // the file-backed proxy/HMR lookups), while dead containers and stale entries
+  // are cleaned up. forgeLookup resolves an orphan container's forgeId to its
+  // slug + repo from the DB — the canonical source, not the container name.
+  try {
+    const { prisma } = await import('./lib/prisma');
+    const { slugifyForgeName } = await import('./lib/github/slug');
+    await reconcileForges({
+      forgeLookup: async (forgeId) => {
+        const row = await prisma.forge.findUnique({
+          where: { id: forgeId },
+          select: { name: true, repoFullName: true },
+        });
+        return row ? { slug: slugifyForgeName(row.name), repoFullName: row.repoFullName } : null;
+      },
+    });
+  } catch (err) { console.error('[instrumentation] reconcileForges failed', err); }
 
   // Harden the dashboard's own database: it is created by docker-compose /
   // migrations (not via the provisioner), so it keeps Postgres' default PUBLIC

@@ -69,9 +69,20 @@ export class DockerContainerManager implements ContainerManager {
   }
 
   async inspect(id: string): Promise<ContainerStatus> {
+    // One call yields both the running state and the published 3000/tcp host
+    // port. `with index ...` guards the nil case: containers with no binding
+    // print an empty second field rather than erroring the template.
+    const tmpl =
+      '{{.State.Running}}|{{with index .NetworkSettings.Ports "3000/tcp"}}{{(index . 0).HostPort}}{{end}}';
     try {
-      const out = (await this.capture('docker', ['inspect', '-f', '{{.State.Running}}', id])).trim();
-      return { exists: true, running: out === 'true' };
+      const out = (await this.capture('docker', ['inspect', '-f', tmpl, id])).trim();
+      const [runningStr = '', portStr = ''] = out.split('|');
+      const port = portStr ? Number(portStr) : NaN;
+      return {
+        exists: true,
+        running: runningStr === 'true',
+        ...(Number.isFinite(port) ? { port } : {}),
+      };
     } catch {
       return { exists: false, running: false };
     }

@@ -38,6 +38,9 @@ export type ExecOpts = {
 export type ContainerStatus = {
   exists: boolean;
   running: boolean;
+  /** Published host port bound to container port 3000/tcp, if any. Only the
+   *  reconcile orphan-adopt path reads this; other callers ignore it. */
+  port?: number;
 };
 
 export type ContainerSummary = {

@@ -1,19 +1,94 @@
-import { loadState, mutateState } from './state';
+import { loadState, mutateState, saveState } from './state';
 import { getContainerManager } from './container';
 import type { ContainerManager } from './container/types';
+import { logPath } from './paths';
+import type { RuntimeStateFile } from './types';
 
 const FORGE_LABEL = 'crystal-forge.forgeId';
 
-export type BootCleanupDeps = { containerManager?: ContainerManager };
+/**
+ * DB-backed lookup used only when adopting a running container that has no
+ * state entry. Returns the forge's slug + repo, or null if the forge no longer
+ * exists (deleted). The DB is the canonical source — the `forge-<slug>`
+ * container name is not trusted for this.
+ */
+export type ForgeLookup = (
+  forgeId: string,
+) => Promise<{ slug: string; repoFullName: string } | null>;
 
-export async function bootCleanup(deps: BootCleanupDeps = {}): Promise<void> {
+export type ReconcileDeps = {
+  containerManager?: ContainerManager;
+  forgeLookup?: ForgeLookup;
+  now?: () => Date;
+};
+
+/**
+ * Reconcile persisted runtime state against what Docker actually has, treating
+ * Docker as the source of truth. Replaces the old destroy-everything
+ * bootCleanup: forge containers that survived the dashboard going away are
+ * adopted back as `running` (and become reachable via the file-backed
+ * proxy/HMR lookups), while genuinely-dead containers and stale state entries
+ * are cleaned up. Runs in register() before the server serves and before any
+ * new forge start, so adopted ports are recorded first and allocatePort cannot
+ * collide with them.
+ */
+export async function reconcileForges(deps: ReconcileDeps = {}): Promise<void> {
   const mgr = deps.containerManager ?? getContainerManager();
+  const forgeLookup = deps.forgeLookup ?? (async () => null);
+  const now = deps.now ?? (() => new Date());
+
+  const safeRemove = async (id: string) => {
+    try { await mgr.remove(id); }
+    catch (err) { console.error('[runtime/reconcileForges] remove failed', { id, err }); }
+  };
+
   const containers = await mgr.list({ label: FORGE_LABEL });
+  const state = await loadState();
+
+  // Build the reconciled file from scratch: any state entry not re-added below
+  // (i.e. whose forgeId matches no surviving running container) is dropped.
+  const reconciled: RuntimeStateFile = {};
+
   for (const c of containers) {
-    try { await mgr.remove(c.id); }
-    catch (err) { console.error('[runtime/bootCleanup] remove failed', { id: c.id, err }); }
+    const forgeId = c.labels[FORGE_LABEL];
+    if (!forgeId) continue; // labelled but value missing — nothing to key on
+
+    const status = await mgr.inspect(c.id);
+
+    // Not running → exited leftover. Remove it; drop any matching entry.
+    if (!status.running) {
+      await safeRemove(c.id);
+      continue;
+    }
+
+    const existing = state[forgeId];
+    if (existing) {
+      // Keep the entry; Docker is the source of truth for containerId + status.
+      // Port stays from the entry (inspect isn't consulted for it here).
+      reconciled[forgeId] = { ...existing, containerId: c.id, status: 'running' };
+      continue;
+    }
+
+    // Running but no entry (state lost/corrupt/wiped) → adopt from the DB.
+    const looked = await forgeLookup(forgeId);
+    if (!looked) {
+      // Forge deleted — cannot safely serve an unknown forge.
+      await safeRemove(c.id);
+      continue;
+    }
+    reconciled[forgeId] = {
+      forgeId,
+      slug: looked.slug,
+      repoFullName: looked.repoFullName,
+      status: 'running',
+      containerId: c.id,
+      port: status.port ?? 0,
+      startedAt: now().toISOString(),
+      logPath: logPath(looked.slug),
+    };
   }
-  await mutateState((s) => { for (const k of Object.keys(s)) delete s[k]; });
+
+  await saveState(reconciled);
 }
 
 export type LivenessDeps = {

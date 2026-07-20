@@ -38,7 +38,9 @@ export class FakeContainerManager implements ContainerManager {
 
   async inspect(id: string): Promise<ContainerStatus> {
     const e = this.containers.get(id);
-    return { exists: !!e, running: !!e?.running };
+    if (!e) return { exists: false, running: false };
+    const port = e.spec.publish?.hostPort;
+    return { exists: true, running: e.running, ...(port !== undefined ? { port } : {}) };
   }
 
   async stop(id: string): Promise<void> {
