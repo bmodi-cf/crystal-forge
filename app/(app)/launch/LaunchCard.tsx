@@ -24,13 +24,27 @@ export function LaunchCard({ forge, slug }: Props) {
         // The hero image lives inside the forge's own repo (public/splash-logo.png) and
         // is served by the running forge itself, proxied at /app/{slug}/ — not a static
         // asset of this app, so next/image's local-asset optimizer doesn't apply here.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={`/app/${slug}/splash-logo.png`}
-          alt=""
-          onError={() => setImageFailed(true)}
-          className="h-40 w-full object-cover"
-        />
+        //
+        // Splash images ship at whatever aspect ratio each forge chose (we've seen 3:2,
+        // 16:9, 2.5:1), and their titles/branding are baked into the pixels — so `cover`
+        // would crop exactly the text that matters. We give every card the same 16:9 box
+        // and `contain` the whole image inside it (nothing clipped), then fill the
+        // letterbox with a blurred, cover-scaled copy of the same image (a CSS background,
+        // so it's the same cached fetch — no second request) to keep the full-bleed look.
+        <div className="relative aspect-[16/9] w-full overflow-hidden bg-panel-2">
+          <div
+            aria-hidden
+            className="absolute inset-0 scale-110 bg-cover bg-center opacity-60 blur-xl"
+            style={{ backgroundImage: `url(/app/${slug}/splash-logo.png)` }}
+          />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/app/${slug}/splash-logo.png`}
+            alt=""
+            onError={() => setImageFailed(true)}
+            className="relative h-full w-full object-contain"
+          />
+        </div>
       )}
       <div className="flex flex-1 flex-col justify-end p-6">
         <h3 className="break-words text-4xl font-bold tracking-tight">{forge.name}</h3>
