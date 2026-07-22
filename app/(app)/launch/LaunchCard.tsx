@@ -48,16 +48,9 @@ export function LaunchCard({ forge, slug }: Props) {
       )}
       <div className="flex flex-1 flex-col justify-end p-6">
         <h3 className="break-words text-4xl font-bold tracking-tight">{forge.displayName || forge.name}</h3>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {forge.groups.map((g, i) => (
-            <span
-              key={g}
-              className={`rounded-md border border-border bg-white/[0.04] px-2 py-1 text-[11px] font-medium text-ink-dim ${i === 0 ? 'border-gold/30 bg-gold/[0.1] text-gold-soft' : ''}`}
-            >
-              {g}
-            </span>
-          ))}
-        </div>
+        <p className="mt-3 text-sm leading-relaxed text-ink-dim">
+          {forge.description ?? 'No description.'}
+        </p>
       </div>
     </a>
   );
