@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      git ca-certificates python3 build-essential procps coreutils jq tmux wget \
+      git ca-certificates python3 build-essential procps coreutils jq tmux wget poppler-utils \
  && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI (`gh`) — not in Debian's default repos, so add the official apt
