@@ -13,9 +13,9 @@ const ALL_GROUPS = [
 const FORGE: Forge = {
   id: 'forge-1',
   name: 'Aquaflow',
+  displayName: null,
   description: 'Hydraulics',
   tone: 'navy',
-  initials: 'AQ',
   groups: ['Engineering'],
   createdBy: { id: 'u1', name: 'Tom' },
   createdAt: '2026-01-01T00:00:00Z',

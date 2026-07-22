@@ -9,7 +9,6 @@ import { ForgeCardRuntime, ForgeRuntimeActions, RuntimeStatus, type RuntimeActio
 import { RequestPromotionDialog, type BumpLevel } from './RequestPromotionDialog';
 import { usePromotion } from './usePromotion';
 import type { RuntimeStateView } from '@/lib/runtime/types';
-import { TONE_CLASSES } from '@/components/forge-tone';
 
 type Props = {
   forge: Forge;
@@ -23,6 +22,7 @@ type Props = {
 export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, onDelete }: Props) {
   const [promoOpen, setPromoOpen] = useState(false);
   const { promotion, currentVersion, refetch: refetchPromotion } = usePromotion(forge.id);
+  const label = forge.displayName || forge.name;
 
   async function submitPromotion(bump: BumpLevel) {
     const res = await fetch(`/api/forges/${forge.id}/promotion`, {
@@ -46,11 +46,8 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
         <div className="flex gap-3.5">
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex gap-3.5">
-              <div className={`grid h-11 w-11 shrink-0 self-start place-items-center rounded-[10px] border text-base font-bold ${TONE_CLASSES[forge.tone]}`}>
-                {forge.initials}
-              </div>
               <div className="min-w-0 flex-1">
-                <h3 className="truncate text-base font-semibold tracking-tight">{forge.name}</h3>
+                <h3 className="truncate text-base font-semibold tracking-tight">{label}</h3>
                 <div className="truncate text-[11px] text-ink-faint">{forge.createdBy.name}</div>
               </div>
             </div>
@@ -61,7 +58,7 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
           <Link
             href={`/forges/${forge.id}`}
             onClick={() => { if (canWrite) void onRuntimeAction(forge, 'start'); }}
-            aria-label={`Open Claude Code Workspace for ${forge.name}`}
+            aria-label={`Open Claude Code Workspace for ${label}`}
             className="grid h-[72px] w-[88px] shrink-0 place-items-center gap-1 rounded-[10px] border border-[#4ad28b]/40 bg-[#4ad28b]/10 text-[#4ad28b] transition hover:border-[#4ad28b]/60 hover:bg-[#4ad28b]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4ad28b]/60"
           >
             <span className="text-center text-[10px] font-medium leading-[1.15]">Claude Code Workspace</span>
@@ -96,7 +93,7 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
           {onEdit ? (
             <button
               type="button"
-              aria-label={`Edit ${forge.name}`}
+              aria-label={`Edit ${label}`}
               onClick={() => onEdit(forge)}
               className="shrink-0 self-end rounded-md p-1.5 text-ink-dim transition hover:bg-panel-3 hover:text-ink"
             >
@@ -108,7 +105,7 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
 
       {/* Control — Release / Git / Delete (runtime actions moved to the top section) */}
       <ForgeCardRuntime
-        forgeName={forge.name}
+        forgeName={label}
         canWrite={canWrite}
         repoUrl={forge.repoUrl}
         onDelete={onDelete ? () => onDelete(forge) : undefined}
@@ -119,7 +116,7 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
       <RequestPromotionDialog
         open={promoOpen}
         onOpenChange={setPromoOpen}
-        forgeName={forge.name}
+        forgeName={label}
         currentVersion={currentVersion}
         onConfirm={submitPromotion}
       />

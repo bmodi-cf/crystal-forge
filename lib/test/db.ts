@@ -95,7 +95,6 @@ export async function makeForge(
   const forge = await prisma.forge.create({
     data: {
       name: data.name,
-      initials: data.name.slice(0, 2).toUpperCase(),
       tone: 'navy',
       createdById: data.createdById,
       repoFullName,

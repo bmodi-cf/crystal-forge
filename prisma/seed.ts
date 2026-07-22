@@ -39,21 +39,20 @@ type ForgeSeed = {
   name: string;
   description: string;
   tone: ForgeTone;
-  initials: string;
   groups: readonly string[];
   createdByEmail: string;
 };
 
 const FORGES: ForgeSeed[] = [
-  { name: 'Aquaflow Designer', description: 'Hydraulic modeling and nozzle simulation toolkit for fountain projects.', tone: 'navy', initials: 'AD', groups: ['Engineering', 'R&D'], createdByEmail: 'maya.chen@crystalfountains.com' },
-  { name: 'Site Survey Pro',   description: 'Field-data capture for onsite installation teams. Photo, sketch, GPS.', tone: 'gold', initials: 'SS', groups: ['Operations', 'Service'], createdByEmail: 'tom.reed@crystalfountains.com' },
-  { name: 'QuoteBuilder',      description: 'Generate detailed customer quotes from BOM templates and pricing rules.', tone: 'navy', initials: 'QB', groups: ['Sales', 'Finance'], createdByEmail: 'tom.reed@crystalfountains.com' },
-  { name: 'Maintenance Hub',   description: 'Service ticket dispatch, schedules, and parts ordering for installed sites.', tone: 'grey', initials: 'MH', groups: ['Service', 'Operations'], createdByEmail: 'tom.reed@crystalfountains.com' },
-  { name: 'BrandKit Manager',  description: 'Centralised assets, brand guidelines and approved imagery.', tone: 'gold', initials: 'BK', groups: ['Marketing'], createdByEmail: 'alice.green@crystalfountains.com' },
-  { name: 'PeoplePulse',       description: 'Employee onboarding, PTO requests and internal directory.', tone: 'navy', initials: 'PP', groups: ['HR'], createdByEmail: 'admin@crystalfountains.com' },
-  { name: 'Forge Labs',        description: 'Sandbox environment for prototyping new internal tooling.', tone: 'grey', initials: 'FL', groups: ['Engineering', 'R&D'], createdByEmail: 'maya.chen@crystalfountains.com' },
-  { name: 'InvoiceBridge',     description: 'Sync customer invoices between Crystal ERP and external accounting.', tone: 'navy', initials: 'IB', groups: ['Finance'], createdByEmail: 'tom.reed@crystalfountains.com' },
-  { name: 'Showcase Gallery',  description: 'Public-facing project portfolio with case studies and renders.', tone: 'grey', initials: 'SG', groups: ['Marketing', 'Sales'], createdByEmail: 'alice.green@crystalfountains.com' },
+  { name: 'Aquaflow Designer', description: 'Hydraulic modeling and nozzle simulation toolkit for fountain projects.', tone: 'navy', groups: ['Engineering', 'R&D'], createdByEmail: 'maya.chen@crystalfountains.com' },
+  { name: 'Site Survey Pro',   description: 'Field-data capture for onsite installation teams. Photo, sketch, GPS.', tone: 'gold', groups: ['Operations', 'Service'], createdByEmail: 'tom.reed@crystalfountains.com' },
+  { name: 'QuoteBuilder',      description: 'Generate detailed customer quotes from BOM templates and pricing rules.', tone: 'navy', groups: ['Sales', 'Finance'], createdByEmail: 'tom.reed@crystalfountains.com' },
+  { name: 'Maintenance Hub',   description: 'Service ticket dispatch, schedules, and parts ordering for installed sites.', tone: 'grey', groups: ['Service', 'Operations'], createdByEmail: 'tom.reed@crystalfountains.com' },
+  { name: 'BrandKit Manager',  description: 'Centralised assets, brand guidelines and approved imagery.', tone: 'gold', groups: ['Marketing'], createdByEmail: 'alice.green@crystalfountains.com' },
+  { name: 'PeoplePulse',       description: 'Employee onboarding, PTO requests and internal directory.', tone: 'navy', groups: ['HR'], createdByEmail: 'admin@crystalfountains.com' },
+  { name: 'Forge Labs',        description: 'Sandbox environment for prototyping new internal tooling.', tone: 'grey', groups: ['Engineering', 'R&D'], createdByEmail: 'maya.chen@crystalfountains.com' },
+  { name: 'InvoiceBridge',     description: 'Sync customer invoices between Crystal ERP and external accounting.', tone: 'navy', groups: ['Finance'], createdByEmail: 'tom.reed@crystalfountains.com' },
+  { name: 'Showcase Gallery',  description: 'Public-facing project portfolio with case studies and renders.', tone: 'grey', groups: ['Marketing', 'Sales'], createdByEmail: 'alice.green@crystalfountains.com' },
 ];
 
 async function provisionForgeArtifacts(
@@ -188,7 +187,6 @@ async function main() {
         name: f.name,
         description: f.description,
         tone: f.tone,
-        initials: f.initials,
         repoFullName,
         createdById: creator.id,
       },

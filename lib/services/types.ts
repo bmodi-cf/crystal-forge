@@ -14,9 +14,9 @@ export type SessionUser = {
 export type Forge = {
   id: string;
   name: string;
+  displayName: string | null;
   description: string | null;
   tone: ForgeTone;
-  initials: string;
   groups: string[];
   createdBy: { id: string; name: string };
   createdAt: string; // ISO

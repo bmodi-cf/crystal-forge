@@ -37,6 +37,7 @@ const createSchema = z.object({
 });
 
 const editSchema = z.object({
+  displayName: z.string().trim().max(120, 'Max 120 characters').optional().or(z.literal('')),
   description: z.string().trim().max(500, 'Max 500 characters').optional().or(z.literal('')),
   groups: z.array(z.string().min(1)).min(1, 'Pick at least one group'),
 });
@@ -167,6 +168,7 @@ function EditModal(
 ): React.ReactElement {
   const { open, allGroups, myGroups, isAdmin, forge, onCancel, onSaved } = props;
   const initial: EditValues = {
+    displayName: forge.displayName ?? '',
     description: forge.description ?? '',
     groups: forge.groups,
   };
@@ -189,6 +191,7 @@ function EditModal(
 
   async function onSubmit(values: EditValues) {
     const body = JSON.stringify({
+      displayName: values.displayName || null,
       description: values.description || null,
       groups: values.groups,
     });
@@ -222,11 +225,24 @@ function EditModal(
 
         <form className="flex flex-col gap-4" onSubmit={handleSubmit(onSubmit)} noValidate>
           <div className="flex flex-col gap-1.5">
-            <Label>Name</Label>
+            <Label htmlFor="forge-display-name">Display name</Label>
+            <Input
+              id="forge-display-name"
+              autoFocus
+              placeholder={forge.name}
+              {...register('displayName')}
+              aria-invalid={!!errors.displayName}
+            />
+            {errors.displayName && <p className="text-xs text-[#ff9f9f]">{errors.displayName.message}</p>}
+            <p className="text-[11px] text-ink-faint">Shown on cards. Leave blank to use the internal name.</p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Internal name</Label>
             <div className="rounded-md border border-border bg-white/[0.02] px-3 py-2 text-sm text-ink-dim">
               {forge.name}
             </div>
-            <p className="text-[11px] text-ink-faint">Forge names are immutable.</p>
+            <p className="text-[11px] text-ink-faint">Used for the forge URL; immutable.</p>
           </div>
 
           <div className="flex flex-col gap-1.5">

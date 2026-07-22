@@ -12,9 +12,9 @@ vi.mock('next/link', () => ({
 const forge: Forge = {
   id: 'forge-1',
   name: 'Aquaflow Designer',
+  displayName: null,
   description: 'Hydraulic modeling toolkit.',
   tone: 'navy',
-  initials: 'AD',
   groups: ['Engineering', 'R&D'],
   createdBy: { id: 'tom', name: 'Tom Reed' },
   createdAt: '2026-01-01T00:00:00Z',
@@ -24,13 +24,25 @@ const forge: Forge = {
 };
 
 describe('ForgeCard', () => {
-  it('renders name, description, initials, and groups', () => {
+  it('renders name, description, and groups', () => {
     render(<ForgeCard forge={forge} canWrite runtime={null} onRuntimeAction={() => {}} />);
     expect(screen.getByText('Aquaflow Designer')).toBeInTheDocument();
     expect(screen.getByText('Hydraulic modeling toolkit.')).toBeInTheDocument();
-    expect(screen.getByText('AD')).toBeInTheDocument();
     expect(screen.getByText('Engineering')).toBeInTheDocument();
     expect(screen.getByText('R&D')).toBeInTheDocument();
+  });
+
+  it('prefers displayName over name when set', () => {
+    render(
+      <ForgeCard
+        forge={{ ...forge, displayName: 'Aquaflow' }}
+        canWrite
+        runtime={null}
+        onRuntimeAction={() => {}}
+      />,
+    );
+    expect(screen.getByText('Aquaflow')).toBeInTheDocument();
+    expect(screen.queryByText('Aquaflow Designer')).not.toBeInTheDocument();
   });
 
   it('renders a "View on GitHub" link pointing at repoUrl', () => {

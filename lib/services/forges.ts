@@ -112,9 +112,9 @@ function toDto(row: ForgeWithRelations): Forge {
   return {
     id: row.id,
     name: row.name,
+    displayName: row.displayName,
     description: row.description,
     tone: row.tone,
-    initials: row.initials,
     groups: row.groups.map((fg) => fg.group.name),
     createdBy: { id: row.createdBy.id, name: row.createdBy.name },
     createdAt: row.createdAt.toISOString(),
@@ -145,17 +145,6 @@ export async function getForge(currentUser: SessionUser, id: string): Promise<Fo
     throw new ForbiddenError(`Cannot read forge ${id}`);
   }
   return toDto(row);
-}
-
-function deriveInitials(name: string): string {
-  const cleaned = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part[0]!)
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-  return cleaned || 'F';
 }
 
 /**
@@ -273,7 +262,6 @@ export async function createForge(
         data: {
           name: input.name,
           description,
-          initials: deriveInitials(input.name),
           createdById: currentUser.id,
           repoFullName: created.fullName,
           groups: { create: groupRows.map((g) => ({ groupId: g.id })) },
@@ -303,6 +291,10 @@ export async function updateForge(
     }
 
     const data: Prisma.ForgeUpdateInput = {};
+    if (input.displayName !== undefined) {
+      const trimmed = input.displayName?.trim() ?? null;
+      data.displayName = trimmed && trimmed.length > 0 ? trimmed : null;
+    }
     if (input.description !== undefined) {
       const trimmed = input.description?.trim() ?? null;
       data.description = trimmed && trimmed.length > 0 ? trimmed : null;

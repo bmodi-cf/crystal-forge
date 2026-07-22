@@ -6,9 +6,9 @@ import type { Forge } from '@/lib/services/types';
 const forge: Forge = {
   id: 'forge-1',
   name: 'Aquaflow Designer',
+  displayName: null,
   description: 'Hydraulic modeling toolkit.',
   tone: 'navy',
-  initials: 'AD',
   groups: ['Engineering', 'R&D'],
   createdBy: { id: 'tom', name: 'Tom Reed' },
   createdAt: '2026-01-01T00:00:00Z',

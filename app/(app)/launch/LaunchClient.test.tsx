@@ -17,9 +17,9 @@ function makeForge(id: string, name: string): Forge {
   return {
     id,
     name,
+    displayName: null,
     description: null,
     tone: 'navy',
-    initials: name.slice(0, 2).toUpperCase(),
     groups: ['Engineering'],
     createdBy: { id: 'tom', name: 'Tom Reed' },
     createdAt: '2026-01-01T00:00:00Z',

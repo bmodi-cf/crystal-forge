@@ -17,7 +17,7 @@ export function LaunchCard({ forge, slug }: Props) {
       href={`/app/${slug}/`}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={`Open ${forge.name}`}
+      aria-label={`Open ${forge.displayName || forge.name}`}
       className="group flex flex-col overflow-hidden rounded-[14px] border border-border bg-panel transition hover:-translate-y-1 hover:border-border-strong hover:bg-panel-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
     >
       {!imageFailed && (
@@ -47,7 +47,7 @@ export function LaunchCard({ forge, slug }: Props) {
         </div>
       )}
       <div className="flex flex-1 flex-col justify-end p-6">
-        <h3 className="break-words text-4xl font-bold tracking-tight">{forge.name}</h3>
+        <h3 className="break-words text-4xl font-bold tracking-tight">{forge.displayName || forge.name}</h3>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {forge.groups.map((g, i) => (
             <span

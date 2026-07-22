@@ -24,6 +24,12 @@ export const createForgeInput = z.object({
 export type CreateForgeInput = z.infer<typeof createForgeInput>;
 
 export const updateForgeInput = z.object({
+  displayName: z
+    .string()
+    .trim()
+    .max(120, 'Max 120 characters')
+    .nullable()
+    .optional(),
   description: z
     .string()
     .trim()

@@ -78,7 +78,7 @@ export function DashboardClient({ initialForges, allGroups, myGroups, isAdmin, c
         const payload = await res.json().catch(() => ({}));
         throw new Error(payload?.error ?? `Delete failed (${res.status})`);
       }
-      toast.success(`Deleted “${target.name}”.`);
+      toast.success(`Deleted “${target.displayName || target.name}”.`);
       setDeleting(null);
       router.refresh();
     } catch (err) {

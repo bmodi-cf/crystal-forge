@@ -33,7 +33,7 @@ export default async function ForgePage(
 
   return (
     <ForgePageClient
-      forge={{ id: forge.id, name: forge.name, createdBy: forge.createdBy }}
+      forge={{ id: forge.id, name: forge.displayName || forge.name, createdBy: forge.createdBy }}
       runtime={runtime}
       canWrite={canWrite}
       currentUserId={session.user.id}

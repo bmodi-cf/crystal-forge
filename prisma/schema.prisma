@@ -70,9 +70,9 @@ enum ForgeTone {
 model Forge {
   id           String    @id @default(uuid()) @db.Uuid
   name         String    @unique
+  displayName  String?   @map("display_name")
   description  String?
   tone         ForgeTone @default(navy)
-  initials     String
   repoFullName String    @unique @map("repo_full_name")
   createdById  String    @map("created_by") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
