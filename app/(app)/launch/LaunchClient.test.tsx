@@ -19,7 +19,6 @@ function makeForge(id: string, name: string): Forge {
     name,
     displayName: null,
     description: null,
-    tone: 'navy',
     groups: ['Engineering'],
     createdBy: { id: 'tom', name: 'Tom Reed' },
     createdAt: '2026-01-01T00:00:00Z',

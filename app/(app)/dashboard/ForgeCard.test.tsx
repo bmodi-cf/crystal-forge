@@ -14,7 +14,6 @@ const forge: Forge = {
   name: 'Aquaflow Designer',
   displayName: null,
   description: 'Hydraulic modeling toolkit.',
-  tone: 'navy',
   groups: ['Engineering', 'R&D'],
   createdBy: { id: 'tom', name: 'Tom Reed' },
   createdAt: '2026-01-01T00:00:00Z',

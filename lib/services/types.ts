@@ -1,4 +1,4 @@
-import type { ForgeTone, MessageRole, Role } from '@prisma/client';
+import type { MessageRole, Role } from '@prisma/client';
 
 export type SessionUser = {
   id: string;
@@ -16,7 +16,6 @@ export type Forge = {
   name: string;
   displayName: string | null;
   description: string | null;
-  tone: ForgeTone;
   groups: string[];
   createdBy: { id: string; name: string };
   createdAt: string; // ISO

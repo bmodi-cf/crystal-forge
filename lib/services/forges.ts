@@ -114,7 +114,6 @@ function toDto(row: ForgeWithRelations): Forge {
     name: row.name,
     displayName: row.displayName,
     description: row.description,
-    tone: row.tone,
     groups: row.groups.map((fg) => fg.group.name),
     createdBy: { id: row.createdBy.id, name: row.createdBy.name },
     createdAt: row.createdAt.toISOString(),
