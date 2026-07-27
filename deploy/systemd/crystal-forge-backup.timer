@@ -1,0 +1,14 @@
+[Unit]
+Description=Nightly Crystal Forge Postgres backup
+Documentation=file:/home/bmodi/work/crystal-forge/scripts/pg-backup.sh
+
+[Timer]
+# Every night at 02:30 local time.
+OnCalendar=*-*-* 02:30:00
+# If the host was off at 02:30 (or missed the exact ISO-week/month-boundary
+# night), run as soon as it's back so no tier gets a hole.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

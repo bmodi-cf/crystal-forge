@@ -1,0 +1,17 @@
+[Unit]
+Description=Crystal Forge Postgres backup (GFS rotation)
+Documentation=file:/usr/local/share/crystal-forge/pg-restore-runbook.md
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+# Per-machine overrides (container name, BACKUP_ROOT, retention). Optional:
+# the leading '-' means "skip if absent" and the script has sane defaults.
+EnvironmentFile=-/etc/default/crystal-forge-backup
+ExecStart=/usr/local/bin/crystal-forge-pg-backup
+# Dumps run inside the pg container; the host just needs docker + write access
+# to BACKUP_ROOT (default /var/backups/crystal-forge). Runs as root (default)
+# so the backup dir is root-owned and unreadable to other users.
+Nice=10
+IOSchedulingClass=idle
