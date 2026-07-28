@@ -13,7 +13,7 @@ import { setupForgeContainer } from '@/lib/runtime/container-setup';
 import { getDatabaseProvisioner } from '@/lib/db/provisioner';
 import type { DatabaseProvisioner } from '@/lib/db/types';
 import { buildScopedDatabaseUrl } from '@/lib/db/url';
-import { probe as defaultProbe } from '@/lib/runtime/probe';
+import { probe as defaultProbe, PROBE_INTERVAL_MS, PROBE_TIMEOUT_MS } from '@/lib/runtime/probe';
 import { mutateState, loadState } from '@/lib/runtime/state';
 import { workspaceVolumeName, claudeVolumeName, CONTAINER_WORKDIR, CLAUDE_HOME, logPath as logPathFor } from '@/lib/runtime/paths';
 import { env } from '@/lib/env';
@@ -41,12 +41,6 @@ export type RuntimeService = {
   getRuntime(currentUser: SessionUser, forgeId: string): Promise<RuntimeStateView | null>;
   listRuntimes(currentUser: SessionUser): Promise<RuntimeStateView[]>;
 };
-
-const PROBE_INTERVAL_MS = 1000;
-// The pilot host has a single vCPU: several forges starting at once can keep a
-// perfectly healthy dev server slower than the per-request probe budget for a
-// long stretch. Give bring-up minutes, not seconds.
-const PROBE_TIMEOUT_MS = 120_000;
 
 export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
   const startInflight = new Map<string, Promise<RuntimeStateEntry>>();

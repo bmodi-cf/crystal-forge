@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadState, saveState, mutateState } from './state';
 import { reconcileForges, makeLivenessChecker } from './runner';
+import { STARTING_TIMEOUT_MS, SETUP_BUDGET_MS, PROBE_TIMEOUT_MS } from './probe';
 import { logPath } from './paths';
 import type { ForgeLookup } from './runner';
 import { FakeContainerManager } from './container/fake-container-manager';
@@ -159,5 +160,96 @@ describe('makeLivenessChecker', () => {
     await check();
     expect((await loadState())['a']?.status).toBe('crashed');
     expect((await containers.inspect(id)).exists).toBe(true);
+  });
+
+  // Regression guard for the drift that shipped in 21b8531: the probe deadline
+  // was raised 30s -> 120s while this backstop stayed a hardcoded 60s, so the
+  // backstop began firing *during* a healthy bring-up and reported a false
+  // `crashed` on every slow start.
+  it('default starting timeout outlasts finishStart’s worst case (setup + probe)', () => {
+    expect(STARTING_TIMEOUT_MS).toBeGreaterThan(SETUP_BUDGET_MS + PROBE_TIMEOUT_MS - 1);
+  });
+
+  it('does NOT crash a starting entry that is still within the default bring-up budget', async () => {
+    const containers = new FakeContainerManager();
+    const id = await containers.create({ name: 'forge-a', image: 'img', labels: { 'crystal-forge.forgeId': 'a' } });
+    await saveState({
+      a: {
+        forgeId: 'a', slug: 'a', status: 'starting', containerId: id, port: 3001,
+        startedAt: '2026-05-09T00:00:00.000Z', logPath: '',
+      },
+    });
+    // Three minutes in — well past the old 60s backstop, but a routine cold
+    // start on a single-vCPU host with several forges compiling at once.
+    const check = makeLivenessChecker({
+      containerManager: containers,
+      now: () => new Date('2026-05-09T00:03:00.000Z'),
+    });
+    await check();
+    expect((await loadState())['a']?.status).toBe('starting');
+  });
+
+  it('heals a crashed entry back to running when its container answers the probe', async () => {
+    const containers = new FakeContainerManager();
+    const id = await containers.create({ name: 'forge-a', image: 'img', labels: { 'crystal-forge.forgeId': 'a' } });
+    await saveState({
+      a: { forgeId: 'a', slug: 'a', status: 'crashed', containerId: id, port: 3001, startedAt: 'x', logPath: '' },
+    });
+    const check = makeLivenessChecker({
+      containerManager: containers,
+      now: () => new Date(),
+      probe: async () => true,
+    });
+    await check();
+    expect((await loadState())['a']?.status).toBe('running');
+  });
+
+  it('leaves a crashed entry crashed while nothing answers the probe', async () => {
+    const containers = new FakeContainerManager();
+    const id = await containers.create({ name: 'forge-a', image: 'img', labels: { 'crystal-forge.forgeId': 'a' } });
+    await saveState({
+      a: { forgeId: 'a', slug: 'a', status: 'crashed', containerId: id, port: 3001, startedAt: 'x', logPath: '' },
+    });
+    const check = makeLivenessChecker({
+      containerManager: containers,
+      now: () => new Date(),
+      probe: async () => false,
+    });
+    await check();
+    expect((await loadState())['a']?.status).toBe('crashed');
+  });
+
+  it('never probes (nor heals) a crashed entry whose container is gone', async () => {
+    const containers = new FakeContainerManager();
+    let probed = false;
+    await saveState({
+      a: { forgeId: 'a', slug: 'a', status: 'crashed', containerId: 'gone', port: 3001, startedAt: 'x', logPath: '' },
+    });
+    const check = makeLivenessChecker({
+      containerManager: containers,
+      now: () => new Date(),
+      probe: async () => { probed = true; return true; },
+    });
+    await check();
+    expect((await loadState())['a']?.status).toBe('crashed');
+    expect(probed).toBe(false);
+  });
+
+  it('does not resurrect a setup-failed entry (genuinely terminal)', async () => {
+    const containers = new FakeContainerManager();
+    const id = await containers.create({ name: 'forge-a', image: 'img', labels: { 'crystal-forge.forgeId': 'a' } });
+    await saveState({
+      a: {
+        forgeId: 'a', slug: 'a', status: 'setup-failed', containerId: id, port: 3001,
+        startedAt: 'x', logPath: '', setupError: 'clone failed',
+      },
+    });
+    const check = makeLivenessChecker({
+      containerManager: containers,
+      now: () => new Date(),
+      probe: async () => true,
+    });
+    await check();
+    expect((await loadState())['a']?.status).toBe('setup-failed');
   });
 });

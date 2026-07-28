@@ -2,6 +2,7 @@ import { loadState, mutateState, saveState } from './state';
 import { getContainerManager } from './container';
 import type { ContainerManager } from './container/types';
 import { logPath } from './paths';
+import { probe as defaultProbe, STARTING_TIMEOUT_MS } from './probe';
 import type { RuntimeStateFile } from './types';
 
 const FORGE_LABEL = 'crystal-forge.forgeId';
@@ -95,37 +96,56 @@ export type LivenessDeps = {
   containerManager?: ContainerManager;
   now?: () => Date;
   startingTimeoutMs?: number;
+  probe?: (port: number) => Promise<boolean>;
 };
 
 export function makeLivenessChecker(deps: LivenessDeps = {}): () => Promise<void> {
   const mgr = deps.containerManager ?? getContainerManager();
   const now = deps.now ?? (() => new Date());
-  const startingTimeoutMs = deps.startingTimeoutMs ?? 60_000;
+  const startingTimeoutMs = deps.startingTimeoutMs ?? STARTING_TIMEOUT_MS;
+  const probeFn = deps.probe ?? defaultProbe;
 
   // Non-destructive: only the status changes. The container is NEVER removed
   // here. An active forge survives dev-server hiccups (the in-container
   // supervisor restarts `pnpm dev`), and a genuinely dead container is left in
   // place so its logs are inspectable and the forge is recoverable. Removal
   // happens only on explicit stopForge.
-  async function markCrashed(forgeId: string) {
-    await mutateState((s) => { const e = s[forgeId]; if (e) e.status = 'crashed'; });
+  async function setStatus(forgeId: string, status: 'crashed' | 'running') {
+    await mutateState((s) => { const e = s[forgeId]; if (e) e.status = status; });
   }
+
+  const isRunning = async (containerId: string | undefined) =>
+    containerId ? (await mgr.inspect(containerId)).running : false;
 
   return async function check(): Promise<void> {
     const state = await loadState();
     for (const entry of Object.values(state)) {
       if (entry.status === 'starting') {
         const ageMs = now().getTime() - new Date(entry.startedAt).getTime();
-        if (ageMs > startingTimeoutMs) await markCrashed(entry.forgeId);
+        if (ageMs > startingTimeoutMs) await setStatus(entry.forgeId, 'crashed');
         continue;
       }
+
+      // `crashed` is a report, not a verdict. finishStart records it when the
+      // probe deadline expires but deliberately keeps the container, so on a
+      // loaded host this is routinely a dev server that simply hadn't bound its
+      // port yet — the in-container supervisor is still working. Re-probe so
+      // such a forge heals itself; otherwise the status is permanent (nothing
+      // else revisits it) and the only recovery is a manual restart that throws
+      // away a container which had, by then, come up fine.
+      if (entry.status === 'crashed') {
+        if (!(await isRunning(entry.containerId))) continue;
+        if (await probeFn(entry.port)) await setStatus(entry.forgeId, 'running');
+        continue;
+      }
+
+      // `setup-failed` is genuinely terminal (the workspace never got built),
+      // and `stopping` is someone else's transition — leave both alone.
       if (entry.status !== 'running') continue;
+
       // A failed HTTP probe is NOT a crash signal — the supervisor restarts the
       // dev server on its own. Only a dead container means the forge is down.
-      const running = entry.containerId
-        ? (await mgr.inspect(entry.containerId)).running
-        : false;
-      if (!running) await markCrashed(entry.forgeId);
+      if (!(await isRunning(entry.containerId))) await setStatus(entry.forgeId, 'crashed');
     }
   };
 }
