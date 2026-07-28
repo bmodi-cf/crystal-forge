@@ -12,7 +12,7 @@ cd "$(dirname "$0")"
 
 # Refuse to run as root. The apt/docker/nginx steps are elevated with sudo
 # below; the pnpm step must run as the checkout owner. Mirrors the root guard in
-# create-forge-systemd.sh and install-gh-runner.sh.
+# deploy/install.sh and install-gh-runner.sh.
 if [ "$(id -u)" -eq 0 ]; then
   echo "error: do not run this with sudo / as root." >&2
   echo "       Run it as the user that owns the checkout, e.g.:" >&2

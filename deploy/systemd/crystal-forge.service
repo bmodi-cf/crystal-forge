@@ -1,0 +1,42 @@
+[Unit]
+Description=Crystal Forge dashboard (custom server: HTTP + forge-HMR WS tunnel)
+Documentation=file:/usr/local/share/crystal-forge/DEPLOY.md
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+# Per-machine paths/ports. Required — the wrappers below need REPO_DIR and
+# NODE_BIN_DIR from it. Installed from deploy/crystal-forge.env.example and never
+# overwritten afterwards. User= comes from a drop-in the installer writes
+# (systemd can't take User=/WorkingDirectory=/ExecStart paths from an env file).
+EnvironmentFile=/etc/default/crystal-forge
+
+# The app listens on loopback only; nginx terminates TLS and proxies to it,
+# including the WebSocket upgrades for /app/<slug>/_next/webpack-hmr.
+#
+# Postgres has no restart policy in docker-compose.yml (deliberately — see that
+# file), so without this an unplanned reboot leaves the dashboard serving 500s
+# against a dead DB. Runs first so it fails in ~60s rather than after the build.
+ExecStartPre=/usr/local/bin/crystal-forge-ensure-postgres
+
+# Rebuild from the working tree before every (re)start. The custom server runs
+# Next with dev:false, which serves the prebuilt .next and never compiles on its
+# own — so without this a bare restart would re-serve a stale build. Mandatory on
+# purpose: a failing build keeps the service down rather than serving stale
+# output. The build can take 1-2 min, during which the service is down, hence the
+# raised start timeout (systemd's default 90s would kill a mid-build start).
+TimeoutStartSec=600
+ExecStartPre=/usr/local/bin/crystal-forge-dashboard build
+
+# Custom server (server.ts via tsx). Replaces `next start` so the dashboard owns
+# the upgrade handler that tunnels forge dev-server HMR.
+ExecStart=/usr/local/bin/crystal-forge-dashboard serve
+
+Restart=always
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

@@ -9,6 +9,12 @@ Type=oneshot
 # Per-machine overrides (container name, BACKUP_ROOT, retention). Optional:
 # the leading '-' means "skip if absent" and the script has sane defaults.
 EnvironmentFile=-/etc/default/crystal-forge-backup
+# The dump runs *inside* the pg container, so a stopped container means a failed
+# backup. Postgres has no docker restart policy (deliberately — see
+# docker-compose.yml), so declare the need here rather than relying on
+# crystal-forge.service having happened to start it first. Idempotent: a healthy
+# container is reused untouched. Shares PG_CONTAINER with the script below.
+ExecStartPre=/usr/local/bin/crystal-forge-ensure-postgres
 ExecStart=/usr/local/bin/crystal-forge-pg-backup
 # Dumps run inside the pg container; the host just needs docker + write access
 # to BACKUP_ROOT (default /var/backups/crystal-forge). Runs as root (default)
