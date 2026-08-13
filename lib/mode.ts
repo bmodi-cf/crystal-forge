@@ -17,3 +17,11 @@ export function isProdMode(): boolean {
 export function devOnlyRouteGuard(): NextResponse | null {
   return isProdMode() ? NextResponse.json({ error: 'Not found' }, { status: 404 }) : null;
 }
+
+/**
+ * Guard for prod-only route handlers: returns a 404 response in dev mode so
+ * the route is inert there, else null (caller proceeds).
+ */
+export function prodOnlyRouteGuard(): NextResponse | null {
+  return isProdMode() ? null : NextResponse.json({ error: 'Not found' }, { status: 404 });
+}

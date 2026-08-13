@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { listDeployments } from '@/lib/services/deployments';
+import { listAvailableVersions } from '@/lib/services/deployments';
 import { prodOnlyRouteGuard } from '@/lib/mode';
 import { respondToServiceError } from '@/lib/http';
 
@@ -12,7 +12,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
-    return NextResponse.json({ deployments: await listDeployments(session.user) });
+    return NextResponse.json({ versions: await listAvailableVersions(session.user) });
   } catch (err) {
     return respondToServiceError(err);
   }
