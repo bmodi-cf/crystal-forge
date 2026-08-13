@@ -45,12 +45,27 @@ describe('deriveRowState', () => {
   });
 
   it('reports stopped when the reconciler says stopped', () => {
-    const row = { ...BASE, phase: 'stopped' as const, runningVersion: 'v1.0.0' };
+    const row = { ...BASE, phase: 'stopped' as const };
     expect(deriveRowState(row, ['v1.0.0'])).toBe('stopped');
   });
 
   it('prefers not-deployed over any snapshot phase', () => {
     const row = { ...BASE, deployEnabled: false, pinnedVersion: null };
     expect(deriveRowState(row, ['v1.0.0'])).toBe('not-deployed');
+  });
+
+  it('reports not-deployed when pinnedVersion is null (independently of deployEnabled)', () => {
+    const row = { ...BASE, deployEnabled: true, pinnedVersion: null, runningVersion: null, phase: null };
+    expect(deriveRowState(row, ['v1.0.0'])).toBe('not-deployed');
+  });
+
+  it('reports not-deployed when deployEnabled is false (independently of pinnedVersion)', () => {
+    const row = { ...BASE, deployEnabled: false, pinnedVersion: 'v1.0.0' };
+    expect(deriveRowState(row, ['v1.0.0'])).toBe('not-deployed');
+  });
+
+  it('reports deploying when stopped and versions disagree', () => {
+    const row = { ...BASE, phase: 'stopped' as const, pinnedVersion: 'v1.1.0', runningVersion: 'v1.0.0' };
+    expect(deriveRowState(row, ['v1.1.0', 'v1.0.0'])).toBe('deploying');
   });
 });
