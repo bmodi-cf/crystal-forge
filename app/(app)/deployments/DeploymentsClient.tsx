@@ -1,36 +1,45 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import type { DeploymentRow } from '@/lib/services/deployments';
+import { deriveRowState, type RowState } from './rowState';
 
-type DeploymentStatus = {
-  forgeId: string;
-  slug: string;
-  name: string;
-  desiredVersion: string;
-  runningVersion: string | null;
-  phase: 'running' | 'failed' | 'stopped';
-  error: string | null;
-  consecutiveFailures: number;
+type VersionMap = Record<string, string[] | null>;
+
+const STATE_LABEL: Record<RowState, string> = {
+  'not-deployed': 'not deployed',
+  'no-image': 'no image',
+  deploying: 'deploying',
+  running: 'running',
+  failed: 'failed',
+  stopped: 'stopped',
 };
 
-const PHASE_CLASS: Record<DeploymentStatus['phase'], string> = {
+const STATE_CLASS: Record<RowState, string> = {
+  'not-deployed': 'text-ink-dim',
+  'no-image': 'text-ink-dim',
+  deploying: 'text-amber-400',
   running: 'text-emerald-400',
   failed: 'text-red-400',
   stopped: 'text-ink-dim',
 };
 
 export function DeploymentsClient() {
-  const [rows, setRows] = useState<DeploymentStatus[]>([]);
+  const [rows, setRows] = useState<DeploymentRow[]>([]);
+  const [versions, setVersions] = useState<VersionMap>({});
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
 
+  // Status poll: every 3s, never touches the registry.
   useEffect(() => {
     let alive = true;
     async function poll() {
       try {
         const res = await fetch('/api/deployments');
-        if (res.ok) {
-          const data = (await res.json()) as { deployments: DeploymentStatus[] };
-          if (alive) setRows(data.deployments);
-        }
+        if (!res.ok) return;
+        const data = (await res.json()) as { deployments: DeploymentRow[] };
+        if (alive) setRows(data.deployments);
       } catch {
         /* keep last known state */
       }
@@ -40,11 +49,39 @@ export function DeploymentsClient() {
     return () => { alive = false; clearInterval(h); };
   }, []);
 
+  // Versions: on mount and after a deploy, on their own cadence.
+  const loadVersions = useCallback(async () => {
+    try {
+      const res = await fetch('/api/deployments/versions');
+      if (!res.ok) return;
+      const data = (await res.json()) as { versions: VersionMap };
+      setVersions(data.versions);
+    } catch {
+      /* leave the previous map in place */
+    }
+  }, []);
+
+  useEffect(() => { void loadVersions(); }, [loadVersions]);
+
+  async function deploy(forgeId: string, version: string) {
+    setBusy((b) => ({ ...b, [forgeId]: true }));
+    try {
+      await fetch(`/api/deployments/${forgeId}/deploy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version }),
+      });
+      await loadVersions();
+    } finally {
+      setBusy((b) => ({ ...b, [forgeId]: false }));
+    }
+  }
+
   return (
-    <main className="mx-auto max-w-5xl px-8 py-10">
+    <main className="mx-auto max-w-6xl px-8 py-10">
       <h1 className="mb-6 text-lg font-semibold text-ink">Deployments</h1>
       {rows.length === 0 ? (
-        <p className="text-sm text-ink-dim">No forges are enabled for deployment.</p>
+        <p className="text-sm text-ink-dim">No forges are registered on this server.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -55,20 +92,58 @@ export function DeploymentsClient() {
                 <th className="py-2 pr-4">Running</th>
                 <th className="py-2 pr-4">Status</th>
                 <th className="py-2 pr-4">Detail</th>
+                <th className="py-2 pr-4">Deploy</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.forgeId} className="border-t border-border">
-                  <td className="py-2 pr-4 font-medium text-ink">{r.name}</td>
-                  <td className="py-2 pr-4">{r.desiredVersion}</td>
-                  <td className="py-2 pr-4">{r.runningVersion ?? '—'}</td>
-                  <td className={`py-2 pr-4 ${PHASE_CLASS[r.phase]}`}>{r.phase}</td>
-                  <td className="py-2 pr-4 text-ink-dim">
-                    {r.error ?? (r.consecutiveFailures > 0 ? `${r.consecutiveFailures} failed attempts` : '')}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((r) => {
+                const available = versions[r.forgeId];
+                const state = deriveRowState(r, available);
+                const options = available ?? [];
+                const choice = selected[r.forgeId] ?? options[0] ?? '';
+                const canDeploy = options.length > 0 && !busy[r.forgeId];
+                return (
+                  <tr key={r.forgeId} className="border-t border-border">
+                    <td className="py-2 pr-4 font-medium text-ink">{r.displayName || r.name}</td>
+                    <td className="py-2 pr-4">{r.pinnedVersion ?? '—'}</td>
+                    <td className="py-2 pr-4">{r.runningVersion ?? '—'}</td>
+                    <td className={`py-2 pr-4 ${STATE_CLASS[state]}`}>{STATE_LABEL[state]}</td>
+                    <td className="py-2 pr-4 text-ink-dim">
+                      {available === null
+                        ? 'registry unavailable'
+                        : [
+                            r.error,
+                            r.consecutiveFailures > 0 ? `${r.consecutiveFailures} failed attempts` : null,
+                          ].filter(Boolean).join(' · ')}
+                    </td>
+                    <td className="py-2 pr-4">
+                      <div className="flex items-center gap-2">
+                        <select
+                          aria-label={`Version for ${r.displayName || r.name}`}
+                          className="h-8 rounded-md border border-border bg-panel px-2 text-sm text-ink disabled:opacity-50"
+                          value={choice}
+                          disabled={options.length === 0}
+                          onChange={(e) => setSelected((s) => ({ ...s, [r.forgeId]: e.target.value }))}
+                        >
+                          {options.length === 0 ? (
+                            <option value="">—</option>
+                          ) : (
+                            options.map((v) => <option key={v} value={v}>{v}</option>)
+                          )}
+                        </select>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!canDeploy}
+                          onClick={() => void deploy(r.forgeId, choice)}
+                        >
+                          {busy[r.forgeId] ? 'Deploying…' : 'Deploy'}
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
