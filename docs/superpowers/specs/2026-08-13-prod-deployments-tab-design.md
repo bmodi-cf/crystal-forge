@@ -40,11 +40,18 @@ mechanism anyway to make rollback possible. The settled split is:
 
 ### Supersedes
 
-This supersedes **§6.3 of `2026-07-08-forge-prod-mode`**, which specified the Deployments view
-as read-only ("No mutations — it does not contradict the DB-managed config model"). The view
-becomes the sanctioned writer of desired state. The DB-managed model is not abandoned: the UI
-writes the same two columns SQL would, and the reconciler remains the only thing that starts
-containers.
+**§6.3 of `2026-07-08-forge-prod-mode`** scoped the Deployments view as read-only — a status
+display with no write endpoints. This spec makes it the sanctioned writer of desired state.
+The DB-managed model is not abandoned: the UI writes the same two columns SQL would, and the
+reconciler remains the only thing that starts containers.
+
+### Artifact immutability (unchanged)
+
+The image built and promoted on the pilot is the image that runs in prod, unmodified. Nothing
+is built, rebuilt, or retagged on the prod host: `acceptPromotion` on the pilot retags an
+already-built manifest to `vX.Y.Z`, and prod pulls that exact manifest by name. Deploying
+**selects which existing image runs** — it writes two DB columns and nothing else. This spec
+does not change that and must not be read as loosening it.
 
 It also resolves the first **§11 open question** of that spec ("derive purely from the
 reconciler's live state, or persist a last-reconcile summary?"). The answer is persist — for
