@@ -1,0 +1,88 @@
+// @vitest-environment node
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
+import { saveDeploymentStatuses } from '@/lib/runtime/prod/deployment-status';
+import { listDeployments } from './deployments';
+
+let tmp: string;
+let prevHome: string | undefined;
+beforeEach(async () => {
+  tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cf-depsvc-'));
+  prevHome = process.env.CRYSTAL_FORGE_HOME;
+  process.env.CRYSTAL_FORGE_HOME = tmp;
+});
+afterEach(async () => {
+  if (prevHome === undefined) delete process.env.CRYSTAL_FORGE_HOME;
+  else process.env.CRYSTAL_FORGE_HOME = prevHome;
+  await fs.rm(tmp, { recursive: true, force: true });
+});
+
+describe('listDeployments', () => {
+  it('includes never-deployed forges alongside running ones', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      const live = await makeForge(prisma, {
+        name: 'Crystal Lattice', createdById: admin.id,
+        deployEnabled: true, deployVersion: 'v1.0.2',
+      });
+      await makeForge(prisma, { name: 'Second Set of Eyes', createdById: admin.id });
+
+      await saveDeploymentStatuses([{
+        forgeId: live.id, slug: 'crystal-lattice', name: 'Crystal Lattice',
+        desiredVersion: 'v1.0.2', runningVersion: 'v1.0.2',
+        phase: 'running', error: null, consecutiveFailures: 0,
+      }]);
+
+      const rows = await listDeployments(admin);
+
+      expect(rows).toHaveLength(2);
+      const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
+      expect(byName['Crystal Lattice']).toMatchObject({
+        slug: 'crystal-lattice', deployEnabled: true,
+        pinnedVersion: 'v1.0.2', runningVersion: 'v1.0.2', phase: 'running',
+      });
+      expect(byName['Second Set of Eyes']).toMatchObject({
+        slug: 'second-set-of-eyes', deployEnabled: false,
+        pinnedVersion: null, runningVersion: null, phase: null,
+      });
+    });
+  });
+
+  it('surfaces the failure reason and count from the snapshot', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      const f = await makeForge(prisma, {
+        name: 'Acme', createdById: admin.id, deployEnabled: true, deployVersion: 'v9.9.9',
+      });
+      await saveDeploymentStatuses([{
+        forgeId: f.id, slug: 'acme', name: 'Acme',
+        desiredVersion: 'v9.9.9', runningVersion: null,
+        phase: 'failed', error: 'pull failed', consecutiveFailures: 3,
+      }]);
+
+      const rows = await listDeployments(admin);
+      expect(rows[0]).toMatchObject({ phase: 'failed', error: 'pull failed', consecutiveFailures: 3 });
+    });
+  });
+
+  it('renders inventory with unknown status when the snapshot is missing', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      await makeForge(prisma, { name: 'Acme', createdById: admin.id, deployEnabled: true, deployVersion: 'v1.0.0' });
+
+      const rows = await listDeployments(admin);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ pinnedVersion: 'v1.0.0', phase: null, runningVersion: null });
+    });
+  });
+
+  it('rejects non-admins', async () => {
+    await withCleanDb(async (prisma) => {
+      const dev = await makeUser(prisma, { email: 'd@x.com', name: 'Dev', role: 'DEVELOPER' });
+      await expect(listDeployments(dev)).rejects.toThrow(/[Aa]dmin/);
+    });
+  });
+});
