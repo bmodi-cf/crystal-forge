@@ -3,6 +3,9 @@ import { ForbiddenError } from '@/lib/errors';
 import { slugifyForgeName } from '@/lib/github/slug';
 import { loadDeploymentStatuses } from '@/lib/runtime/prod/deployment-status';
 import type { DeploymentPhase } from '@/lib/runtime/prod/reconciler';
+import { getRegistryClient } from '@/lib/registry/client';
+import type { RegistryClient } from '@/lib/registry/types';
+import { compareVersions, parseVersion } from '@/lib/versioning/semver';
 import type { SessionUser } from './types';
 
 /** One row of the admin Deployments table: inventory joined with live status. */
@@ -58,4 +61,44 @@ export async function listDeployments(currentUser: SessionUser): Promise<Deploym
       consecutiveFailures: s?.consecutiveFailures ?? 0,
     };
   });
+}
+
+/**
+ * Semver tags per forge, newest first, keyed by forgeId.
+ *
+ * Batch (not per-forge-on-demand) because the `no image` row state disables the
+ * DEPLOY button: the client must know a forge has no tags before the admin
+ * interacts with it, which a lazy per-menu fetch cannot provide.
+ *
+ * `latest` and `sha-…` are excluded. `latest` is a moving pointer maintained by
+ * acceptPromotion — pinning it would break the reconciler's version check,
+ * because the container label would read "latest" forever and never appear to
+ * drift even after the underlying manifest moves.
+ *
+ * A forge whose lookup throws yields `null`, distinct from `[]` ("no images
+ * exist"), so one unreachable repo neither fails the batch nor masquerades as
+ * an imageless forge.
+ */
+export async function listAvailableVersions(
+  currentUser: SessionUser,
+  registry: RegistryClient = getRegistryClient(),
+): Promise<Record<string, string[] | null>> {
+  assertAdmin(currentUser);
+  const forges = await prisma.forge.findMany({ select: { id: true, name: true } });
+  const entries = await Promise.all(
+    forges.map(async (f) => {
+      const slug = slugifyForgeName(f.name);
+      try {
+        const tags = await registry.listTags(slug);
+        const versions = tags
+          .filter((t) => parseVersion(t) !== null)
+          .sort((a, b) => compareVersions(b, a));
+        return [f.id, versions] as const;
+      } catch (err) {
+        console.error('[deployments] listTags failed for %s: %s', slug, err);
+        return [f.id, null] as const;
+      }
+    }),
+  );
+  return Object.fromEntries(entries);
 }

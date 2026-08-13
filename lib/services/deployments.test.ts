@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { saveDeploymentStatuses } from '@/lib/runtime/prod/deployment-status';
-import { listDeployments } from './deployments';
+import { FakeRegistryClient } from '@/lib/registry/fake-client';
+import { RegistryError } from '@/lib/registry/types';
+import { listDeployments, listAvailableVersions } from './deployments';
 
 let tmp: string;
 let prevHome: string | undefined;
@@ -83,6 +85,62 @@ describe('listDeployments', () => {
     await withCleanDb(async (prisma) => {
       const dev = await makeUser(prisma, { email: 'd@x.com', name: 'Dev', role: 'DEVELOPER' });
       await expect(listDeployments(dev)).rejects.toThrow(/[Aa]dmin/);
+    });
+  });
+});
+
+describe('listAvailableVersions', () => {
+  it('keeps only semver tags, newest first, dropping latest and sha tags', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      const f = await makeForge(prisma, { name: 'Crystal Lattice', createdById: admin.id });
+
+      const registry = new FakeRegistryClient();
+      for (const t of ['v1.0.0', 'v1.0.2', 'latest', 'sha-abc123', 'v1.1.0', 'v1.0.1']) {
+        registry.seedTag('crystal-lattice', t);
+      }
+
+      const map = await listAvailableVersions(admin, registry);
+      expect(map[f.id]).toEqual(['v1.1.0', 'v1.0.2', 'v1.0.1', 'v1.0.0']);
+    });
+  });
+
+  it('returns an empty array for a forge with no images', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      const f = await makeForge(prisma, { name: 'Second Set of Eyes', createdById: admin.id });
+
+      const map = await listAvailableVersions(admin, new FakeRegistryClient());
+      expect(map[f.id]).toEqual([]);
+    });
+  });
+
+  it('yields null for a forge whose registry lookup fails, without failing the batch', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      const ok = await makeForge(prisma, { name: 'Crystal Lattice', createdById: admin.id });
+      const bad = await makeForge(prisma, { name: 'Broken One', createdById: admin.id });
+
+      const registry = new FakeRegistryClient();
+      registry.seedTag('crystal-lattice', 'v1.0.0');
+      const guarded = {
+        tagManifest: registry.tagManifest.bind(registry),
+        listTags: async (repo: string) => {
+          if (repo === 'broken-one') throw new RegistryError('registry unreachable');
+          return registry.listTags(repo);
+        },
+      };
+
+      const map = await listAvailableVersions(admin, guarded);
+      expect(map[ok.id]).toEqual(['v1.0.0']);
+      expect(map[bad.id]).toBeNull();
+    });
+  });
+
+  it('rejects non-admins', async () => {
+    await withCleanDb(async (prisma) => {
+      const dev = await makeUser(prisma, { email: 'd@x.com', name: 'Dev', role: 'DEVELOPER' });
+      await expect(listAvailableVersions(dev, new FakeRegistryClient())).rejects.toThrow(/[Aa]dmin/);
     });
   });
 });
