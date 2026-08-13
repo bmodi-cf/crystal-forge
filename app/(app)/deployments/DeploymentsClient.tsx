@@ -31,6 +31,7 @@ export function DeploymentsClient() {
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [deployError, setDeployError] = useState<Record<string, string>>({});
+  const [versionsError, setVersionsError] = useState<string | null>(null);
 
   // Status poll: every 3s, never touches the registry.
   useEffect(() => {
@@ -60,11 +61,17 @@ export function DeploymentsClient() {
   const loadVersions = useCallback(async () => {
     try {
       const res = await fetch('/api/deployments/versions');
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (versionsAlive.current) setVersionsError('Could not load available versions.');
+        return;
+      }
       const data = (await res.json()) as { versions: VersionMap };
-      if (versionsAlive.current) setVersions(data.versions);
+      if (versionsAlive.current) {
+        setVersions(data.versions);
+        setVersionsError(null);
+      }
     } catch {
-      /* leave the previous map in place */
+      if (versionsAlive.current) setVersionsError('Could not load available versions.');
     }
   }, []);
 
@@ -99,6 +106,9 @@ export function DeploymentsClient() {
   return (
     <main className="mx-auto max-w-6xl px-8 py-10">
       <h1 className="mb-6 text-lg font-semibold text-ink">Deployments</h1>
+      {versionsError ? (
+        <p className="mb-4 text-sm text-red-400">{versionsError}</p>
+      ) : null}
       {rows.length === 0 ? (
         <p className="text-sm text-ink-dim">No forges are registered on this server.</p>
       ) : (
@@ -119,7 +129,10 @@ export function DeploymentsClient() {
                 const available = versions[r.forgeId];
                 const state = deriveRowState(r, available);
                 const options = available ?? [];
-                const choice = selected[r.forgeId] ?? options[0] ?? '';
+                const choice =
+                  selected[r.forgeId] ??
+                  (r.pinnedVersion && options.includes(r.pinnedVersion) ? r.pinnedVersion : options[0]) ??
+                  '';
                 const canDeploy = options.length > 0 && !busy[r.forgeId];
                 return (
                   <tr key={r.forgeId} className="border-t border-border">
@@ -128,12 +141,11 @@ export function DeploymentsClient() {
                     <td className="py-2 pr-4">{r.runningVersion ?? '—'}</td>
                     <td className={`py-2 pr-4 ${STATE_CLASS[state]}`}>{STATE_LABEL[state]}</td>
                     <td className="py-2 pr-4 text-ink-dim">
-                      {available === null
-                        ? 'registry unavailable'
-                        : [
-                            r.error,
-                            r.consecutiveFailures > 0 ? `${r.consecutiveFailures} failed attempts` : null,
-                          ].filter(Boolean).join(' · ')}
+                      {[
+                        r.error,
+                        r.consecutiveFailures > 0 ? `${r.consecutiveFailures} failed attempts` : null,
+                        available === null ? 'registry unavailable' : null,
+                      ].filter(Boolean).join(' · ')}
                     </td>
                     <td className="py-2 pr-4">
                       <div className="flex items-center gap-2">
@@ -142,7 +154,16 @@ export function DeploymentsClient() {
                           className="h-8 rounded-md border border-border bg-panel px-2 text-sm text-ink disabled:opacity-50"
                           value={choice}
                           disabled={options.length === 0}
-                          onChange={(e) => setSelected((s) => ({ ...s, [r.forgeId]: e.target.value }))}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setSelected((s) => ({ ...s, [r.forgeId]: value }));
+                            setDeployError((err) => {
+                              if (!(r.forgeId in err)) return err;
+                              const next = { ...err };
+                              delete next[r.forgeId];
+                              return next;
+                            });
+                          }}
                         >
                           {options.length === 0 ? (
                             <option value="">—</option>

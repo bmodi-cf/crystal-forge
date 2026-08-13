@@ -19,6 +19,11 @@ const NO_IMAGE: DeploymentRow = {
   deployEnabled: false, pinnedVersion: null, runningVersion: null,
   phase: null, error: null, consecutiveFailures: 0,
 };
+const PINNED_NOT_NEWEST: DeploymentRow = {
+  forgeId: 'f4', name: 'Pinned Older', displayName: null, slug: 'pinned-older',
+  deployEnabled: true, pinnedVersion: 'v1.0.2', runningVersion: 'v1.0.2',
+  phase: 'running', error: null, consecutiveFailures: 0,
+};
 
 const deployCalls: Array<{ url: string; body: unknown }> = [];
 
@@ -28,12 +33,16 @@ function mockFetch(
   rows: DeploymentRow[],
   versions: Record<string, string[] | null>,
   deployResult?: DeployResult,
+  versionsOk = true,
 ) {
   return vi.fn(async (url: string, init?: RequestInit) => {
     if (url.endsWith('/api/deployments')) {
       return { ok: true, json: async () => ({ deployments: rows }) };
     }
     if (url.endsWith('/api/deployments/versions')) {
+      if (!versionsOk) {
+        return { ok: false, json: async () => ({ error: 'registry unreachable' }) };
+      }
       return { ok: true, json: async () => ({ versions }) };
     }
     deployCalls.push({ url, body: JSON.parse(String(init?.body)) });
@@ -124,5 +133,34 @@ describe('DeploymentsClient', () => {
 
     await waitFor(() => expect(screen.getByText('Deploy failed')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Deploy' })).toBeInTheDocument();
+  });
+
+  it('shows the reconciler failure reason even when the registry is also unreachable', async () => {
+    vi.stubGlobal('fetch', mockFetch([FAILED], { f2: null }));
+    render(<DeploymentsClient />);
+    await waitFor(() => expect(screen.getByText('failed')).toBeInTheDocument());
+    expect(screen.getByText(/pull failed/)).toBeInTheDocument();
+    expect(screen.getByText(/3 failed attempts/)).toBeInTheDocument();
+    expect(screen.getByText(/registry unavailable/)).toBeInTheDocument();
+  });
+
+  it('shows a page-level message when the versions fetch fails', async () => {
+    vi.stubGlobal('fetch', mockFetch([RUNNING], {}, undefined, false));
+    render(<DeploymentsClient />);
+    await waitFor(() => expect(screen.getByText('Crystal Lattice')).toBeInTheDocument());
+    expect(screen.getByText(/could not load available versions/i)).toBeInTheDocument();
+  });
+
+  it('defaults the version dropdown to the pinned version, not the newest tag', async () => {
+    vi.stubGlobal('fetch', mockFetch([PINNED_NOT_NEWEST], { f4: ['v1.1.0', 'v1.0.2'] }));
+    render(<DeploymentsClient />);
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+    expect(screen.getByRole('combobox')).toHaveValue('v1.0.2');
+
+    fireEvent.click(screen.getByRole('button', { name: /deploy/i }));
+
+    await waitFor(() => expect(deployCalls).toHaveLength(1));
+    expect(deployCalls[0]!.url).toContain('/api/deployments/f4/deploy');
+    expect(deployCalls[0]!.body).toEqual({ version: 'v1.0.2' });
   });
 });
