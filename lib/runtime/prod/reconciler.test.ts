@@ -6,7 +6,8 @@ import path from 'node:path';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { FakeContainerManager } from '@/lib/runtime/container/fake-container-manager';
 import { loadState } from '@/lib/runtime/state';
-import { makeReconciler, startReconcileLoop, getLatestDeploymentStatuses } from './reconciler';
+import { makeReconciler, startReconcileLoop } from './reconciler';
+import { loadDeploymentStatuses } from './deployment-status';
 import type { DesiredForge } from './desired-state';
 
 let tmp: string;
@@ -175,7 +176,7 @@ describe('reconciler diff engine', () => {
 });
 
 describe('startReconcileLoop', () => {
-  it('runs a tick immediately and publishes statuses to the singleton', async () => {
+  it('runs a tick immediately and persists statuses to the snapshot file', async () => {
     await withCleanDb(async (prisma) => {
       const user = await makeUser(prisma, { email: 'a@x.com', name: 'Admin' });
       await makeForge(prisma, { name: 'Acme', createdById: user.id, deployEnabled: true, deployVersion: 'v1.0.0' });
@@ -185,7 +186,8 @@ describe('startReconcileLoop', () => {
       // Give the immediate tick a moment to complete.
       await new Promise((r) => setTimeout(r, 50));
       loop.stop();
-      expect(getLatestDeploymentStatuses().map((s) => s.slug)).toContain('acme');
+      const snapshot = await loadDeploymentStatuses();
+      expect(Object.values(snapshot).map((s) => s.slug)).toContain('acme');
     });
   });
 });

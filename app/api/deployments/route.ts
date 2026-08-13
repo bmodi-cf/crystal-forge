@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getLatestDeploymentStatuses } from '@/lib/runtime/prod/reconciler';
+import { loadDeploymentStatuses } from '@/lib/runtime/prod/deployment-status';
 
 export async function GET() {
   const session = await auth();
@@ -10,5 +10,6 @@ export async function GET() {
   if (!session.user.isAdmin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
-  return NextResponse.json({ deployments: getLatestDeploymentStatuses() });
+  const snapshot = await loadDeploymentStatuses();
+  return NextResponse.json({ deployments: Object.values(snapshot) });
 }

@@ -3,6 +3,7 @@ import type { ContainerManager } from '@/lib/runtime/container/types';
 import { mutateState } from '@/lib/runtime/state';
 import { logPath } from '@/lib/runtime/paths';
 import { listDesiredForges, type DesiredForge } from './desired-state';
+import { saveDeploymentStatuses } from './deployment-status';
 
 export type DeploymentPhase = 'running' | 'failed' | 'stopped';
 
@@ -150,13 +151,6 @@ export function makeReconciler(deps: ReconcilerDeps) {
   };
 }
 
-let latest: DeploymentStatus[] = [];
-
-/** Statuses from the most recent reconcile tick (read by the Deployments API). */
-export function getLatestDeploymentStatuses(): DeploymentStatus[] {
-  return latest;
-}
-
 /**
  * Start the declarative reconcile loop: one tick immediately, then every
  * intervalMs. An in-flight guard skips a tick if the previous is still applying
@@ -171,7 +165,7 @@ export function startReconcileLoop(deps: ReconcilerDeps, intervalMs: number): { 
     inFlight = true;
     try {
       await rec.reconcileOnce();
-      latest = rec.statuses();
+      await saveDeploymentStatuses(rec.statuses());
     } catch (err) {
       console.error('[reconciler] tick failed', err);
     } finally {

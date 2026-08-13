@@ -10,6 +10,10 @@ export function stateFilePath(): string {
   return path.join(forgeHome(), 'state.json');
 }
 
+export function deploymentsFilePath(): string {
+  return path.join(forgeHome(), 'deployments.json');
+}
+
 export function logPath(slug: string): string {
   return path.join(forgeHome(), 'logs', `${slug}.log`);
 }
