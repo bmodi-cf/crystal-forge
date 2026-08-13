@@ -3,11 +3,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { PrismaClient } from '@prisma/client';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { saveDeploymentStatuses } from '@/lib/runtime/prod/deployment-status';
 import { FakeRegistryClient } from '@/lib/registry/fake-client';
 import { RegistryError } from '@/lib/registry/types';
-import { listDeployments, listAvailableVersions } from './deployments';
+import { listDeployments, listAvailableVersions, deployForge } from './deployments';
 
 let tmp: string;
 let prevHome: string | undefined;
@@ -141,6 +142,76 @@ describe('listAvailableVersions', () => {
     await withCleanDb(async (prisma) => {
       const dev = await makeUser(prisma, { email: 'd@x.com', name: 'Dev', role: 'DEVELOPER' });
       await expect(listAvailableVersions(dev, new FakeRegistryClient())).rejects.toThrow(/[Aa]dmin/);
+    });
+  });
+});
+
+describe('deployForge', () => {
+  async function setup(prisma: PrismaClient) {
+    const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+    const forge = await makeForge(prisma, { name: 'Crystal Lattice', createdById: admin.id });
+    const registry = new FakeRegistryClient();
+    registry.seedTag('crystal-lattice', 'v1.0.0');
+    registry.seedTag('crystal-lattice', 'v1.1.0');
+    registry.seedTag('crystal-lattice', 'latest');
+    return { admin, forge, registry };
+  }
+
+  it('enables the forge and pins the version on first deploy', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, forge, registry } = await setup(prisma);
+
+      const row = await deployForge(admin, forge.id, 'v1.1.0', registry);
+
+      expect(row).toMatchObject({ pinnedVersion: 'v1.1.0', deployEnabled: true });
+      const after = await prisma.forge.findUniqueOrThrow({ where: { id: forge.id } });
+      expect(after.deployEnabled).toBe(true);
+      expect(after.deployVersion).toBe('v1.1.0');
+    });
+  });
+
+  it('allows deploying an older version (rollback)', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, forge, registry } = await setup(prisma);
+      await deployForge(admin, forge.id, 'v1.1.0', registry);
+
+      await deployForge(admin, forge.id, 'v1.0.0', registry);
+
+      const after = await prisma.forge.findUniqueOrThrow({ where: { id: forge.id } });
+      expect(after.deployVersion).toBe('v1.0.0');
+    });
+  });
+
+  it('rejects a version that is not in the registry', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, forge, registry } = await setup(prisma);
+      await expect(deployForge(admin, forge.id, 'v9.9.9', registry)).rejects.toThrow(/not available/i);
+      const after = await prisma.forge.findUniqueOrThrow({ where: { id: forge.id } });
+      expect(after.deployEnabled).toBe(false);
+    });
+  });
+
+  it('rejects the moving latest tag', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, forge, registry } = await setup(prisma);
+      await expect(deployForge(admin, forge.id, 'latest', registry)).rejects.toThrow(/not available/i);
+    });
+  });
+
+  it('throws NotFound for an unknown forge', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, registry } = await setup(prisma);
+      await expect(
+        deployForge(admin, '00000000-0000-0000-0000-000000000000', 'v1.0.0', registry),
+      ).rejects.toThrow(/not found/i);
+    });
+  });
+
+  it('rejects non-admins', async () => {
+    await withCleanDb(async (prisma) => {
+      const { forge, registry } = await setup(prisma);
+      const dev = await makeUser(prisma, { email: 'd@x.com', name: 'Dev', role: 'DEVELOPER' });
+      await expect(deployForge(dev, forge.id, 'v1.0.0', registry)).rejects.toThrow(/[Aa]dmin/);
     });
   });
 });

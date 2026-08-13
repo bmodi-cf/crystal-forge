@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { ForbiddenError } from '@/lib/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { slugifyForgeName } from '@/lib/github/slug';
 import { loadDeploymentStatuses } from '@/lib/runtime/prod/deployment-status';
 import type { DeploymentPhase } from '@/lib/runtime/prod/reconciler';
@@ -101,4 +101,50 @@ export async function listAvailableVersions(
     }),
   );
   return Object.fromEntries(entries);
+}
+
+/**
+ * Pin a forge to a version and enable it. First deploy and upgrade are the same
+ * gesture; deploying an older version is rollback.
+ *
+ * Writes desired state and returns — the reconcile loop converges on its next
+ * tick. This must never start a container itself: the reconciler is the only
+ * thing that does, and a second writer could race it.
+ *
+ * The version is validated against the live semver tag list because a bad pin
+ * is not self-correcting: the reconciler removes the running container before
+ * pulling, so pinning a nonexistent tag takes the forge down until someone
+ * deploys a working version.
+ */
+export async function deployForge(
+  currentUser: SessionUser,
+  forgeId: string,
+  version: string,
+  registry: RegistryClient = getRegistryClient(),
+): Promise<DeploymentRow> {
+  assertAdmin(currentUser);
+  const forge = await prisma.forge.findUnique({
+    where: { id: forgeId },
+    select: { id: true, name: true },
+  });
+  if (!forge) throw new NotFoundError('forge', forgeId);
+
+  const slug = slugifyForgeName(forge.name);
+  const tags = await registry.listTags(slug);
+  const available = tags.filter((t) => parseVersion(t) !== null);
+  if (!available.includes(version)) {
+    throw new ValidationError(`Version ${version} is not available for ${slug}`, {
+      version: [`Not a published version of ${slug}`],
+    });
+  }
+
+  await prisma.forge.update({
+    where: { id: forgeId },
+    data: { deployVersion: version, deployEnabled: true },
+  });
+
+  const rows = await listDeployments(currentUser);
+  const row = rows.find((r) => r.forgeId === forgeId);
+  if (!row) throw new NotFoundError('forge', forgeId);
+  return row;
 }
