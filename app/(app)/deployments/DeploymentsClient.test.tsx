@@ -22,7 +22,13 @@ const NO_IMAGE: DeploymentRow = {
 
 const deployCalls: Array<{ url: string; body: unknown }> = [];
 
-function mockFetch(rows: DeploymentRow[], versions: Record<string, string[] | null>) {
+type DeployResult = { ok: false; error: string } | 'throw';
+
+function mockFetch(
+  rows: DeploymentRow[],
+  versions: Record<string, string[] | null>,
+  deployResult?: DeployResult,
+) {
   return vi.fn(async (url: string, init?: RequestInit) => {
     if (url.endsWith('/api/deployments')) {
       return { ok: true, json: async () => ({ deployments: rows }) };
@@ -31,6 +37,12 @@ function mockFetch(rows: DeploymentRow[], versions: Record<string, string[] | nu
       return { ok: true, json: async () => ({ versions }) };
     }
     deployCalls.push({ url, body: JSON.parse(String(init?.body)) });
+    if (deployResult === 'throw') {
+      throw new Error('network down');
+    }
+    if (deployResult && deployResult.ok === false) {
+      return { ok: false, json: async () => ({ error: deployResult.error }) };
+    }
     return { ok: true, json: async () => ({ deployment: rows[0] }) };
   });
 }
@@ -82,5 +94,35 @@ describe('DeploymentsClient', () => {
     await waitFor(() => expect(deployCalls).toHaveLength(1));
     expect(deployCalls[0]!.url).toContain('/api/deployments/f1/deploy');
     expect(deployCalls[0]!.body).toEqual({ version: 'v1.1.0' });
+  });
+
+  it('shows the rejection reason and resets the button when the deploy route refuses', async () => {
+    vi.stubGlobal('fetch', mockFetch(
+      [RUNNING],
+      { f1: ['v1.1.0', 'v1.0.2'] },
+      { ok: false, error: 'Version v1.1.0 is not available for crystal-lattice' },
+    ));
+    render(<DeploymentsClient />);
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'v1.1.0' } });
+    fireEvent.click(screen.getByRole('button', { name: /deploy/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/not available for crystal-lattice/)).toBeInTheDocument(),
+    );
+    expect(screen.getByRole('button', { name: 'Deploy' })).toBeInTheDocument();
+  });
+
+  it('shows a failure message and does not throw when the deploy request itself fails', async () => {
+    vi.stubGlobal('fetch', mockFetch([RUNNING], { f1: ['v1.1.0', 'v1.0.2'] }, 'throw'));
+    render(<DeploymentsClient />);
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'v1.1.0' } });
+    fireEvent.click(screen.getByRole('button', { name: /deploy/i }));
+
+    await waitFor(() => expect(screen.getByText('Deploy failed')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Deploy' })).toBeInTheDocument();
   });
 });

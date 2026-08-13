@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { DeploymentRow } from '@/lib/services/deployments';
 import { deriveRowState, type RowState } from './rowState';
@@ -30,6 +30,7 @@ export function DeploymentsClient() {
   const [versions, setVersions] = useState<VersionMap>({});
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [deployError, setDeployError] = useState<Record<string, string>>({});
 
   // Status poll: every 3s, never touches the registry.
   useEffect(() => {
@@ -50,12 +51,18 @@ export function DeploymentsClient() {
   }, []);
 
   // Versions: on mount and after a deploy, on their own cadence.
+  const versionsAlive = useRef(true);
+  useEffect(() => {
+    versionsAlive.current = true;
+    return () => { versionsAlive.current = false; };
+  }, []);
+
   const loadVersions = useCallback(async () => {
     try {
       const res = await fetch('/api/deployments/versions');
       if (!res.ok) return;
       const data = (await res.json()) as { versions: VersionMap };
-      setVersions(data.versions);
+      if (versionsAlive.current) setVersions(data.versions);
     } catch {
       /* leave the previous map in place */
     }
@@ -65,13 +72,25 @@ export function DeploymentsClient() {
 
   async function deploy(forgeId: string, version: string) {
     setBusy((b) => ({ ...b, [forgeId]: true }));
+    setDeployError((e) => {
+      const next = { ...e };
+      delete next[forgeId];
+      return next;
+    });
     try {
-      await fetch(`/api/deployments/${forgeId}/deploy`, {
+      const res = await fetch(`/api/deployments/${forgeId}/deploy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ version }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}) as { error?: string });
+        setDeployError((e) => ({ ...e, [forgeId]: body.error ?? 'Deploy failed' }));
+        return;
+      }
       await loadVersions();
+    } catch {
+      setDeployError((e) => ({ ...e, [forgeId]: 'Deploy failed' }));
     } finally {
       setBusy((b) => ({ ...b, [forgeId]: false }));
     }
@@ -140,6 +159,9 @@ export function DeploymentsClient() {
                           {busy[r.forgeId] ? 'Deploying…' : 'Deploy'}
                         </Button>
                       </div>
+                      {deployError[r.forgeId] ? (
+                        <p className="mt-1 text-xs text-red-400">{deployError[r.forgeId]}</p>
+                      ) : null}
                     </td>
                   </tr>
                 );
