@@ -175,6 +175,26 @@ describe('reconciler diff engine', () => {
   });
 });
 
+/**
+ * Poll until the snapshot file has content, rather than sleeping a fixed amount.
+ * The immediate tick is fire-and-forget (`void tick()`), so there is nothing to
+ * await — and its duration is real work (a DB round trip plus an fsync'd write),
+ * measured at ~150ms on a single-vCPU host. Any fixed sleep is either flaky or
+ * needlessly slow; waiting on the condition is both correct and as fast as the
+ * machine allows.
+ */
+async function waitForSnapshot(timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const snapshot = await loadDeploymentStatuses();
+    if (Object.keys(snapshot).length > 0) return snapshot;
+    if (Date.now() > deadline) {
+      throw new Error(`deployments.json still empty after ${timeoutMs}ms`);
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 describe('startReconcileLoop', () => {
   it('runs a tick immediately and persists statuses to the snapshot file', async () => {
     await withCleanDb(async (prisma) => {
@@ -183,11 +203,14 @@ describe('startReconcileLoop', () => {
       const containers = new FakeContainerManager();
       const t = tracker(containers);
       const loop = startReconcileLoop({ prisma, containerManager: containers, start: t.start, stop: t.stop }, 60_000);
-      // Give the immediate tick a moment to complete.
-      await new Promise((r) => setTimeout(r, 50));
-      loop.stop();
-      const snapshot = await loadDeploymentStatuses();
-      expect(Object.values(snapshot).map((s) => s.slug)).toContain('acme');
+      try {
+        const snapshot = await waitForSnapshot();
+        expect(Object.values(snapshot).map((s) => s.slug)).toContain('acme');
+      } finally {
+        // In a finally so a failed assertion cannot leak the interval into the
+        // rest of the run.
+        loop.stop();
+      }
     });
-  });
+  }, 15_000);
 });
