@@ -164,3 +164,36 @@
     transform: none !important;
   }
 }
+
+/* PILOT banner (dev-mode dashboard). The animation's duration IS its interval:
+   the highlight sweeps across in the first 1.5% of a 120s timeline (~1.8s) and
+   then sits parked off the right edge for the remaining ~118s. So the chip
+   glints once on load and once every 2 minutes with no JS timer and no
+   re-render — a static banner is too easy to stop seeing. */
+@keyframes pilotGlint {
+  0% { transform: translateX(0); }
+  1.5% { transform: translateX(400%); }
+  100% { transform: translateX(400%); }
+}
+
+.pilot-glint {
+  animation: pilotGlint 120s linear infinite;
+}
+
+/* Diagonal hazard edging along the bottom lip of the pilot bar. */
+.pilot-hazard {
+  background-image: repeating-linear-gradient(
+    45deg,
+    #7f1d1d 0 8px,
+    #2a0a0a 8px 16px
+  );
+}
+
+/* Drop the motion, keep the signal: the red bar, chip, and hazard edging all
+   remain — only the sweep stops. */
+@media (prefers-reduced-motion: reduce) {
+  .pilot-glint {
+    animation: none;
+    opacity: 0;
+  }
+}

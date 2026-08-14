@@ -71,6 +71,32 @@ describe('Topbar', () => {
     expect(screen.getByRole('link', { name: /launch/i })).toBeInTheDocument();
   });
 
+  // PILOT banner: dev mode is the pilot dashboard (Edit + Promote live), so the
+  // whole bar goes red and carries a centred PILOT chip. Prod must stay clean.
+  it('renders the PILOT chip in dev mode', () => {
+    render(<Topbar user={user} />);
+    expect(screen.getByText('PILOT')).toBeInTheDocument();
+  });
+
+  it('marks the banner as pilot in dev mode', () => {
+    render(<Topbar user={user} />);
+    expect(screen.getByRole('banner')).toHaveAttribute('data-pilot', 'true');
+  });
+
+  // Regression: adding `relative` to the pilot branch put it in tailwind-merge's
+  // `position` group, which silently dropped `sticky` and unpinned the banner.
+  it('keeps the banner sticky in pilot mode', () => {
+    render(<Topbar user={user} />);
+    expect(screen.getByRole('banner')).toHaveClass('sticky');
+  });
+
+  it('hides the PILOT chip in prod mode', () => {
+    process.env.FORGE_DASHBOARD_MODE = 'prod';
+    render(<Topbar user={user} />);
+    expect(screen.queryByText('PILOT')).not.toBeInTheDocument();
+    expect(screen.getByRole('banner')).not.toHaveAttribute('data-pilot');
+  });
+
   // Deployments moved into the admin left nav (see AdminNav.test.tsx); the
   // topbar must not carry a second entry point for it.
   it('has no Deployments link in prod mode', () => {
