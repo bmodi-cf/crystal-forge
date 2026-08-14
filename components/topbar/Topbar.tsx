@@ -24,14 +24,6 @@ export function Topbar({ user }: { user: SessionUser }) {
             Edit
           </Link>
         )}
-        {isProdMode() && user.isAdmin && (
-          <Link
-            href="/deployments"
-            className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"
-          >
-            Deployments
-          </Link>
-        )}
         <Link
           href="/launch"
           className="text-xs font-medium uppercase tracking-[0.18em] text-ink-dim transition hover:text-ink"

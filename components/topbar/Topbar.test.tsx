@@ -71,10 +71,12 @@ describe('Topbar', () => {
     expect(screen.getByRole('link', { name: /launch/i })).toBeInTheDocument();
   });
 
-  it('shows the Deployments link to admins in prod mode', () => {
+  // Deployments moved into the admin left nav (see AdminNav.test.tsx); the
+  // topbar must not carry a second entry point for it.
+  it('has no Deployments link in prod mode', () => {
     process.env.FORGE_DASHBOARD_MODE = 'prod';
     render(<Topbar user={adminUser} />);
-    const link = screen.getByRole('link', { name: /deployments/i });
-    expect(link).toHaveAttribute('href', '/deployments');
+    expect(screen.queryByRole('link', { name: /deployments/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /admin/i })).toHaveAttribute('href', '/admin');
   });
 });
