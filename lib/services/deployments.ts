@@ -143,6 +143,45 @@ export async function deployForge(
     data: { deployVersion: version, deployEnabled: true },
   });
 
+  return rowFor(currentUser, forgeId);
+}
+
+/**
+ * STOP and START for a deployed forge: flip `deployEnabled`, leaving
+ * `deployVersion` alone so the pin records what START will relight.
+ *
+ * Like deployForge this only writes desired state — the reconcile loop removes
+ * or recreates the container on its next tick, and remains the only thing that
+ * touches containers.
+ *
+ * Enabling a forge with no pin is rejected: `listDesiredForges` filters on
+ * `deployVersion != null`, so it would silently do nothing and leave the row
+ * enabled-but-dead. Bringing an undeployed forge up is what DEPLOY is for.
+ */
+export async function setForgeDeployEnabled(
+  currentUser: SessionUser,
+  forgeId: string,
+  enabled: boolean,
+): Promise<DeploymentRow> {
+  assertAdmin(currentUser);
+  const forge = await prisma.forge.findUnique({
+    where: { id: forgeId },
+    select: { id: true, deployVersion: true },
+  });
+  if (!forge) throw new NotFoundError('forge', forgeId);
+  if (enabled && forge.deployVersion === null) {
+    throw new ValidationError('Cannot start a forge with no version pinned', {
+      version: ['Deploy a version first'],
+    });
+  }
+
+  await prisma.forge.update({ where: { id: forgeId }, data: { deployEnabled: enabled } });
+
+  return rowFor(currentUser, forgeId);
+}
+
+/** Re-read the inventory and pluck one row, so writers return what the table shows. */
+async function rowFor(currentUser: SessionUser, forgeId: string): Promise<DeploymentRow> {
   const rows = await listDeployments(currentUser);
   const row = rows.find((r) => r.forgeId === forgeId);
   if (!row) throw new NotFoundError('forge', forgeId);

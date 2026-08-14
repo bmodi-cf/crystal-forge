@@ -2,6 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import type { DeploymentRow } from '@/lib/services/deployments';
 import { deriveRowState, type RowState } from './rowState';
 
@@ -13,6 +21,7 @@ const STATE_LABEL: Record<RowState, string> = {
   deploying: 'deploying',
   running: 'running',
   failed: 'failed',
+  stopping: 'stopping',
   stopped: 'stopped',
 };
 
@@ -22,16 +31,22 @@ const STATE_CLASS: Record<RowState, string> = {
   deploying: 'text-amber-400',
   running: 'text-emerald-400',
   failed: 'text-red-400',
+  stopping: 'text-amber-400',
   stopped: 'text-ink-dim',
 };
+
+function rowLabel(row: DeploymentRow): string {
+  return row.displayName || row.name;
+}
 
 export function DeploymentsClient() {
   const [rows, setRows] = useState<DeploymentRow[]>([]);
   const [versions, setVersions] = useState<VersionMap>({});
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
-  const [deployError, setDeployError] = useState<Record<string, string>>({});
+  const [rowError, setRowError] = useState<Record<string, string>>({});
   const [versionsError, setVersionsError] = useState<string | null>(null);
+  const [confirmStop, setConfirmStop] = useState<DeploymentRow | null>(null);
 
   // Status poll: every 3s, never touches the registry.
   useEffect(() => {
@@ -77,13 +92,45 @@ export function DeploymentsClient() {
 
   useEffect(() => { void loadVersions(); }, [loadVersions]);
 
-  async function deploy(forgeId: string, version: string) {
-    setBusy((b) => ({ ...b, [forgeId]: true }));
-    setDeployError((e) => {
+  const clearRowError = useCallback((forgeId: string) => {
+    setRowError((e) => {
+      if (!(forgeId in e)) return e;
       const next = { ...e };
       delete next[forgeId];
       return next;
     });
+  }, []);
+
+  /**
+   * Flip deployEnabled. The response carries the refreshed row, which we splice
+   * in so the button label turns over immediately instead of waiting out the
+   * 3s status poll.
+   */
+  async function setEnabled(row: DeploymentRow, enabled: boolean) {
+    const forgeId = row.forgeId;
+    const verb = enabled ? 'start' : 'stop';
+    setBusy((b) => ({ ...b, [forgeId]: true }));
+    clearRowError(forgeId);
+    try {
+      const res = await fetch(`/api/deployments/${forgeId}/${verb}`, { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}) as { error?: string });
+        setRowError((e) => ({ ...e, [forgeId]: body.error ?? `${enabled ? 'Start' : 'Stop'} failed` }));
+        return;
+      }
+      const body = (await res.json()) as { deployment: DeploymentRow };
+      setRows((rs) => rs.map((r) => (r.forgeId === forgeId ? body.deployment : r)));
+    } catch {
+      setRowError((e) => ({ ...e, [forgeId]: `${enabled ? 'Start' : 'Stop'} failed` }));
+    } finally {
+      setBusy((b) => ({ ...b, [forgeId]: false }));
+      setConfirmStop(null);
+    }
+  }
+
+  async function deploy(forgeId: string, version: string) {
+    setBusy((b) => ({ ...b, [forgeId]: true }));
+    clearRowError(forgeId);
     try {
       const res = await fetch(`/api/deployments/${forgeId}/deploy`, {
         method: 'POST',
@@ -92,12 +139,12 @@ export function DeploymentsClient() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}) as { error?: string });
-        setDeployError((e) => ({ ...e, [forgeId]: body.error ?? 'Deploy failed' }));
+        setRowError((e) => ({ ...e, [forgeId]: body.error ?? 'Deploy failed' }));
         return;
       }
       await loadVersions();
     } catch {
-      setDeployError((e) => ({ ...e, [forgeId]: 'Deploy failed' }));
+      setRowError((e) => ({ ...e, [forgeId]: 'Deploy failed' }));
     } finally {
       setBusy((b) => ({ ...b, [forgeId]: false }));
     }
@@ -121,7 +168,7 @@ export function DeploymentsClient() {
                 <th className="py-2 pr-4">Running</th>
                 <th className="py-2 pr-4">Status</th>
                 <th className="py-2 pr-4">Detail</th>
-                <th className="py-2 pr-4">Deploy</th>
+                <th className="py-2 pr-4">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -149,20 +196,38 @@ export function DeploymentsClient() {
                     </td>
                     <td className="py-2 pr-4">
                       <div className="flex items-center gap-2">
+                        {/* Only a pinned forge can be toggled — starting one that
+                            was never deployed is what DEPLOY is for. */}
+                        {r.pinnedVersion === null ? null : r.deployEnabled ? (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            aria-label={`Stop ${rowLabel(r)}`}
+                            disabled={busy[r.forgeId]}
+                            onClick={() => setConfirmStop(r)}
+                          >
+                            Stop
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            aria-label={`Start ${rowLabel(r)}`}
+                            disabled={busy[r.forgeId]}
+                            onClick={() => void setEnabled(r, true)}
+                          >
+                            Start
+                          </Button>
+                        )}
                         <select
-                          aria-label={`Version for ${r.displayName || r.name}`}
+                          aria-label={`Version for ${rowLabel(r)}`}
                           className="h-8 rounded-md border border-border bg-panel px-2 text-sm text-ink disabled:opacity-50"
                           value={choice}
                           disabled={options.length === 0}
                           onChange={(e) => {
                             const value = e.target.value;
                             setSelected((s) => ({ ...s, [r.forgeId]: value }));
-                            setDeployError((err) => {
-                              if (!(r.forgeId in err)) return err;
-                              const next = { ...err };
-                              delete next[r.forgeId];
-                              return next;
-                            });
+                            clearRowError(r.forgeId);
                           }}
                         >
                           {options.length === 0 ? (
@@ -180,8 +245,8 @@ export function DeploymentsClient() {
                           {busy[r.forgeId] ? 'Deploying…' : 'Deploy'}
                         </Button>
                       </div>
-                      {deployError[r.forgeId] ? (
-                        <p className="mt-1 text-xs text-red-400">{deployError[r.forgeId]}</p>
+                      {rowError[r.forgeId] ? (
+                        <p className="mt-1 text-xs text-red-400">{rowError[r.forgeId]}</p>
                       ) : null}
                     </td>
                   </tr>
@@ -191,6 +256,37 @@ export function DeploymentsClient() {
           </table>
         </div>
       )}
+
+      {/* Stop confirmation — stopping takes a team's forge offline. */}
+      <Dialog open={confirmStop !== null} onOpenChange={(open) => { if (!open) setConfirmStop(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Stop {confirmStop ? rowLabel(confirmStop) : ''}?</DialogTitle>
+            <DialogDescription>
+              {confirmStop && (
+                <>
+                  Its container is removed on the next reconcile tick and the forge goes offline
+                  for everyone using it. The pinned version{' '}
+                  <strong>{confirmStop.pinnedVersion}</strong> is kept, so Start brings the same
+                  version back.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmStop(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={confirmStop ? busy[confirmStop.forgeId] : false}
+              onClick={() => { if (confirmStop) void setEnabled(confirmStop, false); }}
+            >
+              Stop forge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

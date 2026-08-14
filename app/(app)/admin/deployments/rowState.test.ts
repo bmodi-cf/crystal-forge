@@ -59,9 +59,24 @@ describe('deriveRowState', () => {
     expect(deriveRowState(row, ['v1.0.0'])).toBe('not-deployed');
   });
 
-  it('reports not-deployed when deployEnabled is false (independently of pinnedVersion)', () => {
+  it('reports stopping while a disabled forge is still up in the snapshot', () => {
     const row = { ...BASE, deployEnabled: false, pinnedVersion: 'v1.0.0' };
-    expect(deriveRowState(row, ['v1.0.0'])).toBe('not-deployed');
+    expect(deriveRowState(row, ['v1.0.0'])).toBe('stopping');
+  });
+
+  it('reports stopped once the snapshot has dropped a disabled forge', () => {
+    const row = { ...BASE, deployEnabled: false, pinnedVersion: 'v1.0.0', runningVersion: null, phase: null };
+    expect(deriveRowState(row, ['v1.0.0'])).toBe('stopped');
+  });
+
+  it('keeps a stopped forge stopped when the registry lookup failed', () => {
+    const row = { ...BASE, deployEnabled: false, pinnedVersion: 'v1.0.0', runningVersion: null, phase: null };
+    expect(deriveRowState(row, null)).toBe('stopped');
+  });
+
+  it('prefers stopped over no-image for a forge that was deployed before its tags vanished', () => {
+    const row = { ...BASE, deployEnabled: false, pinnedVersion: 'v1.0.0', runningVersion: null, phase: null };
+    expect(deriveRowState(row, [])).toBe('stopped');
   });
 
   it('reports deploying when stopped and versions disagree', () => {

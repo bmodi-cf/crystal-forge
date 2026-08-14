@@ -147,9 +147,15 @@ list for that forge, then writes `deployVersion = version, deployEnabled = true`
 is what stops a POSTed `latest`, a typo, or a deleted tag from taking a forge down, since a
 bad pin is not recoverable without a second deploy (§6).
 
+**`setForgeDeployEnabled(currentUser, forgeId, enabled)`** — STOP and START. Flips
+`deployEnabled` and leaves `deployVersion` alone, so the pin records what START will relight.
+Enabling a forge with no pin is rejected: `listDesiredForges` filters on `deployVersion !=
+null`, so it would silently do nothing and leave the row enabled-but-dead. Bringing an
+undeployed forge up is what DEPLOY is for.
+
 ## 5. Routes
 
-All three admin-only **and** prod-only. The existing `/api/deployments` checks admin but not
+All admin-only **and** prod-only. The existing `/api/deployments` checks admin but not
 `isProdMode()`; that is tightened here.
 
 | Route | Purpose |
@@ -157,24 +163,35 @@ All three admin-only **and** prod-only. The existing `/api/deployments` checks a
 | `GET /api/deployments` | Inventory rows. Polled every 3s by the client. Never touches the registry. |
 | `GET /api/deployments/versions` | Batch `forgeId → versions[]` map. Fetched on mount and after a deploy — **not** on the 3s status cycle. |
 | `POST /api/deployments/[forgeId]/deploy` | Body `{ version }`. Writes desired state, returns immediately. |
+| `POST /api/deployments/[forgeId]/stop` | No body. `deployEnabled = false`; the pin is kept. |
+| `POST /api/deployments/[forgeId]/start` | No body. `deployEnabled = true` on the existing pin. |
 
 ## 6. UI, states, and deploy flow
 
 `DeploymentsClient` becomes an inventory table: forge, pinned version, running version, status,
 action.
 
-Six states. Only three of them come from the reconciler's `phase`; the rest are derived, so the
-rules are spelled out to keep the derivation unambiguous. `pinned` is the DB's `deployVersion`,
-`running` is the snapshot's `runningVersion`, `versions` is this forge's entry in the batch map.
+Seven states. Only three of them come from the reconciler's `phase`; the rest are derived, so
+the rules are spelled out to keep the derivation unambiguous. `pinned` is the DB's
+`deployVersion`, `running` is the snapshot's `runningVersion`, `versions` is this forge's entry
+in the batch map. Order is precedence.
 
 | State | Derivation |
 | --- | --- |
-| `not deployed` | `deployEnabled = false` or `pinned = null` — takes precedence over everything below |
+| `stopping` | `deployEnabled = false`, `pinned ≠ null`, `running ≠ null` — STOP pressed, container not yet removed |
+| `stopped` | `deployEnabled = false`, `pinned ≠ null`, `running = null` — or `phase = stopped` |
+| `not deployed` | `deployEnabled = false` **and** `pinned = null` — takes precedence over everything below |
 | `no image` | not deployed **and** `versions` is `[]`; DEPLOY disabled |
 | `deploying` | `pinned ≠ running` and `phase` is not `failed` — the loop has not converged yet |
 | `running` | `phase = running` and `pinned = running` |
 | `failed` | `phase = failed`; shows the reconciler's reason and `consecutiveFailures` |
-| `stopped` | `phase = stopped` — enabled and pinned, but nothing running |
+
+A stopped forge keeps showing its pinned version, which is the point: it is the record of what
+START relights. Because a disabled forge drops out of `listDesiredForges`, the reconciler emits
+no status for it and the snapshot entry disappears — that transition from `running ≠ null` to
+`running = null` is exactly what turns `stopping` into `stopped`. `stopping` mirrors
+`deploying`: it covers the window from the POST to the tick that removes the container, so the
+table never claims a forge is off while it is still serving.
 
 `deploying` covers the whole window from the POST until the tick that starts the container
 completes, which can be minutes with a cold pull. During that window the snapshot still holds
@@ -188,6 +205,13 @@ masquerade as `no image`.
 **Flow:** click → POST → DB write → immediate return → row shows `deploying` → the loop picks
 up the drift within one `FORGE_RECONCILE_INTERVAL_MS`, stops the old container, pulls, starts,
 probes → the tick writes the snapshot → the 3s poll turns the row green, or red with a reason.
+
+**Start / stop.** Every pinned row carries a STOP button (START once stopped) beside the deploy
+control; a never-deployed row carries neither. STOP is gated behind a confirmation dialog,
+since it takes a team's forge offline; START is immediate, being the recoverable direction.
+Both POST and splice the returned row into the table so the button turns over without waiting
+out the 3s poll. Neither touches a container directly — the reconciler remains the only thing
+that does, on its next tick.
 
 ## 7. Failure handling
 
@@ -210,7 +234,6 @@ probes → the tick writes the snapshot → the 3s poll turns the row green, or 
   cutting over separately, would shrink the outage to a restart and make a failed pull
   harmless. Deferred as a more advanced slice; it likely needs a `pull` method on
   `ContainerManager`.
-- **Stop / undeploy control.** Setting `deployEnabled = false` remains SQL.
 - **Scheduling / maintenance windows.** The gate is the admin pressing the button.
 - **Image deletion / GC from the UI.** The registry supports `DELETE` (commit `6237348`), but
   note the runbook warning (`f46826c`) that `garbage-collect --delete-untagged` corrupts

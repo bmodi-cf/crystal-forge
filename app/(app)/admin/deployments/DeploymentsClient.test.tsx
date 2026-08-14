@@ -25,7 +25,19 @@ const PINNED_NOT_NEWEST: DeploymentRow = {
   phase: 'running', error: null, consecutiveFailures: 0,
 };
 
-const deployCalls: Array<{ url: string; body: unknown }> = [];
+const STOPPED: DeploymentRow = {
+  forgeId: 'f5', name: 'Halted', displayName: null, slug: 'halted',
+  deployEnabled: false, pinnedVersion: 'v1.0.2', runningVersion: null,
+  phase: null, error: null, consecutiveFailures: 0,
+};
+const STOPPING: DeploymentRow = {
+  forgeId: 'f6', name: 'Winding Down', displayName: null, slug: 'winding-down',
+  deployEnabled: false, pinnedVersion: 'v1.0.2', runningVersion: 'v1.0.2',
+  phase: 'running', error: null, consecutiveFailures: 0,
+};
+
+/** Every write the client makes: deploy, start and stop. Start/stop carry no body. */
+const actionCalls: Array<{ url: string; body: unknown }> = [];
 
 type DeployResult = { ok: false; error: string } | 'throw';
 
@@ -45,7 +57,7 @@ function mockFetch(
       }
       return { ok: true, json: async () => ({ versions }) };
     }
-    deployCalls.push({ url, body: JSON.parse(String(init?.body)) });
+    actionCalls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
     if (deployResult === 'throw') {
       throw new Error('network down');
     }
@@ -56,7 +68,7 @@ function mockFetch(
   });
 }
 
-beforeEach(() => { deployCalls.length = 0; });
+beforeEach(() => { actionCalls.length = 0; });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('DeploymentsClient', () => {
@@ -100,9 +112,9 @@ describe('DeploymentsClient', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'v1.1.0' } });
     fireEvent.click(screen.getByRole('button', { name: /deploy/i }));
 
-    await waitFor(() => expect(deployCalls).toHaveLength(1));
-    expect(deployCalls[0]!.url).toContain('/api/deployments/f1/deploy');
-    expect(deployCalls[0]!.body).toEqual({ version: 'v1.1.0' });
+    await waitFor(() => expect(actionCalls).toHaveLength(1));
+    expect(actionCalls[0]!.url).toContain('/api/deployments/f1/deploy');
+    expect(actionCalls[0]!.body).toEqual({ version: 'v1.1.0' });
   });
 
   it('shows the rejection reason and resets the button when the deploy route refuses', async () => {
@@ -159,8 +171,83 @@ describe('DeploymentsClient', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /deploy/i }));
 
-    await waitFor(() => expect(deployCalls).toHaveLength(1));
-    expect(deployCalls[0]!.url).toContain('/api/deployments/f4/deploy');
-    expect(deployCalls[0]!.body).toEqual({ version: 'v1.0.2' });
+    await waitFor(() => expect(actionCalls).toHaveLength(1));
+    expect(actionCalls[0]!.url).toContain('/api/deployments/f4/deploy');
+    expect(actionCalls[0]!.body).toEqual({ version: 'v1.0.2' });
+  });
+
+  it('gates stop behind a confirmation', async () => {
+    vi.stubGlobal('fetch', mockFetch([RUNNING], { f1: ['v1.1.0', 'v1.0.2'] }));
+    render(<DeploymentsClient />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Stop Crystal Lattice' })).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop Crystal Lattice' }));
+    expect(actionCalls).toHaveLength(0);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop forge' }));
+
+    await waitFor(() => expect(actionCalls).toHaveLength(1));
+    expect(actionCalls[0]!.url).toContain('/api/deployments/f1/stop');
+  });
+
+  it('leaves the forge running when the stop confirmation is dismissed', async () => {
+    vi.stubGlobal('fetch', mockFetch([RUNNING], { f1: ['v1.1.0', 'v1.0.2'] }));
+    render(<DeploymentsClient />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Stop Crystal Lattice' })).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop Crystal Lattice' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Stop forge' })).not.toBeInTheDocument(),
+    );
+    expect(actionCalls).toHaveLength(0);
+  });
+
+  it('starts a stopped forge immediately, without a confirmation', async () => {
+    vi.stubGlobal('fetch', mockFetch([STOPPED], { f5: ['v1.1.0', 'v1.0.2'] }));
+    render(<DeploymentsClient />);
+    await waitFor(() => expect(screen.getByText('stopped')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start Halted' }));
+
+    await waitFor(() => expect(actionCalls).toHaveLength(1));
+    expect(actionCalls[0]!.url).toContain('/api/deployments/f5/start');
+    expect(actionCalls[0]!.body).toBeNull();
+  });
+
+  it('reads stopping while a disabled forge is still up', async () => {
+    vi.stubGlobal('fetch', mockFetch([STOPPING], { f6: ['v1.0.2'] }));
+    render(<DeploymentsClient />);
+    await waitFor(() => expect(screen.getByText('stopping')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Start Winding Down' })).toBeInTheDocument();
+  });
+
+  it('offers neither start nor stop for a forge that was never deployed', async () => {
+    vi.stubGlobal('fetch', mockFetch([NO_IMAGE], { f3: [] }));
+    render(<DeploymentsClient />);
+    await waitFor(() => expect(screen.getByText('no image')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /^(Start|Stop) / })).not.toBeInTheDocument();
+  });
+
+  it('surfaces the reason when the start route refuses', async () => {
+    vi.stubGlobal('fetch', mockFetch(
+      [STOPPED],
+      { f5: ['v1.0.2'] },
+      { ok: false, error: 'Cannot start a forge with no version pinned' },
+    ));
+    render(<DeploymentsClient />);
+    await waitFor(() => expect(screen.getByText('stopped')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start Halted' }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/no version pinned/)).toBeInTheDocument(),
+    );
+    expect(screen.getByRole('button', { name: 'Start Halted' })).toBeInTheDocument();
   });
 });

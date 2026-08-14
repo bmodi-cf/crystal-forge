@@ -8,7 +8,12 @@ import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { saveDeploymentStatuses } from '@/lib/runtime/prod/deployment-status';
 import { FakeRegistryClient } from '@/lib/registry/fake-client';
 import { RegistryError } from '@/lib/registry/types';
-import { listDeployments, listAvailableVersions, deployForge } from './deployments';
+import {
+  listDeployments,
+  listAvailableVersions,
+  deployForge,
+  setForgeDeployEnabled,
+} from './deployments';
 
 let tmp: string;
 let prevHome: string | undefined;
@@ -212,6 +217,75 @@ describe('deployForge', () => {
       const { forge, registry } = await setup(prisma);
       const dev = await makeUser(prisma, { email: 'd@x.com', name: 'Dev', role: 'DEVELOPER' });
       await expect(deployForge(dev, forge.id, 'v1.0.0', registry)).rejects.toThrow(/[Aa]dmin/);
+    });
+  });
+});
+
+describe('setForgeDeployEnabled', () => {
+  async function setup(prisma: PrismaClient) {
+    const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+    const forge = await makeForge(prisma, {
+      name: 'Crystal Lattice', createdById: admin.id,
+      deployEnabled: true, deployVersion: 'v1.1.0',
+    });
+    return { admin, forge };
+  }
+
+  it('stops a running forge without discarding its pinned version', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, forge } = await setup(prisma);
+
+      const row = await setForgeDeployEnabled(admin, forge.id, false);
+
+      expect(row).toMatchObject({ deployEnabled: false, pinnedVersion: 'v1.1.0' });
+      const after = await prisma.forge.findUniqueOrThrow({ where: { id: forge.id } });
+      expect(after.deployEnabled).toBe(false);
+      expect(after.deployVersion).toBe('v1.1.0');
+    });
+  });
+
+  it('starts a stopped forge back on its pinned version', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, forge } = await setup(prisma);
+      await setForgeDeployEnabled(admin, forge.id, false);
+
+      const row = await setForgeDeployEnabled(admin, forge.id, true);
+
+      expect(row).toMatchObject({ deployEnabled: true, pinnedVersion: 'v1.1.0' });
+      const after = await prisma.forge.findUniqueOrThrow({ where: { id: forge.id } });
+      expect(after.deployEnabled).toBe(true);
+      expect(after.deployVersion).toBe('v1.1.0');
+    });
+  });
+
+  it('refuses to start a forge that has never been deployed', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      const forge = await makeForge(prisma, { name: 'Second Set of Eyes', createdById: admin.id });
+
+      await expect(setForgeDeployEnabled(admin, forge.id, true)).rejects.toThrow(/no version/i);
+      const after = await prisma.forge.findUniqueOrThrow({ where: { id: forge.id } });
+      expect(after.deployEnabled).toBe(false);
+    });
+  });
+
+  it('throws NotFound for an unknown forge', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'Admin', role: 'ADMIN' });
+      await expect(
+        setForgeDeployEnabled(admin, '00000000-0000-0000-0000-000000000000', false),
+      ).rejects.toThrow(/not found/i);
+    });
+  });
+
+  it('rejects non-admins', async () => {
+    await withCleanDb(async (prisma) => {
+      const { forge } = await setup(prisma);
+      const dev = await makeUser(prisma, { email: 'd@x.com', name: 'Dev', role: 'DEVELOPER' });
+
+      await expect(setForgeDeployEnabled(dev, forge.id, false)).rejects.toThrow(/[Aa]dmin/);
+      const after = await prisma.forge.findUniqueOrThrow({ where: { id: forge.id } });
+      expect(after.deployEnabled).toBe(true);
     });
   });
 });
