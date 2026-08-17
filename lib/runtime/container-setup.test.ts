@@ -9,12 +9,12 @@ describe('setupForgeContainer', () => {
     // Simulate a fresh container: the `test -d .git` (call 1) and
     // `test -d node_modules` (call 11) probes report ABSENT (exit 1) so the
     // clone and install steps actually run; every other step succeeds (exit 0).
-    // Call sequence: 1 test -d .git, 2 git clone, 3 remote set-url, 4 write the
-    // gh credential store (must run BEFORE gh auth setup-git — see
-    // container-setup.ts step 1b), 5 gh auth setup-git, 6 .env.local seed,
-    // 7 basePath inject, 8 chmod hook, 9 restart-app.sh, 10 settings.json,
-    // 11 test -d node_modules.
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1].forEach((code) => m.queueExit(code));
+    // Call sequence: 1 test -d .git, 2 git clone, 3 remote set-url, 4 checkout
+    // dev, 5 write the gh credential store (must run BEFORE gh auth setup-git —
+    // see container-setup.ts step 1b), 6 gh auth setup-git, 7 .env.local seed,
+    // 8 basePath inject, 9 chmod hook, 10 restart-app.sh, 11 settings.json,
+    // 12 test -d node_modules.
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1].forEach((code) => m.queueExit(code));
     await setupForgeContainer(m, id, {
       slug: 'acme', repoFullName: 'org/acme', token: 'gh_tok', logPath: '/tmp/acme.log',
     });
@@ -90,6 +90,50 @@ describe('setupForgeContainer', () => {
       c.cmd === 'sh' && c.args.at(-1)?.includes('/home/forge/.config/gh/hosts.yml'));
     expect(wrote).toBeTruthy();
     expect(wrote!.opts?.env).toEqual({ FORGE_GH_TOKEN: 'ghs_seed' });
+  });
+
+  // Forge work belongs on dev: main is production and only advances through an
+  // approved promotion. `git clone` lands on the repo's default branch (main),
+  // so without an explicit checkout every agent commit starts from main and the
+  // promotion PR (dev -> main) has nothing to merge.
+  it('checks out dev after a fresh clone', async () => {
+    const m = new FakeContainerManager();
+    const id = await m.create({ name: 'x', image: 'img' });
+    m.failCommand('test -d /workspace/.git'); // fresh container: nothing cloned yet
+    await setupForgeContainer(m, id, {
+      slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log',
+    });
+    const cmds = m.execCalls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
+    const cloneIdx = cmds.findIndex((c) => c.includes('git clone'));
+    const checkoutIdx = cmds.findIndex((c) => c.includes('checkout dev'));
+    expect(cloneIdx).toBeGreaterThanOrEqual(0);
+    expect(checkoutIdx).toBeGreaterThan(cloneIdx);
+  });
+
+  it('leaves an already-cloned workspace on whatever branch it is on', async () => {
+    const m = new FakeContainerManager();
+    const id = await m.create({ name: 'x', image: 'img' });
+    // Default exit 0 => `test -d .git` reports PRESENT, so this is a restart of
+    // an existing forge. Switching branches under someone's uncommitted work
+    // would be destructive.
+    await setupForgeContainer(m, id, {
+      slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log',
+    });
+    const cmds = m.execCalls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
+    expect(cmds.some((c) => c.includes('git clone'))).toBe(false);
+    expect(cmds.some((c) => c.includes('checkout dev'))).toBe(false);
+  });
+
+  it('completes setup when the repo has no dev branch (adopted plain repo)', async () => {
+    const m = new FakeContainerManager();
+    const id = await m.create({ name: 'x', image: 'img' });
+    m.failCommand('test -d /workspace/.git');
+    m.failCommand('checkout dev'); // no origin/dev to switch to
+    await expect(
+      setupForgeContainer(m, id, {
+        slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log',
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it('throws when a step exits non-zero', async () => {

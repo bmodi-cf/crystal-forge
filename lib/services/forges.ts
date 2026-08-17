@@ -94,6 +94,16 @@ You are working inside a Crystal Forge sandbox cloned to this directory.
   port instead.
 - Do not modify files outside this directory.
 
+## Branches
+
+- Work on **\`dev\`**. Your workspace is checked out there already; commit and
+  push your work to \`dev\`, and cut any feature branches from it.
+- **\`main\` is production.** Never commit or push to it directly. It only
+  advances when a promotion is approved in the dashboard, which opens a
+  \`dev\` -> \`main\` PR, runs the release gates, and merges it for you.
+  Work committed straight to \`main\` cannot be released — the promotion PR
+  will have nothing to merge.
+
 ## Forge identity
 
 See \`forge.config.json\` for \`name\`, \`description\`, \`slug\`, \`dbName\`,

@@ -1,6 +1,7 @@
 import { CONTAINER_WORKDIR } from './paths';
 import type { ContainerManager, ExecOpts } from './container/types';
 import { writeForgeGitToken } from './gh-credential';
+import { DEV_BRANCH } from '@/lib/github/branches';
 
 const W = CONTAINER_WORKDIR;
 const CLONE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -45,6 +46,22 @@ export async function setupForgeContainer(
         `https://github.com/${opts.repoFullName}.git`], { timeoutMs: QUICK_TIMEOUT_MS }),
       'git remote set-url',
     );
+
+    // 1a. Land the workspace on the dev branch. Forge work happens on dev; main
+    //     is production and only advances through an approved promotion. The
+    //     clone above checks out the repo's *default* branch — main, since
+    //     createForge only branches dev off it afterwards — so without this every
+    //     agent commit (and every feature branch it cuts) starts from main, and
+    //     the promotion PR (dev -> main) opens with nothing to merge.
+    //     Only on a fresh clone: switching branches under an existing
+    //     workspace's uncommitted work would be destructive.
+    //     Tolerant on purpose — a plain repo adopted as a forge may have no dev
+    //     branch at all, and that must not abort setup.
+    await exec('sh', ['-c',
+      `git -C ${W} rev-parse --verify --quiet origin/${DEV_BRANCH} >/dev/null ` +
+      `&& git -C ${W} checkout ${DEV_BRANCH} ` +
+      `|| echo "[setup] no origin/${DEV_BRANCH}; staying on the default branch"`,
+    ], { timeoutMs: QUICK_TIMEOUT_MS });
   }
 
   // 1b. Seed the gh credential store with the create-time scoped token so git/gh
