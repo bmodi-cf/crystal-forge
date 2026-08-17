@@ -42,7 +42,7 @@ agent needs to work in the codebase correctly.
 - `pnpm typecheck` — `tsc --noEmit`
 - `pnpm lint` — ESLint (includes the repo rule below)
 - `pnpm test` / `pnpm test:watch` — Vitest unit suite
-- `pnpm e2e` — Playwright (forces `GITHUB_CLIENT_MODE=fake`)
+- `./scripts/e2e.sh` — Playwright (forces `GITHUB_CLIENT_MODE=fake`). **Not** a `pnpm` script, on purpose — see below. Only needed when standing up a new server or a fresh local instance.
 - `pnpm db:migrate` — create/apply a migration from schema changes
 - `pnpm db:reset` — drop + recreate dev DB then seed (**destroys local data**)
 - `pnpm db:studio` — Prisma data browser
@@ -54,6 +54,8 @@ agent needs to work in the codebase correctly.
 - **`GITHUB_CLIENT_MODE=fake`** gives a no-network in-memory client — use it for offline UI work and tests. `real` needs the GitHub App env vars (see README).
 - **DB access** goes through `lib/prisma.ts`. Postgres binds host port `5433` (not 5432) to avoid colliding with a system Postgres.
 - **Don't run `db:reset` / `forge-launch.sh --seed`** unless you intend to wipe local data.
+- **`pnpm test` printing `🌱 The seed command has been executed` is EXPECTED — it does not touch the dev DB.** `vitest.global-setup.ts` derives a dedicated database by appending `_test` to the configured `DATABASE_URL` (so `crystal_forge` → `crystal_forge_test`), creates it, runs `prisma migrate deploy` + `db:seed` against *that*, and `vitest.setup.ts` rewrites `DATABASE_URL` per worker so every test targets it — even when `.env.local` points at the live dev database. Verify with `select datname from pg_database`, don't panic.
+- **The e2e suite re-seeds, so it is gated behind `./scripts/e2e.sh` rather than a `pnpm` script.** It used to be `pnpm e2e`, which inherited `DATABASE_URL` verbatim and wiped the *live* dashboard DB on the pilot (forges, users, promotion history), while `reuseExistingServer` pointed the tests at the live dashboard on `:80`. Now: the script refuses when it detects a live deployment (override with `--i-understand-this-seeds-the-db`), rewrites `DATABASE_URL` to `<db>_e2e`, and pins the server to `E2E_PORT` (default 3300) with no server reuse. `tests/e2e/global-setup.ts` independently throws on any database not ending in `_e2e`, so `pnpm exec playwright test` can't bypass the guard. Don't re-add an `e2e` entry to `package.json`.
 - After schema changes, create a migration with `pnpm db:migrate` — don't hand-edit migration SQL.
 - **Forge restart = full container recreate, never reuse.** `stopForge`→`doStop` *stops and removes* the container; `startForge`→`finishStart` always `containerManager.create()`s a fresh one (there is no `docker start`-an-existing-container path). So container env (`FORGE_BASE_PATH`, `FORGE_DEV_ORIGINS`, `DATABASE_URL`, `GH_TOKEN`) is re-applied at every start (DB password rotates per start), and **only the named volumes — workspace + Claude home — persist** across the cycle. ⇒ To change a forge's container env you must stop+start it; to change the *dashboard* env that feeds `create()` (e.g. `FORGE_DEV_ORIGINS`), update `.env.local`, restart `crystal-forge.service`, *then* restart the forge.
 - **Deleting files inside this repo is pre-approved** — git history is sufficient backup, so remove dead code freely without stopping to ask. Deleting anything **outside** the repo still requires explicit approval.
