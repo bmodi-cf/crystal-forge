@@ -98,7 +98,12 @@ export interface GitHubClient {
   /** Fetch PR state + diff stats. */
   getPullRequest(fullName: string, number: number): Promise<PullRequestInfo>;
 
-  /** Normalized check-run results for a commit ref. */
+  /**
+   * Normalized check-run results for a commit ref: **at most one entry per
+   * check name**, reflecting the most recent run of that check. A commit can
+   * carry runs from several suites (multiple PRs sharing a head, re-runs);
+   * implementations must collapse them, since callers key gates by name.
+   */
   getRefCheckResults(fullName: string, ref: string): Promise<CheckResult[]>;
 
   /** Merge a PR. Throws if not mergeable. */

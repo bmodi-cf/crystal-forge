@@ -383,3 +383,71 @@ describe('OctokitGitHubClient.setBranchProtection', () => {
     ).rejects.toMatchObject({ status: 403, name: 'Error' });
   });
 });
+
+describe('OctokitGitHubClient.getRefCheckResults', () => {
+  type Run = {
+    name: string;
+    status: string;
+    conclusion: string | null;
+    started_at: string;
+    id: number;
+  };
+
+  function checksClient(runs: Run[]) {
+    const stub = {
+      checks: { listForRef: vi.fn(async () => ({ data: { check_runs: runs } })) },
+    } as unknown as Octokit;
+    return newClient(stub);
+  }
+
+  function run(name: string, id: number, started_at: string, conclusion: string | null): Run {
+    return {
+      name,
+      id,
+      started_at,
+      status: conclusion ? 'completed' : 'in_progress',
+      conclusion,
+    };
+  }
+
+  // A commit can carry check runs from more than one suite: the same head can be
+  // (or have been) the head of several PRs into main, each firing its own
+  // promote-gates run. Mirrors trakralpha2 @ 0fd1b677, which had two suites.
+  it('keeps only the most recent run per check name', async () => {
+    const client = checksClient([
+      run('lint', 2, '2026-08-17T20:16:51Z', 'success'),
+      run('build', 2, '2026-08-17T20:16:29Z', 'success'),
+      run('lint', 1, '2026-08-17T18:21:05Z', 'failure'),
+      run('build', 1, '2026-08-17T18:22:18Z', 'failure'),
+    ]);
+
+    const gates = await client.getRefCheckResults('o/r', 'deadbeef');
+
+    expect(gates).toEqual([
+      { name: 'build', status: 'completed', conclusion: 'success' },
+      { name: 'lint', status: 'completed', conclusion: 'success' },
+    ]);
+  });
+
+  it('reports a re-run still in flight rather than its stale success', async () => {
+    const client = checksClient([
+      run('tests', 1, '2026-08-17T18:26:52Z', 'success'),
+      run('tests', 2, '2026-08-17T20:14:20Z', null),
+    ]);
+
+    const gates = await client.getRefCheckResults('o/r', 'deadbeef');
+
+    expect(gates).toEqual([{ name: 'tests', status: 'in_progress', conclusion: null }]);
+  });
+
+  it('breaks ties on run id when two runs share a start time', async () => {
+    const client = checksClient([
+      run('build', 7, '2026-08-17T20:14:43Z', 'failure'),
+      run('build', 9, '2026-08-17T20:14:43Z', 'success'),
+    ]);
+
+    const gates = await client.getRefCheckResults('o/r', 'deadbeef');
+
+    expect(gates).toEqual([{ name: 'build', status: 'completed', conclusion: 'success' }]);
+  });
+});

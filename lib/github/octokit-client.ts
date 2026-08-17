@@ -313,14 +313,39 @@ export class OctokitGitHubClient implements GitHubClient {
     };
   }
 
+  /**
+   * Current state of each named check on `ref`, one entry per name.
+   *
+   * A commit routinely carries check runs from more than one suite: the same
+   * head can be (or have been) the head of several PRs into main — a feature
+   * branch's PR plus the promotion's dev -> main PR — and each fires its own
+   * promote-gates run. Workflow re-runs add more. `listForRef` returns all of
+   * them, so without collapsing, callers see `build`/`lint`/... twice over and
+   * `computeStatus`'s name-keyed map lets whichever duplicate happens to come
+   * last in the response decide the verdict — which can be an unrelated PR's
+   * run, masking a genuine failure in the promotion's own suite.
+   *
+   * Newest run per name wins (ties broken by run id, which ascends), so a
+   * re-run still in flight correctly reports as unsettled rather than
+   * resurrecting the previous attempt's conclusion.
+   */
   async getRefCheckResults(fullName: string, ref: string): Promise<CheckResult[]> {
     const [owner, repo] = parseFullName(fullName);
     const { data } = await this.client.checks.listForRef({ owner, repo, ref, per_page: 100 });
-    return data.check_runs.map((c) => ({
-      name: c.name,
-      status: c.status as CheckResult['status'],
-      conclusion: (c.conclusion ?? null) as CheckResult['conclusion'],
-    }));
+
+    const newest = new Map<string, (typeof data.check_runs)[number]>();
+    for (const c of data.check_runs) {
+      const prev = newest.get(c.name);
+      if (!prev || isNewerRun(c, prev)) newest.set(c.name, c);
+    }
+
+    return [...newest.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => ({
+        name: c.name,
+        status: c.status as CheckResult['status'],
+        conclusion: (c.conclusion ?? null) as CheckResult['conclusion'],
+      }));
   }
 
   async mergePullRequest(
@@ -344,6 +369,16 @@ export class OctokitGitHubClient implements GitHubClient {
     const [owner, repo] = parseFullName(fullName);
     await this.client.git.createRef({ owner, repo, ref: `refs/tags/${tag}`, sha });
   }
+}
+
+/** Later start wins; equal (or absent) starts fall back to the ascending run id. */
+function isNewerRun(
+  a: { started_at?: string | null; id: number },
+  b: { started_at?: string | null; id: number },
+): boolean {
+  const at = a.started_at ?? '';
+  const bt = b.started_at ?? '';
+  return at === bt ? a.id > b.id : at > bt;
 }
 
 function parseFullName(fullName: string): [string, string] {
