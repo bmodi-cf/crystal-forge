@@ -415,3 +415,68 @@ describe('refreshPromotionGates head tracking', () => {
     });
   });
 });
+
+describe('refreshPromotionGates concurrency', () => {
+  let gh: FakeGitHubClient;
+  let reg: FakeRegistryClient;
+  beforeEach(() => { gh = ghWithForge(); reg = new FakeRegistryClient(); });
+
+  /**
+   * A refresh reads the row, then makes two GitHub calls, then writes. If the
+   * admin clicks Accept inside that window the refresh writes its stale status
+   * back over the decision — and because the resurrected status is active, the
+   * request returns to the Pending tab and every later refresh keeps it there.
+   * Observed on Crystal Lattice v1.2.0: merged, tagged and image-tagged, yet
+   * still listed as awaiting_approval.
+   */
+  class AcceptMidRefreshClient extends FakeGitHubClient {
+    constructor(private readonly onRead: () => Promise<void>, cfg: { owner: string; baseUrl: string }) {
+      super(cfg);
+    }
+    async getRefCheckResults(fullName: string, ref: string) {
+      await this.onRead();
+      return super.getRefCheckResults(fullName, ref);
+    }
+  }
+
+  it('does not resurrect a request that was accepted mid-refresh', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, dto } = await seedAwaiting(prisma, gh, reg);
+
+      // Same repo state, but this client accepts the request while the refresh
+      // is between its read and its write.
+      const racy = new AcceptMidRefreshClient(
+        async () => { await acceptPromotion(admin, dto.id, gh, reg); },
+        { owner: 'test-owner', baseUrl: 'https://github.com' },
+      );
+      racy.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
+      await racy.createBranch('test-owner/aquaflow', 'main', 'dev');
+      await racy.openPullRequest('test-owner/aquaflow', {
+        head: 'dev', base: 'main', title: 'Promote', body: 'x',
+      });
+      racy.setRefChecks('test-owner/aquaflow', dto.headSha,
+        ['build', 'typecheck', 'lint', 'tests'].map((name) => ({
+          name, status: 'completed' as const, conclusion: 'success' as const,
+        })));
+
+      const refreshed = await refreshPromotionGates(dto.id, racy);
+
+      expect(refreshed.status).toBe('accepted');
+      const row = await prisma.promotionRequest.findUniqueOrThrow({ where: { id: dto.id } });
+      expect(row.status).toBe('accepted');
+      expect(row.decidedAt).not.toBeNull();
+    });
+  });
+
+  it('keeps a decided request off the pending list', async () => {
+    await withCleanDb(async (prisma) => {
+      const { admin, dto } = await seedAwaiting(prisma, gh, reg);
+      await acceptPromotion(admin, dto.id, gh, reg);
+
+      await refreshPromotionGates(dto.id, gh);
+
+      const pending = await listPendingPromotions(admin);
+      expect(pending.map((p) => p.id)).not.toContain(dto.id);
+    });
+  });
+});

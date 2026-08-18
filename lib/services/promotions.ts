@@ -185,16 +185,29 @@ export async function refreshPromotionGates(
     ? computeStatus(gates)
     : row.status;
 
-  const updated = await prisma.promotionRequest.update({
-    where: { id },
+  // Compare-and-set on the status read above. The row was read before two
+  // GitHub round-trips, so an Accept or Reject can land in between; a plain
+  // update would write the stale active status back over that decision, and
+  // since the resurrected status is active the request would reappear on the
+  // Pending tab and every later refresh would keep it there. The decision wins.
+  const { count } = await prisma.promotionRequest.updateMany({
+    where: { id, status: { in: [...ACTIVE] } },
     data: {
       summary: summary as unknown as object,
       status: nextStatus as typeof row.status,
       headSha: pr.headSha,
     },
-    include: promotionInclude,
   });
-  return toDto(updated);
+
+  const current = await loadRow(id);
+  if (!current) throw new NotFoundError('promotion', id);
+  if (count === 0) {
+    console.warn(
+      `[refreshPromotionGates] ${id}: decided (${current.status}) while refreshing; ` +
+        'gate refresh discarded',
+    );
+  }
+  return toDto(current);
 }
 
 export async function listPendingPromotions(currentUser: SessionUser): Promise<PromotionDto[]> {
