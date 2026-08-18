@@ -215,3 +215,67 @@ describe('FakeGitHubClient promotion methods', () => {
     });
   });
 });
+
+describe('FakeGitHubClient mergeability and branch merges', () => {
+  let gh: FakeGitHubClient;
+  beforeEach(async () => {
+    gh = new FakeGitHubClient({ owner: 'test-owner', baseUrl: 'https://github.com' });
+    await gh.createRepoFromTemplate({ name: 'app1', description: null, private: true });
+    gh.seedBranch('test-owner/app1', 'main', 'sha-main');
+    await gh.createBranch('test-owner/app1', 'main', 'dev');
+  });
+
+  async function openPr() {
+    return gh.openPullRequest('test-owner/app1', {
+      head: 'dev', base: 'main', title: 'Promote', body: 'x',
+    });
+  }
+
+  it('reports a fresh PR as mergeable', async () => {
+    const pr = await openPr();
+    const info = await gh.getPullRequest('test-owner/app1', pr.number);
+    expect(info.mergeable).toBe(true);
+    expect(info.mergeableState).toBe('clean');
+  });
+
+  it('setPullRequestMergeable drives the conflicted state', async () => {
+    const pr = await openPr();
+    gh.setPullRequestMergeable('test-owner/app1', pr.number, false);
+    const info = await gh.getPullRequest('test-owner/app1', pr.number);
+    expect(info.mergeable).toBe(false);
+    expect(info.mergeableState).toBe('dirty');
+  });
+
+  it('setPullRequestMergeable models GitHub still computing', async () => {
+    const pr = await openPr();
+    gh.setPullRequestMergeable('test-owner/app1', pr.number, null);
+    const info = await gh.getPullRequest('test-owner/app1', pr.number);
+    expect(info.mergeable).toBeNull();
+    expect(info.mergeableState).toBe('unknown');
+  });
+
+  it('mergeBranch advances the base branch to a merge commit', async () => {
+    gh.seedBranch('test-owner/app1', 'main', 'sha-released');
+
+    const result = await gh.mergeBranch('test-owner/app1', 'dev', 'main');
+
+    expect(result.conflicted).toBe(false);
+    expect(result.sha).toBe('merge-sha-released');
+    expect(gh.getBranchSha('test-owner/app1', 'dev')).toBe('merge-sha-released');
+  });
+
+  it('mergeBranch reports already-up-to-date when the shas match', async () => {
+    const result = await gh.mergeBranch('test-owner/app1', 'dev', 'main');
+    expect(result).toEqual({ sha: null, conflicted: false, alreadyUpToDate: true });
+  });
+
+  it('mergeBranch reports a seeded conflict without throwing', async () => {
+    gh.seedBranch('test-owner/app1', 'main', 'sha-released');
+    gh.setBranchMergeConflict('test-owner/app1', 'dev', 'main');
+
+    const result = await gh.mergeBranch('test-owner/app1', 'dev', 'main');
+
+    expect(result).toEqual({ sha: null, conflicted: true, alreadyUpToDate: false });
+    expect(gh.getBranchSha('test-owner/app1', 'dev')).toBe('sha-main');
+  });
+});

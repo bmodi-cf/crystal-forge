@@ -1,4 +1,5 @@
 import type {
+  BranchMergeResult,
   BranchProtectionOptions,
   CheckResult,
   CreatedRepo,
@@ -31,6 +32,7 @@ type Method =
   | 'getPullRequest'
   | 'getRefCheckResults'
   | 'mergePullRequest'
+  | 'mergeBranch'
   | 'closePullRequest'
   | 'createGitTag';
 
@@ -47,8 +49,20 @@ export class FakeGitHubClient implements GitHubClient {
   private readonly protections = new Map<string, Map<string, BranchProtectionOptions>>();
   private readonly pulls = new Map<
     string,
-    Map<number, { head: string; base: string; headSha: string; state: 'open' | 'closed'; merged: boolean }>
+    Map<
+      number,
+      {
+        head: string;
+        base: string;
+        headSha: string;
+        state: 'open' | 'closed';
+        merged: boolean;
+        mergeable: boolean | null;
+      }
+    >
   >();
+  /** `${fullName}@${base}<-${head}` pairs seeded to conflict on mergeBranch. */
+  private readonly branchConflicts = new Set<string>();
   private readonly prCounter = new Map<string, number>();
   private readonly checks = new Map<string, CheckResult[]>(); // `${fullName}@${ref}` -> checks
 
@@ -137,7 +151,9 @@ export class FakeGitHubClient implements GitHubClient {
     const n = (this.prCounter.get(fullName) ?? 0) + 1;
     this.prCounter.set(fullName, n);
     const map = this.pulls.get(fullName) ?? new Map();
-    map.set(n, { head: opts.head, base: opts.base, headSha, state: 'open', merged: false });
+    map.set(n, {
+      head: opts.head, base: opts.base, headSha, state: 'open', merged: false, mergeable: true,
+    });
     this.pulls.set(fullName, map);
     return { number: n, url: `${this.baseUrl}/${fullName}/pull/${n}`, headSha };
   }
@@ -149,6 +165,8 @@ export class FakeGitHubClient implements GitHubClient {
     return {
       number, state: pr.state, merged: pr.merged, headSha: pr.headSha,
       commits: 1, changedFiles: 1, additions: 1, deletions: 0,
+      mergeable: pr.mergeable,
+      mergeableState: pr.mergeable === null ? 'unknown' : pr.mergeable ? 'clean' : 'dirty',
     };
   }
 
@@ -171,6 +189,22 @@ export class FakeGitHubClient implements GitHubClient {
     // advance base branch head to the merge commit
     this.branches.get(fullName)?.set(pr.base, sha);
     return { sha, merged: true };
+  }
+
+  async mergeBranch(fullName: string, base: string, head: string): Promise<BranchMergeResult> {
+    this.maybeFail('mergeBranch');
+    const b = this.branches.get(fullName);
+    const baseSha = b?.get(base);
+    const headSha = b?.get(head);
+    if (!b || baseSha === undefined) throw new Error(`branch ${base} not found in ${fullName}`);
+    if (headSha === undefined) throw new Error(`branch ${head} not found in ${fullName}`);
+    if (baseSha === headSha) return { sha: null, conflicted: false, alreadyUpToDate: true };
+    if (this.branchConflicts.has(`${fullName}@${base}<-${head}`)) {
+      return { sha: null, conflicted: true, alreadyUpToDate: false };
+    }
+    const sha = `merge-${headSha}`;
+    b.set(base, sha);
+    return { sha, conflicted: false, alreadyUpToDate: false };
   }
 
   async closePullRequest(fullName: string, number: number): Promise<void> {
@@ -221,6 +255,30 @@ export class FakeGitHubClient implements GitHubClient {
 
   getProtection(fullName: string, branch: string): BranchProtectionOptions | undefined {
     return this.protections.get(fullName)?.get(branch);
+  }
+
+  /** Move a PR's head, as a push to the head branch does. */
+  setPullRequestHead(fullName: string, number: number, headSha: string): void {
+    const pr = this.pulls.get(fullName)?.get(number);
+    if (!pr) throw new Error(`PR #${number} not found in ${fullName}`);
+    pr.headSha = headSha;
+    this.branches.get(fullName)?.set(pr.head, headSha);
+  }
+
+  /** Model GitHub's mergeability verdict: true, false (conflicts), or null (computing). */
+  setPullRequestMergeable(fullName: string, number: number, mergeable: boolean | null): void {
+    const pr = this.pulls.get(fullName)?.get(number);
+    if (!pr) throw new Error(`PR #${number} not found in ${fullName}`);
+    pr.mergeable = mergeable;
+  }
+
+  /** Make a subsequent `mergeBranch(base, head)` report conflicts. */
+  setBranchMergeConflict(fullName: string, base: string, head: string): void {
+    this.branchConflicts.add(`${fullName}@${base}<-${head}`);
+  }
+
+  getBranchSha(fullName: string, branch: string): string | undefined {
+    return this.branches.get(fullName)?.get(branch);
   }
 
   setRefChecks(fullName: string, ref: string, checks: CheckResult[]): void {

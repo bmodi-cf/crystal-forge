@@ -3,6 +3,7 @@ import { Octokit } from '@octokit/rest';
 import { createAppAuth } from '@octokit/auth-app';
 import { BranchProtectionUnavailableError } from './types';
 import type {
+  BranchMergeResult,
   BranchProtectionOptions,
   CheckResult,
   CreatedRepo,
@@ -310,7 +311,29 @@ export class OctokitGitHubClient implements GitHubClient {
       changedFiles: data.changed_files ?? 0,
       additions: data.additions ?? 0,
       deletions: data.deletions ?? 0,
+      mergeable: data.mergeable ?? null,
+      mergeableState: data.mergeable_state ?? 'unknown',
     };
+  }
+
+  /**
+   * Merge `head` into `base`. A 409 means conflicts and a 204 means `base`
+   * already contained `head`; both are normal outcomes for the post-release
+   * back-merge, so they are reported rather than thrown.
+   */
+  async mergeBranch(fullName: string, base: string, head: string): Promise<BranchMergeResult> {
+    const [owner, repo] = parseFullName(fullName);
+    try {
+      const res = await this.client.repos.merge({ owner, repo, base, head });
+      // Octokit types this as 201-only, but GitHub answers 204 for "base already
+      // contains head" and then sends no body.
+      const httpStatus: number = res.status;
+      if (httpStatus === 204) return { sha: null, conflicted: false, alreadyUpToDate: true };
+      return { sha: res.data?.sha ?? null, conflicted: false, alreadyUpToDate: false };
+    } catch (err) {
+      if (isStatus(err, 409)) return { sha: null, conflicted: true, alreadyUpToDate: false };
+      throw err;
+    }
   }
 
   /**

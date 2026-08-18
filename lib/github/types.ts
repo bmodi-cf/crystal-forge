@@ -106,6 +106,13 @@ export interface GitHubClient {
    */
   getRefCheckResults(fullName: string, ref: string): Promise<CheckResult[]>;
 
+  /**
+   * Merge `head` into `base` directly (no PR). Used to sync main back into dev
+   * after a squash-merged release, so the next promotion PR does not diverge.
+   * Reports conflicts rather than throwing.
+   */
+  mergeBranch(fullName: string, base: string, head: string): Promise<BranchMergeResult>;
+
   /** Merge a PR. Throws if not mergeable. */
   mergePullRequest(
     fullName: string,
@@ -171,6 +178,25 @@ export type PullRequestInfo = {
   changedFiles: number;
   additions: number;
   deletions: number;
+  /**
+   * GitHub's verdict on whether the PR can be merged, or `null` while it is
+   * still computing one. `false` matters beyond the merge itself: GitHub cannot
+   * build a merge ref for a conflicted PR, so it never dispatches
+   * `pull_request`-triggered workflows — the promotion gates never run.
+   */
+  mergeable: boolean | null;
+  /** GitHub's `mergeable_state` (`clean`, `dirty`, `blocked`, `behind`, ...). */
+  mergeableState: string;
+};
+
+/** Outcome of merging one branch into another (`POST /repos/{r}/merges`). */
+export type BranchMergeResult = {
+  /** The merge commit, or null when nothing was merged. */
+  sha: string | null;
+  /** True when the merge could not be performed because of conflicts. */
+  conflicted: boolean;
+  /** True when `base` already contained `head`, so there was nothing to do. */
+  alreadyUpToDate: boolean;
 };
 
 export type MergeOptions = { method: 'merge' | 'squash' | 'rebase' };

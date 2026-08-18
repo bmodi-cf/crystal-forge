@@ -9,6 +9,7 @@ import { nextVersion, type BumpLevel } from '@/lib/versioning/semver';
 import { slugifyForgeName } from '@/lib/github/slug';
 import type { SessionUser } from './types';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
+import { ACTIVE_STATUSES } from './promotion-blocker';
 
 export type PromotionSummary = {
   forgeName: string;
@@ -17,6 +18,20 @@ export type PromotionSummary = {
   additions: number;
   deletions: number;
   gates: CheckResult[];
+  /**
+   * PR mergeability at the last refresh (`null` while GitHub computes it).
+   * Recorded because a conflicted PR is why the gate list can be empty: GitHub
+   * cannot build the merge ref, so promote-gates is never dispatched. See
+   * `promotionBlocker`.
+   */
+  mergeable?: boolean | null;
+  mergeableState?: string;
+  /**
+   * When the promotion's current head sha was first observed. The gate-start
+   * grace period runs from here rather than from the request, because a push to
+   * dev moves the head and the gates legitimately start over.
+   */
+  headSince?: string;
 };
 
 export type PromotionDto = {
@@ -37,7 +52,7 @@ export type PromotionDto = {
   rejectReason: string | null;
 };
 
-export const ACTIVE = ['checks_running', 'checks_failed', 'awaiting_approval'] as const;
+export const ACTIVE = ACTIVE_STATUSES;
 
 const promotionInclude = {
   requestedBy: { select: { id: true, name: true } },
@@ -144,8 +159,14 @@ export async function refreshPromotionGates(
   if (!row) throw new NotFoundError('promotion', id);
   const forge = await prisma.forge.findUniqueOrThrow({ where: { id: row.forgeId } });
 
-  const gates = await github.getRefCheckResults(forge.repoFullName, row.headSha);
+  // Read the PR first: pushing to dev moves its head, and GitHub runs the gates
+  // on the new sha. Polling the sha captured at request time would report zero
+  // gates forever, and accepting would retag an image built from the old code.
   const pr = await github.getPullRequest(forge.repoFullName, row.prNumber);
+  const headMoved = pr.headSha !== row.headSha;
+  const gates = await github.getRefCheckResults(forge.repoFullName, pr.headSha);
+
+  const previous = (row.summary as PromotionSummary | null) ?? null;
   const summary: PromotionSummary = {
     forgeName: forge.name,
     commits: pr.commits,
@@ -153,6 +174,10 @@ export async function refreshPromotionGates(
     additions: pr.additions,
     deletions: pr.deletions,
     gates,
+    mergeable: pr.mergeable,
+    mergeableState: pr.mergeableState,
+    headSince:
+      headMoved || !previous?.headSince ? new Date().toISOString() : previous.headSince,
   };
 
   // Only advance forward from an active checks state; never override a decided request.
@@ -162,7 +187,11 @@ export async function refreshPromotionGates(
 
   const updated = await prisma.promotionRequest.update({
     where: { id },
-    data: { summary: summary as unknown as object, status: nextStatus as typeof row.status },
+    data: {
+      summary: summary as unknown as object,
+      status: nextStatus as typeof row.status,
+      headSha: pr.headSha,
+    },
     include: promotionInclude,
   });
   return toDto(updated);
@@ -193,6 +222,31 @@ export async function acceptPromotion(
   const forge = await prisma.forge.findUniqueOrThrow({ where: { id: row.forgeId } });
   const slug = slugifyForgeName(forge.name);
 
+  // Refuse a known-conflicted PR here: GitHub would reject the merge with an
+  // opaque "Pull Request is not mergeable", and a conflicted PR never ran the
+  // gates in the first place. `null` means GitHub has not decided yet — let the
+  // merge attempt be the judge in that case.
+  const prState = await github.getPullRequest(forge.repoFullName, row.prNumber);
+  // Guard the sha as well as the mergeability: the release retags the candidate
+  // image built for `row.headSha`, so a dev push between the last gate refresh
+  // and this click would ship an image that does not match what gets merged.
+  if (prState.headSha !== row.headSha) {
+    throw new ValidationError(
+      `Cannot release ${forge.name}: ${DEV_BRANCH} moved (${row.headSha.slice(0, 8)} -> ` +
+        `${prState.headSha.slice(0, 8)}) since the gates last ran. Wait for the gates on the new ` +
+        `commit, then release.`,
+      {},
+    );
+  }
+  if (prState.mergeable === false) {
+    throw new ValidationError(
+      `Cannot release ${forge.name}: the ${DEV_BRANCH} -> ${PROD_BRANCH} pull request has merge ` +
+        `conflicts (mergeable_state: ${prState.mergeableState}). Merge ${PROD_BRANCH} into ` +
+        `${DEV_BRANCH}, resolve the conflicts and push — the gates will run on the new head.`,
+      {},
+    );
+  }
+
   // Merge dev -> main.
   const merge = await github.mergePullRequest(forge.repoFullName, row.prNumber, { method: 'squash' });
   // Tag the merge commit for traceability.
@@ -211,7 +265,37 @@ export async function acceptPromotion(
     },
     include: promotionInclude,
   });
+
+  await syncDevWithProd(forge.repoFullName, github);
+
   return toDto(updated);
+}
+
+/**
+ * Bring `main` back into `dev` after a release.
+ *
+ * The release is a *squash* merge, so main gains a commit that dev does not
+ * have and the two branches diverge by one commit per release. Once the same
+ * regions get touched on both sides the next dev -> main promotion PR
+ * conflicts — and a conflicted PR never gets a promote-gates run at all, so the
+ * promotion sits at `checks_running` with no gates forever.
+ *
+ * Best-effort by design: the release is already merged, tagged and recorded by
+ * the time this runs, so a conflict (or a GitHub blip) is logged for a human to
+ * resolve and never fails the release.
+ */
+async function syncDevWithProd(repoFullName: string, github: GitHubClient): Promise<void> {
+  try {
+    const result = await github.mergeBranch(repoFullName, DEV_BRANCH, PROD_BRANCH);
+    if (result.conflicted) {
+      console.warn(
+        `[acceptPromotion] ${repoFullName}: ${PROD_BRANCH} -> ${DEV_BRANCH} back-merge conflicts; ` +
+          `resolve on ${DEV_BRANCH} or the next promotion PR will not run its gates`,
+      );
+    }
+  } catch (err) {
+    console.error(`[acceptPromotion] ${repoFullName}: back-merge into ${DEV_BRANCH} failed:`, err);
+  }
 }
 
 export async function rejectPromotion(

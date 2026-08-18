@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  promotionBlocker,
+  promotionStatusLabel,
+  canAcceptPromotion,
+} from '@/lib/services/promotion-blocker';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -13,8 +18,15 @@ type Promotion = {
   status: string;
   targetVersion: string;
   prUrl: string;
+  createdAt: string;
   requestedBy: { name: string };
-  summary: { forgeName: string; commits: number; changedFiles: number; gates: Gate[] } | null;
+  summary: {
+    forgeName: string;
+    commits: number;
+    changedFiles: number;
+    gates: Gate[];
+    mergeable?: boolean | null;
+  } | null;
 };
 
 export function PromotionsClient() {
@@ -70,7 +82,9 @@ export function PromotionsClient() {
         <p className="text-[13px] text-ink-dim">No pending requests.</p>
       ) : (
         items.map((p) => {
-          const ready = p.status === 'awaiting_approval';
+          const blocker = promotionBlocker(p);
+          const ready = canAcceptPromotion(p);
+          const gates = p.summary?.gates ?? [];
           return (
             <article
               key={p.id}
@@ -86,10 +100,26 @@ export function PromotionsClient() {
                     </a>
                   </div>
                 </div>
-                <span className="text-[12px] text-ink-dim">{p.status}</span>
+                <span className={`text-[12px] ${blocker ? 'text-[#d96868]' : 'text-ink-dim'}`}>
+                  {promotionStatusLabel(p)}
+                </span>
               </div>
+              {blocker ? (
+                <div
+                  role="alert"
+                  className="rounded-[10px] border border-[#d96868]/40 bg-[#d96868]/5 px-3 py-2"
+                >
+                  <div className="text-[12px] font-semibold text-[#d96868]">{blocker.title}</div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-ink-dim">{blocker.message}</p>
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-2">
-                {(p.summary?.gates ?? []).map((g) => (
+                {gates.length === 0 ? (
+                  <span className="text-[11px] text-ink-faint">
+                    No gate runs reported for this commit yet.
+                  </span>
+                ) : null}
+                {gates.map((g) => (
                   <span
                     key={g.name}
                     className={`rounded-md border px-2 py-1 text-[11px] ${
@@ -111,7 +141,7 @@ export function PromotionsClient() {
                 <Button
                   variant="gold"
                   disabled={busyId === p.id || !ready}
-                  title={ready ? undefined : 'All gates must pass first'}
+                  title={ready ? undefined : (blocker?.message ?? 'All gates must pass first')}
                   onClick={() => act(p.id, 'accept')}
                 >
                   Accept &amp; release

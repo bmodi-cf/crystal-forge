@@ -451,3 +451,111 @@ describe('OctokitGitHubClient.getRefCheckResults', () => {
     expect(gates).toEqual([{ name: 'build', status: 'completed', conclusion: 'success' }]);
   });
 });
+
+describe('OctokitGitHubClient.getPullRequest', () => {
+  function prClient(data: Record<string, unknown>) {
+    const stub = {
+      pulls: { get: vi.fn(async () => ({ data })) },
+    } as unknown as Octokit;
+    return newClient(stub);
+  }
+
+  const base = {
+    number: 4,
+    state: 'open',
+    merged: false,
+    head: { sha: 'deadbeef' },
+    commits: 6,
+    changed_files: 28,
+    additions: 853,
+    deletions: 316,
+  };
+
+  // A conflicted PR is why gates can go missing: GitHub cannot build the merge
+  // ref, so it never dispatches the pull_request-triggered promote-gates run.
+  // Mirrors crystal-lattice PR #4 @ 2020e6ab.
+  it('surfaces a conflicted PR as not mergeable', async () => {
+    const client = prClient({ ...base, mergeable: false, mergeable_state: 'dirty' });
+
+    const pr = await client.getPullRequest('o/r', 4);
+
+    expect(pr.mergeable).toBe(false);
+    expect(pr.mergeableState).toBe('dirty');
+    expect(pr.headSha).toBe('deadbeef');
+  });
+
+  it('passes through a clean PR', async () => {
+    const client = prClient({ ...base, mergeable: true, mergeable_state: 'clean' });
+
+    const pr = await client.getPullRequest('o/r', 4);
+
+    expect(pr.mergeable).toBe(true);
+    expect(pr.mergeableState).toBe('clean');
+  });
+
+  // GitHub computes mergeability asynchronously and answers null until it has.
+  // Callers must not read that as "conflicted".
+  it('keeps an uncomputed mergeability as null rather than false', async () => {
+    const client = prClient({ ...base, mergeable: null, mergeable_state: 'unknown' });
+
+    const pr = await client.getPullRequest('o/r', 4);
+
+    expect(pr.mergeable).toBeNull();
+    expect(pr.mergeableState).toBe('unknown');
+  });
+
+  it('falls back to unknown when the field is absent', async () => {
+    const client = prClient(base);
+
+    const pr = await client.getPullRequest('o/r', 4);
+
+    expect(pr.mergeable).toBeNull();
+    expect(pr.mergeableState).toBe('unknown');
+  });
+});
+
+describe('OctokitGitHubClient.mergeBranch', () => {
+  function mergeClient(behavior: () => Promise<unknown>) {
+    const merge = vi.fn(behavior);
+    const stub = { repos: { merge } } as unknown as Octokit;
+    return { client: newClient(stub), merge };
+  }
+
+  it('merges head into base and returns the merge commit', async () => {
+    const { client, merge } = mergeClient(async () => ({ status: 201, data: { sha: 'merge-sha' } }));
+
+    const result = await client.mergeBranch('o/r', 'dev', 'main');
+
+    expect(result).toEqual({ sha: 'merge-sha', conflicted: false, alreadyUpToDate: false });
+    expect(merge).toHaveBeenCalledWith({ owner: 'o', repo: 'r', base: 'dev', head: 'main' });
+  });
+
+  // 204: base already contains head. The common case right after a release.
+  it('reports nothing-to-merge as already up to date', async () => {
+    const { client } = mergeClient(async () => ({ status: 204, data: undefined }));
+
+    expect(await client.mergeBranch('o/r', 'dev', 'main')).toEqual({
+      sha: null,
+      conflicted: false,
+      alreadyUpToDate: true,
+    });
+  });
+
+  // 409: real conflicts. Not an error the caller should crash on — the back-merge
+  // is best-effort and a human has to resolve it.
+  it('reports a conflict instead of throwing', async () => {
+    const { client } = mergeClient(async () => { throw status(409); });
+
+    expect(await client.mergeBranch('o/r', 'dev', 'main')).toEqual({
+      sha: null,
+      conflicted: true,
+      alreadyUpToDate: false,
+    });
+  });
+
+  it('still throws on unexpected failures', async () => {
+    const { client } = mergeClient(async () => { throw status(500); });
+
+    await expect(client.mergeBranch('o/r', 'dev', 'main')).rejects.toThrow(/500/);
+  });
+});
