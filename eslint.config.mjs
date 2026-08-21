@@ -51,6 +51,11 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "eslint-rules/**",
+    // Git worktrees live under .worktrees/ (see .gitignore). Linting from the
+    // main checkout would otherwise walk every worktree — including its own
+    // .next/ build output — reporting thousands of problems from generated code
+    // that this config already ignores at the root.
+    ".worktrees/**",
   ]),
 ]);
 

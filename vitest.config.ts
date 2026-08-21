@@ -12,7 +12,15 @@ export default defineConfig({
     globals: true,
     globalSetup: ['./vitest.global-setup.ts'],
     setupFiles: ['./vitest.setup.ts'],
-    exclude: ['**/node_modules/**', '**/tests/e2e/**', '**/.next/**'],
+    exclude: [
+      '**/node_modules/**', '**/tests/e2e/**', '**/.next/**',
+      // Git worktrees live under .worktrees/ (see .gitignore). Without this,
+      // running the suite from the main checkout collects every test twice —
+      // once here and once from the worktree — and the worktree's copies fail
+      // because `@/` resolves to THIS root, giving them a second, mismatched
+      // copy of every module they import.
+      '**/.worktrees/**',
+    ],
     // Service tests share one Postgres instance and call withCleanDb to truncate.
     // Running test files in parallel races on the same tables and produces
     // intermittent FK violations. Serialise via a single fork.
