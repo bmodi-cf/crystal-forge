@@ -135,6 +135,12 @@ describe('listAvailableVersions', () => {
           if (repo === 'broken-one') throw new RegistryError('registry unreachable');
           return registry.listTags(repo);
         },
+        putBlob: registry.putBlob.bind(registry),
+        getBlob: registry.getBlob.bind(registry),
+        putManifest: registry.putManifest.bind(registry),
+        getManifest: registry.getManifest.bind(registry),
+        manifestDigest: registry.manifestDigest.bind(registry),
+        listRepositories: registry.listRepositories.bind(registry),
       };
 
       const map = await listAvailableVersions(admin, guarded);
