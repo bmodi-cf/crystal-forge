@@ -30,10 +30,14 @@ function promotion(over: Record<string, unknown> = {}, summaryOver: Record<strin
 }
 
 function serve(promotions: unknown[]) {
-  vi.stubGlobal('fetch', vi.fn(async () => ({
-    ok: true,
-    json: async () => ({ promotions }),
-  })));
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    return {
+      ok: true,
+      json: async () =>
+        url.includes('first-release-candidates') ? { candidates: [] } : { promotions },
+    };
+  }));
 }
 
 describe('PromotionsClient', () => {

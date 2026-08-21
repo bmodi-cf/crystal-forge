@@ -8,6 +8,7 @@ import {
   promotionStatusLabel,
   canAcceptPromotion,
 } from '@/lib/services/promotion-blocker';
+import { FirstReleaseSection } from './FirstReleaseSection';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -151,6 +152,7 @@ export function PromotionsClient() {
           );
         })
       )}
+      <FirstReleaseSection />
     </div>
   );
 }
