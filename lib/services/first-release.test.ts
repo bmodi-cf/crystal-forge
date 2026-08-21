@@ -4,13 +4,17 @@ import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { FakeRegistryClient } from '@/lib/registry/fake-client';
 import { FakeGitHubClient } from '@/lib/github/fake-client';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
-import { pullBundle } from '@/lib/bundle/registry-bundle';
-import { cutBundle, listFirstReleaseCandidates } from './first-release';
+import { pullBundle, pushBundle } from '@/lib/bundle/registry-bundle';
+import {
+  cutBundle,
+  listFirstReleaseCandidates,
+  listBundleCandidates,
+  importBundle,
+  type ImportDeps,
+} from './first-release';
 import { FakeDatabaseProvisioner } from '@/lib/db/fake-provisioner';
-import { pushBundle } from '@/lib/bundle/registry-bundle';
 import type { BundleContents } from '@/lib/bundle/types';
 import type { DatabaseProvisioner } from '@/lib/db/types';
-import { listBundleCandidates, importBundle, type ImportDeps } from './first-release';
 
 const APP_DIGEST = 'sha256:' + 'a'.repeat(64);
 
@@ -336,11 +340,15 @@ describe('listBundleCandidates', () => {
   it('degrades to empty when the registry catalog is unreachable', async () => {
     await withCleanDb(async (prisma) => {
       const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
+      let calls = 0;
       const broken = {
-        listRepositories: async () => { throw new Error('connect ECONNREFUSED'); },
+        listRepositories: async () => { calls += 1; throw new Error('connect ECONNREFUSED'); },
       } as unknown as FakeRegistryClient;
 
       expect(await listBundleCandidates(admin, broken)).toEqual([]);
+      // Otherwise this would pass even if listBundleCandidates never called
+      // listRepositories at all.
+      expect(calls).toBe(1);
     });
   });
 
@@ -488,16 +496,91 @@ describe('importBundle', () => {
     });
   });
 
-  it('refuses when prod already has the forge row', async () => {
+  it('refuses when prod already has the forge row, live and deployed', async () => {
     await withCleanDb(async (prisma) => {
       const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
-      await makeForge(prisma, { name: 'Second Set of Eyes', createdById: admin.id });
+      // Enabled with a version: a real, already-deployed forge — not the
+      // disabled/null stub a failed or interrupted import leaves behind.
+      await makeForge(prisma, {
+        name: 'Second Set of Eyes', createdById: admin.id,
+        deployEnabled: true, deployVersion: 'v1.0.0',
+      });
       const reg = await seededProdRegistry();
       const { deps } = importDeps();
 
       await expect(
         importBundle(admin, 'second-set-of-eyes', 'v1.0.0', { registry: reg, ...deps }),
       ).rejects.toThrow(/already known/i);
+    });
+  });
+
+  it(
+    'refuses an existing forge whose name differs only by case/spacing from the bundle\'s ' +
+      '(same slug), without touching its role',
+    async () => {
+      await withCleanDb(async (prisma) => {
+        const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
+        // Same slug as 'second-set-of-eyes' once slugifyForgeName collapses
+        // case and whitespace — a live, already-deployed forge under a
+        // differently-spelled name.
+        await makeForge(prisma, {
+          name: 'second  Set of EYES', createdById: admin.id,
+          deployEnabled: true, deployVersion: 'v1.0.0',
+        });
+        const reg = await seededProdRegistry();
+        const inner = new FakeDatabaseProvisioner();
+        let passwordCalls = 0;
+        const provisioner: DatabaseProvisioner = {
+          createDatabase: (n) => inner.createDatabase(n),
+          provisionRole: (d, r) => inner.provisionRole(d, r),
+          setRolePassword: (r, p) => { passwordCalls += 1; return inner.setRolePassword(r, p); },
+          dropDatabase: (n) => inner.dropDatabase(n),
+          dropRole: (r) => inner.dropRole(r),
+          hardenDatabase: (n) => inner.hardenDatabase(n),
+        };
+        const { deps } = importDeps({ provisioner });
+
+        await expect(
+          importBundle(admin, 'second-set-of-eyes', 'v1.0.0', { registry: reg, ...deps }),
+        ).rejects.toThrow(/already known/i);
+
+        // The refusal must land before any provisioning touches the live
+        // forge's role — rotating its password would lock out a running forge.
+        expect(passwordCalls).toBe(0);
+      });
+    },
+  );
+
+  it('resumes after a failed restore instead of getting stuck behind "already known"', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
+      const reg = await seededProdRegistry();
+
+      const failing = importDeps({
+        restore: async () => { throw new Error('psql restore into second_set_of_eyes failed'); },
+      });
+      await expect(
+        importBundle(admin, 'second-set-of-eyes', 'v1.0.0', { registry: reg, ...failing.deps }),
+      ).rejects.toThrow(/psql restore/);
+
+      const stub = await prisma.forge.findUniqueOrThrow({
+        where: { name: 'Second Set of Eyes' },
+      });
+      expect(stub.deployEnabled).toBe(false);
+      expect(stub.deployVersion).toBeNull();
+
+      const { deps } = importDeps();
+      const result = await importBundle(admin, 'second-set-of-eyes', 'v1.0.0', {
+        registry: reg, ...deps,
+      });
+
+      expect(result.deployEnabled).toBe(true);
+      // The retry reused the stub row rather than creating a second one.
+      expect(result.forgeId).toBe(stub.id);
+      const rows = await prisma.forge.findMany({ where: { name: 'Second Set of Eyes' } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.deployEnabled).toBe(true);
+      expect(rows[0]!.deployVersion).toBe('v1.0.0');
     });
   });
 
@@ -574,10 +657,24 @@ describe('the ordering invariant (spec §8)', () => {
       await importBundle(admin, 'second-set-of-eyes', 'v1.0.0', {
         registry: reg,
         provisioner: new FakeDatabaseProvisioner(),
+        // Fires before the Forge row exists at all, so this probe's 0 is
+        // trivial on its own — kept because it still documents that no row
+        // is visible before step 2 runs.
         readMarker: async () => { await probe(); return null; },
         // The reconciler must not see the forge at any point up to and
         // including the restore — deployEnabled flips only after it returns.
-        restore: async () => { await probe(); },
+        restore: async () => {
+          await probe();
+          // listDesiredForges filters on deployEnabled AND a non-null
+          // deployVersion, so a bug that flipped only one of the two early
+          // would still read 0 above. Check the row itself directly so that
+          // gap can't mask a partial handoff.
+          const row = await prisma.forge.findUniqueOrThrow({
+            where: { name: 'Second Set of Eyes' },
+          });
+          expect(row.deployEnabled).toBe(false);
+          expect(row.deployVersion).toBeNull();
+        },
         randomPassword: () => 'abcdef0123456789',
       });
 

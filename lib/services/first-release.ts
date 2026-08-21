@@ -315,8 +315,7 @@ export async function importBundle(
 
   const registry = deps.registry ?? getRegistryClient();
   const provisioner = deps.provisioner ?? getDatabaseProvisioner();
-  const restore = deps.restore ?? ((o: Parameters<typeof restoreForgeDatabase>[0]) =>
-    restoreForgeDatabase(o));
+  const restore = deps.restore ?? restoreForgeDatabase;
   const readMarker = deps.readMarker ?? readSeedMarker;
   const randomPassword = deps.randomPassword ?? (() => randomBytes(24).toString('hex'));
 
@@ -354,18 +353,31 @@ export async function importBundle(
     );
   }
 
-  // Already known: prod having the row means this is not a first release.
-  const existing = await prisma.forge.findUnique({ where: { name: contents.forge.name } });
-  if (existing) {
+  // Already known: keyed on slug, not name. slugifyForgeName collapses case
+  // and whitespace, so two distinct Forge.name values ("Work Order Tool" vs
+  // "Work order tool") can still land on the very same database and role —
+  // an exact-name comparison would miss that and let a second import rotate
+  // a live forge's role password out from under it. A forge is genuinely
+  // "already known" only once it has actually been deployed (deployEnabled,
+  // or a non-null deployVersion). A row that is disabled with no version is
+  // the inert aftermath of an interrupted or failed import — see the
+  // resumable branch at Step 2 below, not a refusal here.
+  const knownForges = await prisma.forge.findMany({
+    select: { id: true, name: true, deployEnabled: true, deployVersion: true },
+  });
+  const existing = knownForges.find((f) => slugifyForgeName(f.name) === slug);
+  if (existing && (existing.deployEnabled || existing.deployVersion !== null)) {
     throw new ValidationError(
-      `${contents.forge.name} is already known to this dashboard; a bundle is a ` +
+      `${existing.name} is already known to this dashboard; a bundle is a ` +
         'first-release mechanism only',
       {},
     );
   }
 
   // Already imported: a readable refusal. The unconditional CREATE TABLE in
-  // seedMarkerSql is the race-proof version of this same check.
+  // seedMarkerSql is the race-proof version of this same check, and remains
+  // the sole authority on it — this one only makes a stuck stub's state
+  // legible before that point.
   const marker = await readMarker(dbName);
   if (marker) {
     throw new ValidationError(
@@ -375,20 +387,29 @@ export async function importBundle(
     );
   }
 
-  // --- Step 2: inventory row, deliberately disabled ------------------------
-  const forge = await prisma.forge.create({
-    data: {
-      name: contents.forge.name,
-      displayName: contents.forge.displayName,
-      description: contents.forge.description,
-      repoFullName: contents.forge.repoFullName,
-      // The bundle carries no users. Attribute the row to the admin importing
-      // it: createdById is a FK into *this* dashboard's users table.
-      createdById: currentUser.id,
-      deployEnabled: false,
-      deployVersion: null,
-    },
-  });
+  // --- Step 2: inventory row, deliberately disabled -------------------------
+  // `existing`, if present, is guaranteed disabled with no version (the
+  // enabled/versioned case threw above) and has no marker (checked just
+  // above) — the inert aftermath of a prior attempt that never finished.
+  // Resume it rather than creating a second row for the same slug, so a
+  // failed or crashed import stays retryable instead of getting stuck behind
+  // its own "already known" guard.
+  const forge = existing
+    ? existing
+    : await prisma.forge.create({
+        data: {
+          name: contents.forge.name,
+          displayName: contents.forge.displayName,
+          description: contents.forge.description,
+          repoFullName: contents.forge.repoFullName,
+          // The bundle carries no users. Attribute the row to the admin
+          // importing it: createdById is a FK into *this* dashboard's users
+          // table.
+          createdById: currentUser.id,
+          deployEnabled: false,
+          deployVersion: null,
+        },
+      });
 
   // --- Step 3: database, role, password ------------------------------------
   const password = randomPassword();
