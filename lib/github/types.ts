@@ -107,6 +107,16 @@ export interface GitHubClient {
   getRefCheckResults(fullName: string, ref: string): Promise<CheckResult[]>;
 
   /**
+   * Entry names (not full paths) of a directory at an exact ref. Empty array
+   * when the path does not exist there — callers treat "no migrations
+   * directory" as "no migrations", not as an error.
+   *
+   * Used by the first-release migration-parity guard, which compares a forge
+   * database's applied migrations against the repo at the released sha.
+   */
+  listDirectoryAtRef(fullName: string, path: string, ref: string): Promise<string[]>;
+
+  /**
    * Merge `head` into `base` directly (no PR). Used to sync main back into dev
    * after a squash-merged release, so the next promotion PR does not diverge.
    * Reports conflicts rather than throwing.

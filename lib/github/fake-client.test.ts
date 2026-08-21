@@ -279,3 +279,24 @@ describe('FakeGitHubClient mergeability and branch merges', () => {
     expect(gh.getBranchSha('test-owner/app1', 'dev')).toBe('sha-main');
   });
 });
+
+describe('listDirectoryAtRef', () => {
+  it('returns the seeded entry names for a path at a ref', async () => {
+    const gh = new FakeGitHubClient({ owner: 'test-owner', baseUrl: 'https://github.com' });
+    gh.seedDirectory('owner/sse', 'abc123', 'prisma/migrations', [
+      '20260801120000_init',
+      '20260815090000_add_review_document',
+    ]);
+    expect(await gh.listDirectoryAtRef('owner/sse', 'prisma/migrations', 'abc123')).toEqual([
+      '20260801120000_init',
+      '20260815090000_add_review_document',
+    ]);
+  });
+
+  it('returns an empty array for a path that does not exist at that ref', async () => {
+    const gh = new FakeGitHubClient({ owner: 'test-owner', baseUrl: 'https://github.com' });
+    gh.seedDirectory('owner/sse', 'abc123', 'prisma/migrations', ['20260801120000_init']);
+    expect(await gh.listDirectoryAtRef('owner/sse', 'prisma/migrations', 'other-sha')).toEqual([]);
+    expect(await gh.listDirectoryAtRef('owner/sse', 'nope', 'abc123')).toEqual([]);
+  });
+});

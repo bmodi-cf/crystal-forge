@@ -65,6 +65,8 @@ export class FakeGitHubClient implements GitHubClient {
   private readonly branchConflicts = new Set<string>();
   private readonly prCounter = new Map<string, number>();
   private readonly checks = new Map<string, CheckResult[]>(); // `${fullName}@${ref}` -> checks
+  // `${fullName}@${ref}:${path}` -> entry names
+  private readonly directories = new Map<string, string[]>();
 
   constructor(config: { owner: string; baseUrl: string }) {
     this.owner = config.owner;
@@ -175,6 +177,10 @@ export class FakeGitHubClient implements GitHubClient {
     return this.checks.get(`${fullName}@${ref}`) ?? [];
   }
 
+  async listDirectoryAtRef(fullName: string, path: string, ref: string): Promise<string[]> {
+    return this.directories.get(`${fullName}@${ref}:${path}`) ?? [];
+  }
+
   async mergePullRequest(
     fullName: string,
     number: number,
@@ -283,6 +289,10 @@ export class FakeGitHubClient implements GitHubClient {
 
   setRefChecks(fullName: string, ref: string, checks: CheckResult[]): void {
     this.checks.set(`${fullName}@${ref}`, checks);
+  }
+
+  seedDirectory(fullName: string, ref: string, path: string, names: string[]): void {
+    this.directories.set(`${fullName}@${ref}:${path}`, [...names]);
   }
 
   getPullRequestState(

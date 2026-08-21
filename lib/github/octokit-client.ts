@@ -371,6 +371,20 @@ export class OctokitGitHubClient implements GitHubClient {
       }));
   }
 
+  async listDirectoryAtRef(fullName: string, path: string, ref: string): Promise<string[]> {
+    const [owner, repo] = parseFullName(fullName);
+    try {
+      const { data } = await this.client.repos.getContent({ owner, repo, path, ref });
+      // A directory comes back as an array. A file at this path is not a
+      // directory listing, so report empty rather than guessing.
+      if (!Array.isArray(data)) return [];
+      return data.map((entry) => entry.name);
+    } catch (err: unknown) {
+      if (isStatus(err, 404)) return [];
+      throw err;
+    }
+  }
+
   async mergePullRequest(
     fullName: string,
     number: number,
