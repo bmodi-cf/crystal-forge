@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { Client } from 'pg';
 import { env } from '@/lib/env';
+import { assertSafeIdentifier, buildAdminUrl } from './identifiers';
 
 /**
  * Dump and restore for per-forge databases.
@@ -16,7 +17,6 @@ import { env } from '@/lib/env';
  * provisionRole grants no privileges on tables the role did not create.
  */
 
-const SAFE_DBNAME = /^[a-z0-9_]+$/;
 const SAFE_HEX = /^[a-f0-9]+$/;
 const SAFE_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const SAFE_VERSION = /^v\d+\.\d+\.\d+$/;
@@ -28,21 +28,21 @@ export type PgExecDeps = { spawnFn?: typeof nodeSpawn };
  * when it loads, so a test that points these at another server after import
  * would otherwise be ignored. Mirrors lib/mode.ts, which reads
  * FORGE_DASHBOARD_MODE from process.env for the same reason.
+ *
+ * `||` rather than `??`: an empty-string override (e.g. `PG_CONTAINER=""`)
+ * must fall through to the default too, not become `docker exec -i "" …`.
+ * The port is guarded separately since `Number('')` is 0 and `Number(bogus)`
+ * is NaN — either would otherwise silently win over the validated env value.
  */
 function pgSettings() {
+  const port = Number(process.env.HARNESS_PG_PORT);
   return {
-    container: process.env.PG_CONTAINER ?? env.PG_CONTAINER,
-    host: process.env.HARNESS_PG_HOST ?? env.HARNESS_PG_HOST,
-    port: Number(process.env.HARNESS_PG_PORT ?? env.HARNESS_PG_PORT),
-    user: process.env.HARNESS_PG_USER ?? env.HARNESS_PG_USER,
-    password: process.env.HARNESS_PG_PASSWORD ?? env.HARNESS_PG_PASSWORD,
+    container: process.env.PG_CONTAINER || env.PG_CONTAINER,
+    host: process.env.HARNESS_PG_HOST || env.HARNESS_PG_HOST,
+    port: Number.isFinite(port) && port > 0 ? port : env.HARNESS_PG_PORT,
+    user: process.env.HARNESS_PG_USER || env.HARNESS_PG_USER,
+    password: process.env.HARNESS_PG_PASSWORD || env.HARNESS_PG_PASSWORD,
   };
-}
-
-function assertSafeDbName(name: string): void {
-  if (!SAFE_DBNAME.test(name)) {
-    throw new Error(`Refusing to use unsafe database name: ${JSON.stringify(name)}`);
-  }
 }
 
 type ExecResult = { stdout: Buffer; stderr: string; exitCode: number };
@@ -57,10 +57,23 @@ function exec(spawnFn: typeof nodeSpawn, args: string[], stdin?: string): Promis
     child.stdout?.on('data', (d: Buffer) => out.push(Buffer.from(d)));
     child.stderr?.on('data', (d: Buffer) => { err += d.toString('utf8'); });
     child.once('error', reject);
-    child.once('exit', (code) =>
+    // 'close', not 'exit': 'exit' fires as soon as the child process
+    // terminates, which can race ahead of unread bytes still sitting in the
+    // stdout/stderr pipes for a large dump. 'close' fires only once stdio is
+    // fully drained, so Buffer.concat(out) below is guaranteed complete.
+    child.once('close', (code) =>
       resolve({ stdout: Buffer.concat(out), stderr: err, exitCode: code ?? -1 }),
     );
-    if (stdin !== undefined) child.stdin?.end(stdin);
+    if (stdin !== undefined) {
+      // If the child aborts early (e.g. psql under ON_ERROR_STOP hitting the
+      // first bad statement) it stops reading stdin. For SQL bigger than the
+      // pipe buffer the pending write then fails with EPIPE, emitted as
+      // 'error' on the stdin stream — not on `child` — with no listener that
+      // is an unhandled stream error that crashes the process. The child's
+      // exit code already carries the real failure, so just swallow it here.
+      child.stdin?.on('error', () => {});
+      child.stdin?.end(stdin);
+    }
   });
 }
 
@@ -69,7 +82,7 @@ export async function dumpForgeDatabase(
   opts: { dbName: string },
   deps: PgExecDeps = {},
 ): Promise<string> {
-  assertSafeDbName(opts.dbName);
+  assertSafeIdentifier(opts.dbName, 'database');
   const spawnFn = deps.spawnFn ?? nodeSpawn;
   const settings = pgSettings();
   const res = await exec(spawnFn, [
@@ -97,8 +110,8 @@ export async function restoreForgeDatabase(
   opts: { dbName: string; role: string; password: string; sql: string },
   deps: PgExecDeps = {},
 ): Promise<void> {
-  assertSafeDbName(opts.dbName);
-  assertSafeDbName(opts.role);
+  assertSafeIdentifier(opts.dbName, 'database');
+  assertSafeIdentifier(opts.role, 'role');
   if (!SAFE_HEX.test(opts.password)) {
     throw new Error('Refusing to use a password outside the safe hex charset');
   }
@@ -107,6 +120,11 @@ export async function restoreForgeDatabase(
   const res = await exec(
     spawnFn,
     [
+      // The password is visible for the duration of this docker exec in the
+      // host's process list (/proc/<pid>/cmdline) via the `-e` assignment.
+      // Avoiding that would need a PGPASSFILE written inside the container,
+      // but stdin here is already occupied by the SQL stream — not worth it
+      // for a per-forge password that is rotated on every forge start.
       'exec', '-i', '-e', `PGPASSWORD=${opts.password}`, settings.container,
       'psql', '-h', 'localhost', '-p', '5432', '-U', opts.role, '-d', opts.dbName,
       '--single-transaction', '-v', 'ON_ERROR_STOP=1', '-f', '-',
@@ -145,29 +163,23 @@ export function seedMarkerSql(bundleDigest: string, version: string): string {
   ].join('\n');
 }
 
-/** Superuser connection string for one database on the shared engine. */
-function adminUrl(database: string): string {
-  const settings = pgSettings();
-  const url = new URL('postgres://placeholder/postgres');
-  url.username = encodeURIComponent(settings.user);
-  url.password = encodeURIComponent(settings.password);
-  url.hostname = settings.host;
-  url.port = String(settings.port);
-  url.pathname = `/${database}`;
-  return url.toString();
-}
-
 async function queryForgeDb<T>(
   dbName: string,
   fn: (client: Client) => Promise<T>,
 ): Promise<T | null> {
-  assertSafeDbName(dbName);
-  const client = new Client({ connectionString: adminUrl(dbName) });
+  assertSafeIdentifier(dbName, 'database');
+  const settings = pgSettings();
+  const client = new Client({ connectionString: buildAdminUrl(settings, dbName) });
   try {
     await client.connect();
   } catch (err) {
-    // No such database yet — the caller treats this as "nothing applied".
-    if (/does not exist/i.test(err instanceof Error ? err.message : String(err))) return null;
+    // 3D000 = invalid_catalog_name ("database ... does not exist"): the
+    // caller treats this as "nothing applied". Checked by SQLSTATE, not a
+    // message regex, so a misconfigured HARNESS_PG_USER (which fails with a
+    // different code, e.g. 28P01/28000) is never misread as an absent
+    // database — that would make the migration-parity guard see a false
+    // "nothing applied" instead of surfacing the real auth failure.
+    if ((err as { code?: string } | undefined)?.code === '3D000') return null;
     throw err;
   }
   try {
@@ -200,7 +212,7 @@ export async function readAppliedMigrations(dbName: string): Promise<string[] | 
 export async function readSeedMarker(
   dbName: string,
 ): Promise<{ bundleDigest: string; version: string } | null> {
-  const found = await queryForgeDb(dbName, async (client) => {
+  return queryForgeDb(dbName, async (client) => {
     const exists = await client.query<{ present: string | null }>(
       "SELECT to_regclass('public._forge_seed')::text AS present",
     );
@@ -211,5 +223,4 @@ export async function readSeedMarker(
     const row = res.rows[0];
     return row ? { bundleDigest: row.bundle_digest, version: row.version } : null;
   });
-  return found ?? null;
 }

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { Client } from 'pg';
@@ -30,10 +30,53 @@ function fakeSpawn(script: { stdout?: string; stderr?: string; exitCode?: number
       child.stdout.end();
       child.stderr.end();
       child.emit('exit', script.exitCode ?? 0);
+      // Real Node emits 'close' only after stdio is fully drained — this fake
+      // just emits it right after 'exit' since dump.ts's exec() now waits on
+      // 'close', not 'exit' (see fakeSpawnTruncating for the case that
+      // actually separates the two).
+      child.emit('close', script.exitCode ?? 0);
     });
     return child;
   }) as never;
   return { spawnFn, calls, stdin: () => written };
+}
+
+/**
+ * A spawn stub that reproduces the real pg_dump/docker hazard: the child
+ * process's 'exit' event can fire before all of its stdout has been drained
+ * to us (the OS pipe can still hold unread bytes). Only 'close' is guaranteed
+ * to fire after stdio is fully flushed. child.stdout/stderr are plain
+ * EventEmitters here (not real streams) so the test controls ordering
+ * exactly, rather than relying on Node's stream-scheduling internals.
+ */
+function fakeSpawnTruncating(payload: string): {
+  spawnFn: never;
+} {
+  const splitPoint = Math.floor(payload.length / 2);
+  const first = payload.slice(0, splitPoint);
+  const second = payload.slice(splitPoint);
+  const spawnFn = ((_cmd: string, _args: string[]) => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter; stderr: EventEmitter; stdin: PassThrough;
+    };
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = new PassThrough();
+    setImmediate(() => {
+      child.stdout.emit('data', Buffer.from(first));
+      // The child has terminated, but (per the real docker/pg_dump hazard)
+      // the second half of its output has not been delivered to us yet.
+      child.emit('exit', 0);
+      setImmediate(() => {
+        child.stdout.emit('data', Buffer.from(second));
+        child.stdout.emit('end');
+        child.stderr.emit('end');
+        child.emit('close', 0);
+      });
+    });
+    return child;
+  }) as never;
+  return { spawnFn };
 }
 
 describe('dumpForgeDatabase', () => {
@@ -78,6 +121,15 @@ describe('dumpForgeDatabase', () => {
       dumpForgeDatabase({ dbName: 'sse"; DROP DATABASE x' }, { spawnFn }),
     ).rejects.toThrow(/unsafe/i);
   });
+
+  it('waits for stdio to close before resolving, so a large dump is not truncated', async () => {
+    // Comfortably larger than a pipe buffer (64KB on Linux) so a resolve on
+    // 'exit' would race the second half of the data and return a prefix.
+    const payload = 'A'.repeat(2 * 1024 * 1024);
+    const { spawnFn } = fakeSpawnTruncating(payload);
+    const sql = await dumpForgeDatabase({ dbName: 'sse' }, { spawnFn });
+    expect(sql).toBe(payload);
+  });
 });
 
 describe('restoreForgeDatabase', () => {
@@ -114,6 +166,16 @@ describe('restoreForgeDatabase', () => {
         { spawnFn },
       ),
     ).rejects.toThrow(/hex/i);
+  });
+
+  it('refuses an unsafe role name', async () => {
+    const { spawnFn } = fakeSpawn({});
+    await expect(
+      restoreForgeDatabase(
+        { dbName: 'sse', role: 'sse_app"; DROP ROLE x', password: 'deadbeef', sql: 'x' },
+        { spawnFn },
+      ),
+    ).rejects.toThrow(/unsafe/i);
   });
 });
 
@@ -159,13 +221,17 @@ describe('restoreForgeDatabase (integration)', () => {
   }
 
   beforeEach(async () => {
-    // dump.ts reads env.HARNESS_PG_* / env.PG_CONTAINER; point them at the test
-    // server, which is the same container on the same host port.
+    // dump.ts reads env.HARNESS_PG_* / env.PG_CONTAINER (via process.env at
+    // call time) — point them at the test server, which is the same
+    // container on the same host port. vi.stubEnv/unstubAllEnvs, not direct
+    // assignment: vitest reuses the worker process (pool: 'forks',
+    // fileParallelism: false), so a plain assignment here would leak into
+    // every test file that runs afterwards in the same worker.
     const cfg = pgConfig();
-    process.env.HARNESS_PG_HOST = cfg.host;
-    process.env.HARNESS_PG_PORT = String(cfg.port);
-    process.env.HARNESS_PG_USER = cfg.user;
-    process.env.HARNESS_PG_PASSWORD = cfg.password;
+    vi.stubEnv('HARNESS_PG_HOST', cfg.host);
+    vi.stubEnv('HARNESS_PG_PORT', String(cfg.port));
+    vi.stubEnv('HARNESS_PG_USER', cfg.user);
+    vi.stubEnv('HARNESS_PG_PASSWORD', cfg.password);
 
     provisioner = new PgDatabaseProvisioner(cfg);
     await provisioner.dropDatabase(DB);
@@ -178,6 +244,7 @@ describe('restoreForgeDatabase (integration)', () => {
   afterEach(async () => {
     await provisioner.dropDatabase(DB);
     await provisioner.dropRole(ROLE);
+    vi.unstubAllEnvs();
   });
 
   it('restores as the app role, which then owns and can write the tables', async () => {
@@ -228,6 +295,23 @@ describe('restoreForgeDatabase (integration)', () => {
         dbName: DB, role: ROLE, password: PASSWORD,
         sql: 'CREATE TABLE ok (id int);\nTHIS IS NOT SQL;\n',
       }),
+    ).rejects.toThrow();
+
+    const tables = await asAdmin(DB, (c) =>
+      c.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"),
+    );
+    expect(tables.rows).toEqual([]);
+  });
+
+  it('rejects (rather than crashing) when psql aborts on the first statement of an oversized restore', async () => {
+    // psql under ON_ERROR_STOP=1 aborts as soon as it hits the bad first
+    // statement and stops reading stdin. The filler after it pushes the
+    // total payload well past a pipe buffer (64KB on Linux), so our pending
+    // write is still in flight when that happens and fails with EPIPE.
+    const bogus = 'THIS IS NOT VALID SQL AT ALL;\n';
+    const filler = '-- padding line to exceed the pipe buffer\n'.repeat(50_000); // ~2.1MB
+    await expect(
+      restoreForgeDatabase({ dbName: DB, role: ROLE, password: PASSWORD, sql: bogus + filler }),
     ).rejects.toThrow();
 
     const tables = await asAdmin(DB, (c) =>

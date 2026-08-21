@@ -1,9 +1,9 @@
 import { Client } from 'pg';
 import type { DatabaseProvisioner } from './types';
-
-const SAFE_DBNAME = /^[a-z0-9_]+$/;
+import { assertSafeIdentifier, buildAdminUrl } from './identifiers';
 
 export class PgDatabaseProvisioner implements DatabaseProvisioner {
+  private readonly config: { host: string; port: number; user: string; password: string };
   private readonly adminUrl: string;
 
   constructor(config: {
@@ -12,16 +12,12 @@ export class PgDatabaseProvisioner implements DatabaseProvisioner {
     user: string;
     password: string;
   }) {
-    const url = new URL('postgres://placeholder/postgres');
-    url.username = encodeURIComponent(config.user);
-    url.password = encodeURIComponent(config.password);
-    url.hostname = config.host;
-    url.port = String(config.port);
-    this.adminUrl = url.toString();
+    this.config = config;
+    this.adminUrl = buildAdminUrl(config, 'postgres');
   }
 
   async createDatabase(name: string): Promise<void> {
-    this.assertSafe(name);
+    assertSafeIdentifier(name, 'database');
     const client = new Client({ connectionString: this.adminUrl });
     await client.connect();
     try {
@@ -32,7 +28,7 @@ export class PgDatabaseProvisioner implements DatabaseProvisioner {
   }
 
   async dropDatabase(name: string): Promise<void> {
-    this.assertSafe(name);
+    assertSafeIdentifier(name, 'database');
     const client = new Client({ connectionString: this.adminUrl });
     await client.connect();
     try {
@@ -43,14 +39,12 @@ export class PgDatabaseProvisioner implements DatabaseProvisioner {
   }
 
   private dbUrl(database: string): string {
-    const url = new URL(this.adminUrl);
-    url.pathname = `/${database}`;
-    return url.toString();
+    return buildAdminUrl(this.config, database);
   }
 
   async provisionRole(database: string, role: string): Promise<void> {
-    this.assertSafe(database);
-    this.assertSafe(role);
+    assertSafeIdentifier(database, 'database');
+    assertSafeIdentifier(role, 'role');
     const admin = new Client({ connectionString: this.adminUrl });
     await admin.connect();
     try {
@@ -73,7 +67,7 @@ export class PgDatabaseProvisioner implements DatabaseProvisioner {
   }
 
   async setRolePassword(role: string, password: string): Promise<void> {
-    this.assertSafe(role);
+    assertSafeIdentifier(role, 'role');
     if (!/^[a-f0-9]+$/.test(password)) {
       throw new Error('Refusing to set a password outside the safe hex charset');
     }
@@ -85,7 +79,7 @@ export class PgDatabaseProvisioner implements DatabaseProvisioner {
   }
 
   async dropRole(role: string): Promise<void> {
-    this.assertSafe(role);
+    assertSafeIdentifier(role, 'role');
     const admin = new Client({ connectionString: this.adminUrl });
     await admin.connect();
     try {
@@ -94,17 +88,11 @@ export class PgDatabaseProvisioner implements DatabaseProvisioner {
   }
 
   async hardenDatabase(name: string): Promise<void> {
-    this.assertSafe(name);
+    assertSafeIdentifier(name, 'database');
     const admin = new Client({ connectionString: this.adminUrl });
     await admin.connect();
     try {
       await admin.query(`REVOKE CONNECT ON DATABASE "${name}" FROM PUBLIC`);
     } finally { await admin.end(); }
-  }
-
-  private assertSafe(name: string): void {
-    if (!SAFE_DBNAME.test(name)) {
-      throw new Error(`Refusing to use unsafe database name: ${JSON.stringify(name)}`);
-    }
   }
 }
