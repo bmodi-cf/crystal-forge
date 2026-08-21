@@ -15,7 +15,7 @@ const candidate = {
 };
 
 /** Route fetches by URL substring; throws on anything unexpected. */
-function mockFetch(handlers: Record<string, () => Response>) {
+function mockFetch(handlers: Record<string, () => Response | Promise<Response>>) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
     const entry = Object.entries(handlers).find(([key]) => url.includes(key));
@@ -31,8 +31,20 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 describe('FirstReleaseSection', () => {
   it('renders nothing when there are no candidates', async () => {
+    const candidatesFetch = vi.fn(() => json({ candidates: [] }));
+    vi.stubGlobal('fetch', mockFetch({ 'first-release-candidates': candidatesFetch }));
+    const { container } = render(<FirstReleaseSection />);
+    // The empty render must follow an actual fetch, not just the initial
+    // `useState([])` — otherwise this test can't tell "fetched and empty"
+    // apart from "never fetched at all".
+    await waitFor(() => expect(candidatesFetch).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  it('renders nothing rather than crashing when the response has no candidates field', async () => {
     vi.stubGlobal('fetch', mockFetch({
-      'first-release-candidates': () => json({ candidates: [] }),
+      // A malformed/unexpected response body — no `candidates` key at all.
+      'first-release-candidates': () => json({}),
     }));
     const { container } = render(<FirstReleaseSection />);
     await waitFor(() => expect(container).toBeEmptyDOMElement());
@@ -88,5 +100,61 @@ describe('FirstReleaseSection', () => {
     render(<FirstReleaseSection />);
     expect(await screen.findByText(/already cut/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /re-cut bundle/i })).toBeInTheDocument();
+  });
+
+  it('keeps a candidate cutting-in-flight even after another cut is started (no shared busy flag)', async () => {
+    const candidateB = {
+      ...candidate,
+      promotionId: 'p2',
+      forgeName: 'Another Forge',
+      slug: 'another-forge',
+    };
+
+    let resolveA: (() => void) | undefined;
+    const responseA = new Promise<Response>((resolve) => {
+      resolveA = () => resolve(json({ bundle: { repo: 'a-seed', tag: 'v1.0.0', bytes: 1 } }));
+    });
+    let resolveB: (() => void) | undefined;
+    const responseB = new Promise<Response>((resolve) => {
+      resolveB = () => resolve(json({ bundle: { repo: 'b-seed', tag: 'v1.0.0', bytes: 1 } }));
+    });
+
+    vi.stubGlobal('fetch', mockFetch({
+      'first-release-candidates': () => json({ candidates: [candidate, candidateB] }),
+      '/p1/bundle': () => responseA,
+      '/p2/bundle': () => responseB,
+    }));
+
+    render(<FirstReleaseSection />);
+    const cutButtons = await screen.findAllByRole('button', { name: /cut bundle/i });
+    expect(cutButtons).toHaveLength(2);
+    const [buttonA, buttonB] = cutButtons as [HTMLElement, HTMLElement];
+
+    // Start A's cut; it is now in flight (mocked to hang on `responseA`).
+    await userEvent.click(buttonA);
+    expect(await screen.findByRole('button', { name: /cutting/i })).toBeDisabled();
+    expect(buttonB).toBeEnabled();
+
+    // Start B's cut *before* A resolves. With a single shared `busyId`, this
+    // overwrite would flip A's button back to enabled/"Cut bundle" — letting
+    // an admin fire a duplicate request against A while its first request is
+    // still outstanding. With per-candidate `busy`, A must stay disabled and
+    // still read "Cutting…".
+    await userEvent.click(buttonB);
+    const inFlight = screen.getAllByRole('button', { name: /cutting/i });
+    expect(inFlight).toHaveLength(2);
+    expect(buttonA).toBeDisabled();
+    expect(buttonA).toHaveTextContent(/cutting/i);
+    expect(buttonB).toBeDisabled();
+    expect(buttonB).toHaveTextContent(/cutting/i);
+
+    resolveA?.();
+    await waitFor(() => expect(buttonA).toHaveTextContent(/cut bundle/i));
+    // B is still genuinely in flight; A resolving must not clear B's flag.
+    expect(buttonB).toBeDisabled();
+    expect(buttonB).toHaveTextContent(/cutting/i);
+
+    resolveB?.();
+    await waitFor(() => expect(buttonB).toHaveTextContent(/cut bundle/i));
   });
 });

@@ -15,7 +15,7 @@ type CutResult = { repo: string; tag: string; bytes: number };
  */
 export function FirstReleaseSection() {
   const [candidates, setCandidates] = useState<FirstReleaseCandidate[]>([]);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [results, setResults] = useState<Record<string, CutResult>>({});
   const alive = useRef(true);
@@ -40,7 +40,7 @@ export function FirstReleaseSection() {
 
   async function cut(candidate: FirstReleaseCandidate) {
     const id = candidate.promotionId;
-    setBusyId(id);
+    setBusy((b) => ({ ...b, [id]: true }));
     setErrors((e) => { const next = { ...e }; delete next[id]; return next; });
     try {
       const res = await fetch(`/api/promotions/${id}/bundle`, { method: 'POST' });
@@ -55,7 +55,7 @@ export function FirstReleaseSection() {
     } catch {
       setErrors((e) => ({ ...e, [id]: 'Cut failed' }));
     } finally {
-      setBusyId(null);
+      setBusy((b) => ({ ...b, [id]: false }));
     }
   }
 
@@ -87,10 +87,10 @@ export function FirstReleaseSection() {
               </div>
               <Button
                 variant="outline"
-                disabled={busyId === c.promotionId}
+                disabled={busy[c.promotionId]}
                 onClick={() => void cut(c)}
               >
-                {busyId === c.promotionId ? 'Cutting…' : already ? 'Re-cut bundle' : 'Cut bundle'}
+                {busy[c.promotionId] ? 'Cutting…' : already ? 'Re-cut bundle' : 'Cut bundle'}
               </Button>
             </div>
             {already && !result ? (
