@@ -1,7 +1,7 @@
 # Crystal Forge — First-Release Bundle Design
 
 - **Date:** 2026-08-21
-- **Status:** Reviewed — ready for planning
+- **Status:** Implemented — see `docs/superpowers/plans/2026-08-21-first-release-bundle.md`
 - **Author:** Bhadresh Modi (with Claude Code assistance)
 - **Slice:** Move a forge's **inventory row** and its **pilot data** from pilot to prod over the
   container registry, applied from the prod dashboard UI, once, on a forge's first release.

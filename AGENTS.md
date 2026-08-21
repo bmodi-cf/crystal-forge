@@ -59,3 +59,18 @@ agent needs to work in the codebase correctly.
 - After schema changes, create a migration with `pnpm db:migrate` — don't hand-edit migration SQL.
 - **Forge restart = full container recreate, never reuse.** `stopForge`→`doStop` *stops and removes* the container; `startForge`→`finishStart` always `containerManager.create()`s a fresh one (there is no `docker start`-an-existing-container path). So container env (`FORGE_BASE_PATH`, `FORGE_DEV_ORIGINS`, `DATABASE_URL`, `GH_TOKEN`) is re-applied at every start (DB password rotates per start), and **only the named volumes — workspace + Claude home — persist** across the cycle. ⇒ To change a forge's container env you must stop+start it; to change the *dashboard* env that feeds `create()` (e.g. `FORGE_DEV_ORIGINS`), update `.env.local`, restart `crystal-forge.service`, *then* restart the forge.
 - **Deleting files inside this repo is pre-approved** — git history is sufficient backup, so remove dead code freely without stopping to ask. Deleting anything **outside** the repo still requires explicit approval.
+- **First-release bundles are the only pilot→prod data path, and they run once.**
+  The pilot cuts `<slug>-seed:<version>` into the registry from an *accepted first*
+  promotion (`admin/promotions`); prod imports it from `admin/deployments`. The
+  once-only guard is a `_forge_seed` table created by an unconditional
+  `CREATE TABLE` inside the restore transaction, so a second import aborts rather
+  than merges. There is no `--force`: re-seeding means dropping the forge database
+  by hand. Import order is load-bearing — `deployEnabled` stays false until the
+  restore commits, because `listDesiredForges` filters on it and the reconciler
+  would otherwise start the container mid-restore.
+- **`pg_dump`/`psql` run via `docker exec` into `$PG_CONTAINER`, not through
+  `ContainerManager`.** That abstraction is for forge containers and surfaces only
+  *combined* stdout/stderr, which would corrupt a dump the moment `pg_dump`
+  emitted a warning. Restores connect over TCP as the per-forge app role (not the
+  trust socket as superuser) so the role ends up owning the restored tables —
+  otherwise later `prisma migrate deploy` runs cannot `ALTER` them.
