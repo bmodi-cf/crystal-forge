@@ -67,7 +67,10 @@ agent needs to work in the codebase correctly.
   than merges. There is no `--force`: re-seeding means dropping the forge database
   by hand. Import order is load-bearing — `deployEnabled` stays false until the
   restore commits, because `listDesiredForges` filters on it and the reconciler
-  would otherwise start the container mid-restore.
+  would otherwise start the container mid-restore. Only a *completed* restore
+  blocks a retry: an import that failed before writing the marker leaves the
+  row at `deployEnabled: false, deployVersion: null`, and simply re-running the
+  import resumes it — the by-hand drop is needed only once the marker exists.
 - **`pg_dump`/`psql` run via `docker exec` into `$PG_CONTAINER`, not through
   `ContainerManager`.** That abstraction is for forge containers and surfaces only
   *combined* stdout/stderr, which would corrupt a dump the moment `pg_dump`
