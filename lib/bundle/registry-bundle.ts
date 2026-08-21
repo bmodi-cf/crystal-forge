@@ -1,4 +1,4 @@
-import { gzipSync, gunzipSync, type ZlibOptions } from 'node:zlib';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { ValidationError } from '@/lib/errors';
 import type { RegistryClient } from '@/lib/registry/types';
 import { writeTar, readTar, sha256Digest } from './tar';
@@ -36,11 +36,10 @@ function packLayer(contents: BundleContents): { tar: Buffer; layer: Buffer } {
     { name: BUNDLE_FILES.data, body: Buffer.from(contents.dataSql, 'utf8') },
     { name: BUNDLE_FILES.bundle, body: Buffer.from(JSON.stringify(contents.bundle, null, 2), 'utf8') },
   ]);
-  // mtime: 0 keeps the gzip envelope byte-stable, like the tar inside it.
-  // (Not in @types/node's ZlibOptions, though Node's binding accepts and
-  // defaults it to 0 regardless — the cast documents the intent explicitly
-  // rather than relying on that default silently.)
-  return { tar, layer: gzipSync(tar, { level: 9, mtime: 0 } as ZlibOptions) };
+  // Node's gzipSync always encodes the gzip header's MTIME field as 0 and
+  // offers no option to change it, so the envelope is byte-stable across two
+  // cuts of identical content — same as the tar inside it.
+  return { tar, layer: gzipSync(tar, { level: 9 }) };
 }
 
 /**
@@ -108,6 +107,11 @@ export async function pullBundle(
     throw new ValidationError(`Bundle ${repo}:${tag} has no layers`, {});
   }
 
+  // Deliberately uncaught: a blob the manifest references but the registry
+  // doesn't hold is an infrastructure failure (spec §6), not malformed user
+  // input — RegistryError propagates as-is (HTTP 500) rather than being
+  // reframed as ValidationError. Distinguishing "absent" from "unreachable"
+  // would require widening RegistryClient, which is out of scope here.
   const layer = await registry.getBlob(repo, descriptor.digest);
   const actual = sha256Digest(layer);
   if (actual !== descriptor.digest) {

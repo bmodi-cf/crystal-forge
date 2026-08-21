@@ -66,6 +66,16 @@ describe('pushBundle / pullBundle', () => {
     const a = await pushBundle(reg, 'second-set-of-eyes', contents);
     const b = await pushBundle(reg, 'second-set-of-eyes', contents);
     expect(b.manifestDigest).toBe(a.manifestDigest);
+
+    // Two calls in the same test land inside the same one-second tick, so a
+    // matching digest alone doesn't prove MTIME is pinned rather than live —
+    // gzip's MTIME field only has one-second resolution. Assert the mechanism
+    // directly: bytes 4-7 of the gzip header (MTIME, little-endian uint32)
+    // must be zero.
+    const { body } = await reg.getManifest('second-set-of-eyes-seed', 'v1.0.0');
+    const manifest = JSON.parse(body);
+    const layer = await reg.getBlob('second-set-of-eyes-seed', manifest.layers[0].digest);
+    expect(layer.readUInt32LE(4)).toBe(0);
   });
 
   it('rejects a layer whose bytes do not match the digest the manifest claims', async () => {
@@ -87,10 +97,9 @@ describe('pushBundle / pullBundle', () => {
   it('rejects a bundle missing one of the three files', async () => {
     const { writeTar } = await import('./tar');
     const { gzipSync } = await import('node:zlib');
-    type ZlibOptions = Parameters<typeof gzipSync>[1];
     const layer = gzipSync(writeTar([{ name: 'data.sql', body: Buffer.from('SELECT 1;') }]), {
-      level: 9, mtime: 0,
-    } as ZlibOptions);
+      level: 9,
+    });
     const layerDigest = await reg.putBlob('second-set-of-eyes-seed', layer);
     const configDigest = await reg.putBlob('second-set-of-eyes-seed', Buffer.from('{}'));
     await reg.putManifest('second-set-of-eyes-seed', 'v1.0.0', {
