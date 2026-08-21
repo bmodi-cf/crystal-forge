@@ -66,3 +66,6 @@ Thumbs.db
 
 # Superpowers session artifacts (brainstorm mockups, server PIDs/logs)
 .superpowers/
+
+# Git worktrees for isolated feature work (SDD)
+.worktrees/
