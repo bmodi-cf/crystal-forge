@@ -1,7 +1,7 @@
 # Crystal Forge — First-Release Bundle Design
 
 - **Date:** 2026-08-21
-- **Status:** Draft — awaiting review
+- **Status:** Reviewed — ready for planning
 - **Author:** Bhadresh Modi (with Claude Code assistance)
 - **Slice:** Move a forge's **inventory row** and its **pilot data** from pilot to prod over the
   container registry, applied from the prod dashboard UI, once, on a forge's first release.
@@ -73,7 +73,13 @@ files:
 | --- | --- |
 | `forge.json` | The inventory row: `name`, `displayName`, `description`, `slug`, `deployVersion` |
 | `data.sql` | `pg_dump --no-owner --no-privileges` (plain format) of the pilot forge database |
-| `bundle.json` | Provenance and guards: source host, cut-at, app image digest, `_prisma_migrations` fingerprint |
+| `bundle.json` | Guards: app image digest (§5 version match). Provenance only: source host, cut-at, `_prisma_migrations` fingerprint |
+
+The `_prisma_migrations` fingerprint is recorded but **not** re-checked on import, and that is
+deliberate: migration parity (§2) can only be verified against `prisma/migrations/` in the
+*forge's* repo at the released sha, and prod's dashboard never checks that repo out. The
+fingerprint is there so a post-mortem can answer "what schema was this dump taken at" without
+re-reading the dump. The guard itself stays on the cut side, where both halves are visible.
 
 ### 1.1 Why its own repo
 
@@ -86,8 +92,8 @@ the registry catalog is the only place it can learn the forge exists.
 ### 1.2 Why registry blobs, not `docker build`
 
 The bundle is pushed and read as blobs through `RegistryClient`, which already speaks this API
-(`http-client.ts` performs manifest GET/PUT for `tagManifest`). It gains blob put/get and a
-manifest PUT.
+(`http-client.ts` performs manifest GET/PUT for `tagManifest`). It gains blob put/get, a
+manifest PUT, and a manifest-digest read (§7).
 
 - No `docker build` on pilot, which also sidesteps the buildx OCI-index problem already hit on
   the forge prod image (retag-to-amd64-child).
@@ -222,8 +228,12 @@ database is untouched and the action is retryable.
 
 ## 7. Components & new work
 
-- **Registry:** blob put/get + manifest PUT on `RegistryClient`; in-memory blob store in
-  `fake-client.ts`; catalog listing for discovery.
+- **Registry:** on `RegistryClient` — blob put/get, manifest PUT, catalog listing for
+  discovery, and a **manifest-digest read** for the §5 version-match guard. The last one is
+  genuinely new surface: `HttpRegistryClient.tagManifest` fetches the manifest body but never
+  reads the `Docker-Content-Digest` response header, and the interface today is only
+  `tagManifest` + `listTags`. Each addition needs its `fake-client.ts` counterpart, backed by
+  an in-memory blob store.
 - **DB:** `lib/db/dump.ts` (spawn `pg_dump`), restore-as-role helper.
 - **Services:** `lib/services/first-release.ts` — cut (pilot) and import (prod).
 - **Routes:** `POST /api/promotions/[id]/bundle` (pilot); `GET /api/deployments/bundles` and
@@ -255,10 +265,19 @@ Colocated `*.test.ts(x)`, following existing patterns.
 - **Deleting the seed repo after cutover.** Manual, given the GC warning in §1.1.
 - **Postgres version skew** between pilot and prod. Assumed equal; both are `postgres:16-alpine`.
 
-## 10. Open question for the reviewer
+## 10. Deferred: retention of project data in the registry
 
-**Retention of project data in the registry.** A bundle puts real engineering project data in
-the registry, where it will sit until someone deletes it, reachable by anything holding pull
-credentials. That is a policy decision worth making explicitly rather than inheriting: delete
-the seed repo immediately after a successful import, keep it for a defined window as a
-fallback, or something else.
+A bundle puts real engineering project data in the registry, where it will sit until someone
+deletes it. **Decision: defer.** Nothing is deleted from this registry today and space is not a
+constraint, so bundles inherit the same keep-everything lifecycle as every other image.
+
+The deferral is not merely expedient. The registry binds `127.0.0.1:5000` with nginx
+terminating TLS in front (`docker-compose.yml`), behind the same basic-auth credentials as the
+app images — and a bundle's contents already live in pilot's database and are about to live in
+prod's. The registry copy therefore widens no audience.
+
+What would reopen this: registry pull credentials being issued to anyone outside the pilot and
+prod hosts, or the registry becoming reachable off-host. Either makes the seed repos a
+data-at-rest question rather than a housekeeping one. Until then, deleting a seed repo after
+cutover stays manual and out of scope (§9), and no `--force`-style re-seed path exists to make
+a stale bundle dangerous (§5).
