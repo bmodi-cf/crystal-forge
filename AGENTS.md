@@ -71,6 +71,15 @@ agent needs to work in the codebase correctly.
   blocks a retry: an import that failed before writing the marker leaves the
   row at `deployEnabled: false, deployVersion: null`, and simply re-running the
   import resumes it — the by-hand drop is needed only once the marker exists.
+  Two things the bundle does *not* carry, both of which need a human either side
+  of the gap: it is a **snapshot**, so anything written on the pilot between the
+  cut and the cutover is silently lost and the pilot must stop taking writes for
+  that window (re-cut if it does not); and it carries **no group access**, since
+  `importBundle` writes no `ForgeGroup` rows and attributes the row to the
+  importing admin — `forgeReadFilter` grants read only via group membership or
+  `createdById`, so an imported forge is visible to admins only until its groups
+  are granted by hand (prod has no forge-settings UI: insert the `ForgeGroup`
+  rows), and the team it was migrated for cannot see it.
 - **`pg_dump`/`psql` run via `docker exec` into `$PG_CONTAINER`, not through
   `ContainerManager`.** That abstraction is for forge containers and surfaces only
   *combined* stdout/stderr, which would corrupt a dump the moment `pg_dump`

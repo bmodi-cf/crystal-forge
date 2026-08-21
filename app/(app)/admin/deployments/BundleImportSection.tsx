@@ -110,6 +110,8 @@ export function BundleImportSection({ onImported }: { onImported: () => void }) 
         {importedSlugs.map((slug) => (
           <p key={slug} className="text-xs text-emerald-400">
             {slug} imported at {done[slug]} — it now appears in the table below, deployed.
+            {' '}The bundle carries no group access, so right now only admins can see it:
+            grant its team the forge before handing it over.
           </p>
         ))}
       </div>

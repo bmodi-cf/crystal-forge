@@ -44,8 +44,10 @@ function packLayer(contents: BundleContents): { tar: Buffer; layer: Buffer } {
 
 /**
  * Push a bundle as an ordinary OCI image: one gzipped tar layer plus a minimal
- * config blob. Re-cutting identical content produces an identical manifest
- * digest, because both the tar and the gzip envelope are deterministic.
+ * config blob. The packing itself is byte-stable — the tar and the gzip envelope
+ * are both deterministic — but a re-cut is not: bundle.json carries a fresh
+ * `cutAt` (and this host's name), so two cuts of the same database differ in
+ * their layer bytes and therefore in their manifest digest.
  */
 export async function pushBundle(
   registry: RegistryClient,

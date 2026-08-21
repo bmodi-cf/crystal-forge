@@ -67,7 +67,9 @@ export function FirstReleaseSection() {
       <p className="text-[11px] leading-relaxed text-ink-faint">
         Cuts this forge&apos;s pilot database and inventory row into{' '}
         <code>&lt;slug&gt;-seed</code> in the registry, for a one-time import on production.
-        Offered only on a forge&apos;s first release.
+        Offered only on a forge&apos;s first release. The bundle is a snapshot: anything
+        written on the pilot between the cut and the production cutover is lost, so stop
+        using the pilot forge once you cut it — or re-cut before importing.
       </p>
       {candidates.map((c) => {
         const already = c.bundleTags.includes(c.version);
