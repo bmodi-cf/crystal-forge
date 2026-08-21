@@ -38,6 +38,9 @@ const baseSchema = z.object({
   HARNESS_PG_PORT: z.coerce.number().int().min(1).max(65535).default(5433),
   HARNESS_PG_USER: z.string().default('crystal'),
   HARNESS_PG_PASSWORD: z.string().default('crystal'),
+  // Name of the shared Postgres container. Dump/restore run `docker exec` into
+  // it (see lib/db/dump.ts), matching scripts/pg-backup.sh's PG_CONTAINER.
+  PG_CONTAINER: z.string().default('crystal-forge-pg'),
   DB_PROVISIONER_MODE: z.enum(['real', 'fake']).default('real'),
 
   // Production dashboard mode. `prod` runs the declarative reconcile loop and
