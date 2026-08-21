@@ -25,6 +25,17 @@ const PINNED_NOT_NEWEST: DeploymentRow = {
   phase: 'running', error: null, consecutiveFailures: 0,
 };
 
+/**
+ * The shape a first-release import stub has: registered, never deployed, and
+ * absent from the reconciler's snapshot — with real image tags in the registry,
+ * which is what used to leave its DEPLOY button live.
+ */
+const NEVER_DEPLOYED: DeploymentRow = {
+  forgeId: 'f7', name: 'Fresh Import', displayName: null, slug: 'fresh-import',
+  deployEnabled: false, pinnedVersion: null, runningVersion: null,
+  phase: null, error: null, consecutiveFailures: 0,
+};
+
 const STOPPED: DeploymentRow = {
   forgeId: 'f5', name: 'Halted', displayName: null, slug: 'halted',
   deployEnabled: false, pinnedVersion: 'v1.0.2', runningVersion: null,
@@ -98,6 +109,16 @@ describe('DeploymentsClient', () => {
     render(<DeploymentsClient />);
     await waitFor(() => expect(screen.getByText('no image')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: /deploy/i })).toBeDisabled();
+  });
+
+  it('disables deploy for a row it has never deployed, even when tags exist', async () => {
+    // Deploying it would run the image's `prisma migrate deploy` against the
+    // database a pending bundle restores into, blocking the import for good.
+    vi.stubGlobal('fetch', mockFetch([NEVER_DEPLOYED], { f7: ['v1.0.0'] }));
+    render(<DeploymentsClient />);
+    await waitFor(() => expect(screen.getByText('not deployed')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /deploy/i })).toBeDisabled();
+    expect(screen.getByText(/deploy disabled/i)).toBeInTheDocument();
   });
 
   it('does not show no image when the registry lookup failed', async () => {

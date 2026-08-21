@@ -18,6 +18,11 @@ type VersionMap = Record<string, string[] | null>;
 
 const STATE_LABEL: Record<RowState, string> = {
   'not-deployed': 'not deployed',
+  // Same words as not-deployed on purpose: the row shape cannot tell an import
+  // stub from a hand-inserted row that was never brought up, so the label must
+  // not claim either. What differs is that DEPLOY is disabled, and the Detail
+  // column says why.
+  unseeded: 'not deployed',
   'no-image': 'no image',
   deploying: 'deploying',
   running: 'running',
@@ -28,6 +33,7 @@ const STATE_LABEL: Record<RowState, string> = {
 
 const STATE_CLASS: Record<RowState, string> = {
   'not-deployed': 'text-ink-dim',
+  unseeded: 'text-ink-dim',
   'no-image': 'text-ink-dim',
   deploying: 'text-amber-400',
   running: 'text-emerald-400',
@@ -182,7 +188,13 @@ export function DeploymentsClient() {
                   selected[r.forgeId] ??
                   (r.pinnedVersion && options.includes(r.pinnedVersion) ? r.pinnedVersion : options[0]) ??
                   '';
-                const canDeploy = options.length > 0 && !busy[r.forgeId];
+                // `unseeded` blocks DEPLOY: the row may be the inert stub a
+                // first-release import left behind, and deploying it would let
+                // the image's `prisma migrate deploy` create an empty schema in
+                // the database the bundle restores into — which blocks the
+                // import permanently (spec §3.2).
+                const canDeploy =
+                  options.length > 0 && !busy[r.forgeId] && state !== 'unseeded';
                 return (
                   <tr key={r.forgeId} className="border-t border-border">
                     <td className="py-2 pr-4 font-medium text-ink">{r.displayName || r.name}</td>
@@ -194,6 +206,9 @@ export function DeploymentsClient() {
                         r.error,
                         r.consecutiveFailures > 0 ? `${r.consecutiveFailures} failed attempts` : null,
                         available === null ? 'registry unavailable' : null,
+                        state === 'unseeded'
+                          ? 'deploy disabled — import its bundle, or pin a version by hand'
+                          : null,
                       ].filter(Boolean).join(' · ')}
                     </td>
                     <td className="py-2 pr-4">

@@ -14,9 +14,13 @@ describe('deriveRowState', () => {
     expect(deriveRowState(BASE, ['v1.0.0'])).toBe('running');
   });
 
-  it('reports not-deployed for a forge that was never enabled', () => {
+  it('reports unseeded for a row this dashboard has never acted on', () => {
+    // Disabled, unpinned, and absent from every snapshot: either the inert stub
+    // a failed first-release import leaves behind or a hand-inserted row that
+    // was never brought up. DEPLOY is disabled for both, because deploying the
+    // stub creates an empty schema in the database the bundle restores into.
     const row = { ...BASE, deployEnabled: false, pinnedVersion: null, runningVersion: null, phase: null };
-    expect(deriveRowState(row, ['v1.0.0'])).toBe('not-deployed');
+    expect(deriveRowState(row, ['v1.0.0'])).toBe('unseeded');
   });
 
   it('reports no-image when a never-deployed forge has no semver tags', () => {
@@ -26,7 +30,7 @@ describe('deriveRowState', () => {
 
   it('does not report no-image when the registry lookup failed', () => {
     const row = { ...BASE, deployEnabled: false, pinnedVersion: null, runningVersion: null, phase: null };
-    expect(deriveRowState(row, null)).toBe('not-deployed');
+    expect(deriveRowState(row, null)).toBe('unseeded');
   });
 
   it('reports deploying while pinned and running disagree', () => {
