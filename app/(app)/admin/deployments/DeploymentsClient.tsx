@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { DeploymentRow } from '@/lib/services/deployments';
+import { BundleImportSection } from './BundleImportSection';
 import { deriveRowState, type RowState } from './rowState';
 
 type VersionMap = Record<string, string[] | null>;
@@ -153,6 +154,7 @@ export function DeploymentsClient() {
   return (
     <main className="mx-auto max-w-6xl px-8 py-10">
       <h1 className="mb-6 text-lg font-semibold text-ink">Deployments</h1>
+      <BundleImportSection onImported={() => void loadVersions()} />
       {versionsError ? (
         <p className="mb-4 text-sm text-red-400">{versionsError}</p>
       ) : null}

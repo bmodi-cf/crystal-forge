@@ -57,6 +57,9 @@ function mockFetch(
       }
       return { ok: true, json: async () => ({ versions }) };
     }
+    if (url.endsWith('/api/deployments/bundles')) {
+      return { ok: true, json: async () => ({ candidates: [] }) };
+    }
     actionCalls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
     if (deployResult === 'throw') {
       throw new Error('network down');
