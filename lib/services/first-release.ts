@@ -16,6 +16,7 @@ import {
   seedMarkerSql,
 } from '@/lib/db/dump';
 import { getDatabaseProvisioner } from '@/lib/db/provisioner';
+import { assertSafeIdentifier } from '@/lib/db/identifiers';
 import type { DatabaseProvisioner } from '@/lib/db/types';
 import { pushBundle, seedRepo, pullBundle, slugFromSeedRepo } from '@/lib/bundle/registry-bundle';
 import type { BundleContents } from '@/lib/bundle/types';
@@ -23,6 +24,21 @@ import { parseVersion } from '@/lib/versioning/semver';
 import type { SessionUser } from './types';
 
 const MIGRATIONS_DIR = 'prisma/migrations';
+
+/**
+ * Ceiling on a bundle's `data.sql`, enforced right after the dump.
+ *
+ * Nothing in the cut path streams: the dump is concatenated into one string,
+ * `packLayer` builds a tar buffer and then a gzip buffer from it, and
+ * `pushBundle` hands the whole layer over as a single `Uint8Array`. Peak
+ * resident memory is therefore roughly 4-5x the dump. The pilot is a
+ * single-vCPU VM whose forge containers have no resource limits and which has
+ * already been hung once by resource exhaustion, and an OOM here kills the
+ * dashboard process that owns every running forge — so refuse loudly at a size
+ * we know is survivable rather than discovering the limit by taking the host
+ * down. A forge past this size needs the by-hand `pg_dump`/`psql` path.
+ */
+const MAX_DUMP_BYTES = 256 * 1024 * 1024;
 
 function assertAdmin(user: SessionUser): void {
   if (!user.isAdmin) throw new ForbiddenError('Admin only');
@@ -100,6 +116,8 @@ export type CutDeps = {
   github?: GitHubClient;
   dump?: (opts: { dbName: string }) => Promise<string>;
   readMigrations?: (dbName: string) => Promise<string[] | null>;
+  /** Test seam only: lets a test exercise the guard without allocating 256 MB. */
+  maxDumpBytes?: number;
 };
 
 export type CutResult = {
@@ -195,6 +213,17 @@ export async function cutBundle(
   }
 
   const dataSql = await dump({ dbName });
+  const bytes = Buffer.byteLength(dataSql, 'utf8');
+  const maxDumpBytes = deps.maxDumpBytes ?? MAX_DUMP_BYTES;
+  if (bytes > maxDumpBytes) {
+    throw new ValidationError(
+      `${forge.name}'s dump is ${bytes} bytes, over the ${maxDumpBytes}-byte bundle limit. ` +
+        'Packing and pushing it needs several times that in memory and would risk taking the ' +
+        'pilot down. Move this database by hand instead: pg_dump on the pilot, psql into the ' +
+        'production database.',
+      { bytes: [String(bytes)] },
+    );
+  }
 
   const contents: BundleContents = {
     forge: {
@@ -216,7 +245,7 @@ export async function cutBundle(
   };
 
   const pushed = await pushBundle(registry, slug, contents);
-  return { ...pushed, migrations: applied, bytes: Buffer.byteLength(dataSql, 'utf8') };
+  return { ...pushed, migrations: applied, bytes };
 }
 
 /** Importing writes prod's inventory and provisions prod's databases. */
@@ -224,6 +253,16 @@ function assertProd(): void {
   if (!isProdMode()) {
     throw new ForbiddenError('Bundles are imported on the production dashboard, not the pilot');
   }
+}
+
+/**
+ * A forge prod is genuinely running or has been deployed — as opposed to the
+ * inert row a failed import leaves behind. Discovery and importBundle MUST
+ * agree on this, or the UI offers rows the service refuses (or hides rows it
+ * would accept, which is what happened before this was shared).
+ */
+function isLiveForge(f: { deployEnabled: boolean; deployVersion: string | null }): boolean {
+  return f.deployEnabled || f.deployVersion !== null;
 }
 
 export type BundleCandidate = {
@@ -256,8 +295,18 @@ export async function listBundleCandidates(
     return [];
   }
 
+  // Only *live* forges hide a bundle. A disabled, version-less row is the
+  // aftermath of an interrupted import, and importBundle resumes exactly that
+  // row — so filtering it out here would remove the retry from the UI while
+  // the service still supported it.
   const known = new Set(
-    (await prisma.forge.findMany({ select: { name: true } })).map((f) => slugifyForgeName(f.name)),
+    (
+      await prisma.forge.findMany({
+        select: { name: true, deployEnabled: true, deployVersion: true },
+      })
+    )
+      .filter(isLiveForge)
+      .map((f) => slugifyForgeName(f.name)),
   );
 
   const candidates: BundleCandidate[] = [];
@@ -324,6 +373,10 @@ export async function importBundle(
   }
 
   const dbName = slugToDbName(slug);
+  // Fail fast. assertSafeIdentifier runs inside the provisioner and the restore
+  // too, but `slug` reaches seedRepo() and gets interpolated into a registry
+  // URL before either — and it arrives from the route path.
+  assertSafeIdentifier(dbName, 'database');
   const role = dbNameToRole(dbName);
 
   // --- Step 1: pull + verify ------------------------------------------------
@@ -331,6 +384,17 @@ export async function importBundle(
   if (contents.bundle.version !== version) {
     throw new ValidationError(
       `Bundle ${seedRepo(slug)}:${version} declares version ${contents.bundle.version}`,
+      {},
+    );
+  }
+
+  // The forge slug the pilot recorded must be the one we are importing as: it
+  // is what names the database, the role and the app image, so a mismatch means
+  // this bundle would be restored into the wrong forge's database.
+  if (contents.forge.slug !== slug) {
+    throw new ValidationError(
+      `Bundle ${seedRepo(slug)}:${version} was cut for forge slug ` +
+        `${contents.forge.slug}, not ${slug}`,
       {},
     );
   }
@@ -358,21 +422,39 @@ export async function importBundle(
   // "Work order tool") can still land on the very same database and role —
   // an exact-name comparison would miss that and let a second import rotate
   // a live forge's role password out from under it. A forge is genuinely
-  // "already known" only once it has actually been deployed (deployEnabled,
-  // or a non-null deployVersion). A row that is disabled with no version is
-  // the inert aftermath of an interrupted or failed import — see the
-  // resumable branch at Step 2 below, not a refusal here.
+  // "already known" only once it has actually been deployed (isLiveForge).
+  // A row that is disabled with no version is the inert aftermath of an
+  // interrupted or failed import — see the resumable branch at Step 2 below,
+  // not a refusal here.
+  //
+  // Every match matters, not the first one an arbitrary row order happens to
+  // yield: Forge.name is unique but case- and whitespace-sensitive, so a stub
+  // and a live forge can collide on the same slug (hand-written SQL can create
+  // that pair even though createForge cannot). Picking the stub there would
+  // rotate the *live* forge's role password in step 3 and then abort the
+  // restore on its existing tables, locking a running production forge out of
+  // its own database.
   const knownForges = await prisma.forge.findMany({
     select: { id: true, name: true, deployEnabled: true, deployVersion: true },
   });
-  const existing = knownForges.find((f) => slugifyForgeName(f.name) === slug);
-  if (existing && (existing.deployEnabled || existing.deployVersion !== null)) {
+  const sameSlug = knownForges.filter((f) => slugifyForgeName(f.name) === slug);
+  const live = sameSlug.find(isLiveForge);
+  if (live) {
     throw new ValidationError(
-      `${existing.name} is already known to this dashboard; a bundle is a ` +
+      `${live.name} is already known to this dashboard; a bundle is a ` +
         'first-release mechanism only',
       {},
     );
   }
+  if (sameSlug.length > 1) {
+    throw new ValidationError(
+      `${sameSlug.length} forge rows already share the slug ${slug} ` +
+        `(${sameSlug.map((f) => JSON.stringify(f.name)).join(', ')}). None is deployed, so ` +
+        'none can be resumed safely — reconcile them by hand before importing.',
+      {},
+    );
+  }
+  const existing = sameSlug[0] ?? null;
 
   // Already imported: a readable refusal. The unconditional CREATE TABLE in
   // seedMarkerSql is the race-proof version of this same check, and remains
@@ -388,9 +470,10 @@ export async function importBundle(
   }
 
   // --- Step 2: inventory row, deliberately disabled -------------------------
-  // `existing`, if present, is guaranteed disabled with no version (the
-  // enabled/versioned case threw above) and has no marker (checked just
-  // above) — the inert aftermath of a prior attempt that never finished.
+  // `existing`, if present, is the *only* row on this slug and is guaranteed
+  // disabled with no version (a live sibling, or a second non-live one, threw
+  // above) and has no marker (checked just above) — the inert aftermath of a
+  // prior attempt that never finished.
   // Resume it rather than creating a second row for the same slug, so a
   // failed or crashed import stays retryable instead of getting stuck behind
   // its own "already known" guard.

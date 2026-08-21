@@ -257,6 +257,29 @@ describe('cutBundle', () => {
     });
   });
 
+  it('refuses a dump too big to pack and push in memory', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
+      const reg = new FakeRegistryClient();
+      const gh = new FakeGitHubClient({ owner: 'test-owner', baseUrl: 'https://github.com' });
+      const { forge, promotion } = await acceptedRelease(prisma, reg, { adminId: admin.id });
+      gh.seedDirectory(forge.repoFullName, 'abc123', 'prisma/migrations', ['20260801120000_init']);
+
+      // The real ceiling is 256 MB; injecting a small one exercises the same
+      // guard without allocating a quarter of a gigabyte in a test.
+      await expect(
+        cutBundle(admin, promotion.id, {
+          registry: reg, github: gh, readMigrations: migrationsOk,
+          dump: async () => 'x'.repeat(2048),
+          maxDumpBytes: 1024,
+        }),
+      ).rejects.toThrow(/2048 bytes, over the 1024-byte bundle limit/);
+
+      // It refused before packing: no bundle tag was pushed.
+      expect(await reg.listTags('second-set-of-eyes-seed')).toEqual([]);
+    });
+  });
+
   it('refuses a non-admin', async () => {
     await withCleanDb(async (prisma) => {
       const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
@@ -319,10 +342,34 @@ describe('listBundleCandidates', () => {
   it('omits a forge prod already knows about', async () => {
     await withCleanDb(async (prisma) => {
       const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
-      await makeForge(prisma, { name: 'Second Set of Eyes', createdById: admin.id });
+      // Enabled and versioned: a forge prod is actually running. Only that
+      // hides a bundle — a disabled, version-less row is the resumable stub of
+      // a failed import (next test).
+      await makeForge(prisma, {
+        name: 'Second Set of Eyes', createdById: admin.id,
+        deployEnabled: true, deployVersion: 'v1.0.0',
+      });
       const reg = await seededProdRegistry();
 
       expect(await listBundleCandidates(admin, reg)).toEqual([]);
+    });
+  });
+
+  it('still offers a bundle whose only forge row is the stub of a failed import', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
+      // Exactly what an import that died before writing its marker leaves
+      // behind, and exactly what importBundle resumes. Discovery has to keep
+      // offering it or the documented retry is unreachable from the UI.
+      await makeForge(prisma, {
+        name: 'Second Set of Eyes', createdById: admin.id,
+        deployEnabled: false, deployVersion: null,
+      });
+      const reg = await seededProdRegistry();
+
+      expect(await listBundleCandidates(admin, reg)).toEqual([
+        { slug: 'second-set-of-eyes', repo: 'second-set-of-eyes-seed', versions: ['v1.0.0'] },
+      ]);
     });
   });
 
@@ -550,6 +597,98 @@ describe('importBundle', () => {
       });
     },
   );
+
+  it(
+    'refuses a slug collision where one row is live and another is a stub, without ' +
+      'touching the live role',
+    async () => {
+      await withCleanDb(async (prisma) => {
+        const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
+        // The stub goes in first, so a guard that takes the *first* slug match
+        // picks it, waves the import through, and rotates the live sibling's
+        // role password out from under a running production forge.
+        await makeForge(prisma, {
+          name: 'second  Set of EYES', createdById: admin.id,
+          repoFullName: 'CrystalFountainsInc/second-set-of-eyes-stub',
+          deployEnabled: false, deployVersion: null,
+        });
+        await makeForge(prisma, {
+          name: 'Second Set of Eyes', createdById: admin.id,
+          deployEnabled: true, deployVersion: 'v1.0.0',
+        });
+        const reg = await seededProdRegistry();
+        const inner = new FakeDatabaseProvisioner();
+        let passwordCalls = 0;
+        const provisioner: DatabaseProvisioner = {
+          createDatabase: (n) => inner.createDatabase(n),
+          provisionRole: (d, r) => inner.provisionRole(d, r),
+          setRolePassword: (r, p) => { passwordCalls += 1; return inner.setRolePassword(r, p); },
+          dropDatabase: (n) => inner.dropDatabase(n),
+          dropRole: (r) => inner.dropRole(r),
+          hardenDatabase: (n) => inner.hardenDatabase(n),
+        };
+        const { deps } = importDeps({ provisioner });
+
+        await expect(
+          importBundle(admin, 'second-set-of-eyes', 'v1.0.0', { registry: reg, ...deps }),
+        ).rejects.toThrow(/already known/i);
+        expect(passwordCalls).toBe(0);
+      });
+    },
+  );
+
+  it('refuses when two non-live rows share the slug — nothing safe to resume', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
+      await makeForge(prisma, {
+        name: 'Second Set of Eyes', createdById: admin.id,
+        deployEnabled: false, deployVersion: null,
+      });
+      await makeForge(prisma, {
+        name: 'second  Set of EYES', createdById: admin.id,
+        repoFullName: 'CrystalFountainsInc/second-set-of-eyes-dup',
+        deployEnabled: false, deployVersion: null,
+      });
+      const reg = await seededProdRegistry();
+      const { deps } = importDeps();
+
+      await expect(
+        importBundle(admin, 'second-set-of-eyes', 'v1.0.0', { registry: reg, ...deps }),
+      ).rejects.toThrow(/share the slug second-set-of-eyes/);
+    });
+  });
+
+  it('refuses a bundle cut for a different forge slug', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
+      const base = bundleContents();
+      const reg = await seededProdRegistry({
+        ...base,
+        forge: { ...base.forge, slug: 'work-order-tool' },
+      });
+      const { deps } = importDeps();
+
+      await expect(
+        importBundle(admin, 'second-set-of-eyes', 'v1.0.0', { registry: reg, ...deps }),
+      ).rejects.toThrow(/cut for forge slug work-order-tool, not second-set-of-eyes/);
+    });
+  });
+
+  it('refuses a slug that is not a safe database identifier, before touching the registry', async () => {
+    await withCleanDb(async (prisma) => {
+      const admin = await makeUser(prisma, { email: 'a@x.com', name: 'A', role: 'ADMIN' });
+      let reads = 0;
+      const reg = {
+        getManifest: async () => { reads += 1; throw new Error('should not be reached'); },
+      } as unknown as FakeRegistryClient;
+      const { deps } = importDeps();
+
+      await expect(
+        importBundle(admin, 'second-set-of-eyes; drop', 'v1.0.0', { registry: reg, ...deps }),
+      ).rejects.toThrow(/unsafe database name/i);
+      expect(reads).toBe(0);
+    });
+  });
 
   it('resumes after a failed restore instead of getting stuck behind "already known"', async () => {
     await withCleanDb(async (prisma) => {
