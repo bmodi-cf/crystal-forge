@@ -24,6 +24,34 @@ RUN corepack enable && corepack prepare pnpm@9 --activate
 # Pinned Claude Code CLI. Update the version to match the host's `claude --version`.
 RUN npm install -g @anthropic-ai/claude-code@2.1.195
 
+# Playwright + a Chromium build, baked once so forges don't each run
+# `npm i playwright-core && playwright install chromium` — a ~200MB download
+# that a container recreate throws away, since only the workspace and Claude
+# home volumes persist. Pinned to the version this repo uses (@playwright/test
+# in package.json); a forge repo depending on a different version resolves its
+# own package, wants a different browser revision, and downloads it as before.
+#
+# PLAYWRIGHT_BROWSERS_PATH deliberately points OUTSIDE /home/forge: that whole
+# path is a per-forge named volume (CLAUDE_HOME in lib/runtime/paths.ts), and
+# docker seeds a named volume from the image once and then pins that copy
+# forever — so browsers under the default ~/.cache/ms-playwright would reach
+# neither an existing forge (volume already populated) nor a later rebuild.
+#
+# The npm install must skip its postinstall download: the `playwright` package
+# fetches all three engines by default. `--with-deps` is the apt half, and is
+# why this runs before USER forge. a+rwX lets the agent add another revision
+# without sudo (that copy lives in the container layer and dies on recreate).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g playwright@1.59.1 \
+ && playwright install --with-deps chromium \
+ && rm -rf /var/lib/apt/lists/* \
+ && chmod -R a+rwX /ms-playwright
+
+# Global npm installs are off the module resolution path for code in /workspace.
+# NODE_PATH is the last-resort fallback, so `require('playwright')` works in a
+# forge repo that has not installed it locally without shadowing one that has.
+ENV NODE_PATH=/usr/local/lib/node_modules
+
 RUN useradd -m -d /home/forge -s /bin/bash forge \
  && mkdir -p /workspace /pnpm-store /home/forge/.claude \
  && chown -R forge:forge /workspace /pnpm-store /home/forge
