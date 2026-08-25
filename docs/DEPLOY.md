@@ -129,6 +129,53 @@ process — systemd respawns it within `RestartSec`. Pick the path that matches 
   disable crystal-forge.service` while developing and `enable` it again afterward — but always
   leave it `enabled` at the end so boot brings the app back up.
 
+## Per-forge secrets (prod mode)
+
+A prod forge container is immutable and disposable: it carries no volumes, and a
+restart *recreates* it (`stopForgeContainer` stops **and removes**). So anything
+written inside one — a hand-made `.env`, an uploaded file — is gone on the next
+start, and that includes restarts you did not ask for: the reconciler recreates
+a container whenever it has crashed or its `deployVersion` changed. By policy
+all saved data belongs in the forge's database, so config is the one thing that
+needs to survive.
+
+Config comes from the prod host instead:
+
+```
+/etc/crystal-forge/forge-env/<slug>.env   ->   /app/.env   (read-only)
+```
+
+`/app` is where the image bakes the app, and Next's standalone server reads
+`.env` from that directory at boot. The mount is a **single file** on purpose:
+mounting a whole directory over `/app` hides the baked app — a host directory
+empties it, and a named volume is seeded from the image once and then silently
+pins that first version across later upgrades.
+
+```bash
+sudo install -d -m 0700 /etc/crystal-forge/forge-env
+printf 'OPENAI_API_KEY=sk-...\n' \
+  | sudo install -m 0600 /dev/stdin /etc/crystal-forge/forge-env/second-set-of-eyes.env
+# restart that forge so its container is recreated with the mount
+```
+
+- `<slug>` is the same slug used for the container name and image tag
+  (`forge-<slug>`, `<registry>/<slug>:<version>`).
+- **No file = no mount.** The forge starts exactly as before. A missing bind
+  source would make docker create a *directory* at `/app/.env`, so the dashboard
+  skips the mount unless the path is a regular file.
+- **Edits need a forge restart** — env is read once at boot.
+- `DATABASE_URL` is injected by the dashboard and always wins over a line in
+  this file. It cannot be set here anyway: `docker-entrypoint.sh` checks it in
+  shell before node starts.
+- Secrets stay on this host. The pilot builds the image and never sees them, and
+  nothing lands in the registry or the dashboard database.
+
+Verify a running forge picked it up:
+
+```bash
+docker inspect forge-<slug> --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} ro={{not .RW}}{{"\n"}}{{end}}'
+```
+
 ## Rollback
 
 Each edit to the unit is backed up alongside it, e.g.

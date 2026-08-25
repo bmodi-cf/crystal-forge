@@ -80,6 +80,20 @@ agent needs to work in the codebase correctly.
   `createdById`, so an imported forge is visible to admins only until its groups
   are granted by hand (prod has no forge-settings UI: insert the `ForgeGroup`
   rows), and the team it was migrated for cannot see it.
+- **Prod forge config is a host file, not image content.** A prod container has
+  no volumes and is recreated on every restart — including reconciler-driven
+  ones after a crash or a `deployVersion` bump — so nothing written inside it
+  survives. The single exception is `<FORGE_ENV_DIR>/<slug>.env` on the prod
+  host (default `/etc/crystal-forge/forge-env`), bind-mounted **read-only** at
+  `/app/.env`, which is the only path Next's standalone server reads env from.
+  It is a single-*file* mount deliberately: mounting a directory over `/app`
+  hides the baked app — a host dir empties it, and a named volume is seeded from
+  the image once and then pins that version through later upgrades. The mount is
+  skipped unless the host path is a regular file, because docker silently
+  creates a *directory* for a missing bind source. Container env still wins over
+  the file, so `DATABASE_URL` cannot be overridden from it. Secrets therefore
+  never travel in the image or the registry — the pilot builds images and has no
+  business holding prod credentials. See `docs/DEPLOY.md`.
 - **`pg_dump`/`psql` run via `docker exec` into `$PG_CONTAINER`, not through
   `ContainerManager`.** That abstraction is for forge containers and surfaces only
   *combined* stdout/stderr, which would corrupt a dump the moment `pg_dump`

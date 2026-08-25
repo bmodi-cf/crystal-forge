@@ -51,6 +51,11 @@ const baseSchema = z.object({
   REGISTRY_HOST: z.string().default('registry.crystalfountains.com'),
   // Reconcile-loop cadence in prod mode.
   FORGE_RECONCILE_INTERVAL_MS: z.coerce.number().int().min(1000).default(15000),
+  // Host directory holding per-forge env files (`<slug>.env`), bind-mounted
+  // read-only at /app/.env. Prod-host only — forge config never travels in the
+  // image. Read at call time by lib/runtime/prod/forge-env-file.ts, mirroring
+  // REGISTRY_HOST; declared here so it is documented and validated.
+  FORGE_ENV_DIR: z.string().default('/etc/crystal-forge/forge-env'),
 
   // Forge runtime: where forges run. `docker` spawns per-forge containers;
   // `fake` uses the in-memory ContainerManager (tests/e2e/offline).

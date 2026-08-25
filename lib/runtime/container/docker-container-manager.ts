@@ -46,7 +46,9 @@ export class DockerContainerManager implements ContainerManager {
       const p = spec.publish;
       args.push('--publish', `${p.hostIp}:${p.hostPort}:${p.containerPort}`);
     }
-    for (const vol of spec.volumes ?? []) args.push('--volume', `${vol.volume}:${vol.target}`);
+    for (const vol of spec.volumes ?? []) {
+      args.push('--volume', `${vol.volume}:${vol.target}${vol.readOnly ? ':ro' : ''}`);
+    }
     if (spec.network) args.push('--network', spec.network);
     args.push(spec.image, ...(spec.command ?? ['sleep', 'infinity']));
     const id = (await this.capture('docker', args)).trim();

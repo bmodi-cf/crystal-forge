@@ -4,6 +4,7 @@ import type { DatabaseProvisioner } from '@/lib/db/types';
 import { buildScopedDatabaseUrl } from '@/lib/db/url';
 import { allocatePort as realAllocatePort } from '@/lib/runtime/ports';
 import { env } from '@/lib/env';
+import { CONTAINER_ENV_PATH, resolveForgeEnvFile } from './forge-env-file';
 
 export type ProdRuntimeDeps = {
   containerManager: ContainerManager;
@@ -12,6 +13,8 @@ export type ProdRuntimeDeps = {
   allocatePort?: () => Promise<number>;
   probeTimeoutMs?: number;
   probeIntervalMs?: number;
+  /** Host path of the forge's env file, or null when it has none. */
+  resolveEnvFile?: (slug: string) => Promise<string | null>;
 };
 
 export type ProdStartInput = {
@@ -65,6 +68,11 @@ export async function startForgeContainer(
   const allocate = deps.allocatePort ?? (() => realAllocatePort({ start: 3200, end: 3999 }));
   const port = await allocate();
 
+  // Per-forge config lives on the prod host, never in the image: the image is
+  // built on the pilot, which has no business holding prod secrets. Bound as a
+  // single read-only file so it cannot shadow the baked app at /app.
+  const envFile = await (deps.resolveEnvFile ?? resolveForgeEnvFile)(slug);
+
   const image = `${registryHost()}/${slug}:${deployVersion}`;
   const containerId = await deps.containerManager.create({
     name: `forge-${slug}`,
@@ -84,7 +92,12 @@ export async function startForgeContainer(
       // No GH_TOKEN: prod does no git.
     },
     publish: { hostIp: '127.0.0.1', hostPort: port, containerPort: 3000 },
-    volumes: [], // no workspace volume, no Claude volume
+    // No workspace volume and no Claude volume: prod containers are immutable
+    // and disposable (a restart recreates them). The only mount is the forge's
+    // env file, when the admin has placed one on this host.
+    volumes: envFile
+      ? [{ volume: envFile, target: CONTAINER_ENV_PATH, readOnly: true }]
+      : [],
     network: env.FORGE_NETWORK,
     // Empty command (NOT undefined): run the image's baked ENTRYPOINT+CMD
     // (docker-entrypoint.sh → prisma migrate deploy → node server.js). Omitting

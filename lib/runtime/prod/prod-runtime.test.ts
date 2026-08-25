@@ -20,6 +20,9 @@ function deps(overrides = {}) {
     provisioner: new FakeDatabaseProvisioner(),
     probe: async () => true,
     allocatePort: async () => 3055,
+    // Default to "this forge has no env file" so the suite never depends on the
+    // host's /etc/crystal-forge/forge-env contents.
+    resolveEnvFile: async () => null,
     ...overrides,
   };
 }
@@ -42,7 +45,7 @@ describe('startForgeContainer', () => {
     expect(spec.env).toHaveProperty('DATABASE_URL');
     expect(spec.env).toHaveProperty('FORGE_BASE_PATH', '/app/acme-portal');
     expect(spec.env).not.toHaveProperty('GH_TOKEN'); // no git in prod
-    expect(spec.volumes ?? []).toEqual([]);          // no workspace/claude volumes
+    expect(spec.volumes ?? []).toEqual([]);          // no workspace/claude volumes, no env file here
     expect(spec.command).toEqual([]);                // empty = run image's baked CMD, NOT the keep-alive default
     expect(c.labels['crystal-forge.forgeId']).toBe('f1');
   });
@@ -58,6 +61,22 @@ describe('startForgeContainer', () => {
     const d = deps();
     await startForgeContainer(d, input);
     expect((d.provisioner as FakeDatabaseProvisioner).has(input.dbName)).toBe(true);
+  });
+
+  it('mounts the per-forge env file read-only at /app/.env when it exists on the host', async () => {
+    const d = deps({ resolveEnvFile: async (slug: string) => `/etc/crystal-forge/forge-env/${slug}.env` });
+    await startForgeContainer(d, input);
+    const spec = (d.containerManager as FakeContainerManager).created[0]!;
+    expect(spec.volumes).toEqual([
+      { volume: '/etc/crystal-forge/forge-env/acme-portal.env', target: '/app/.env', readOnly: true },
+    ]);
+  });
+
+  it('mounts nothing when the forge has no env file — a missing bind source makes docker create a directory', async () => {
+    const d = deps({ resolveEnvFile: async () => null });
+    await startForgeContainer(d, input);
+    const spec = (d.containerManager as FakeContainerManager).created[0]!;
+    expect(spec.volumes ?? []).toEqual([]);
   });
 
   it('is idempotent when the database already exists', async () => {

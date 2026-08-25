@@ -1,8 +1,15 @@
 /** A published port binding: host side is always bound to a specific IP. */
 export type PortPublish = { hostIp: string; hostPort: number; containerPort: number };
 
-/** A volume mount: a named docker volume mounted at an in-container path. */
-export type VolumeMount = { volume: string; target: string };
+/**
+ * A mount at an in-container path. `volume` is a named docker volume, or an
+ * absolute host path for a bind mount (docker's --volume accepts both). Bind a
+ * single *file* rather than a directory when the target sits inside a directory
+ * the image populates: mounting over such a directory hides the image's copy —
+ * a host directory empties it, and a named volume is seeded from the image once
+ * and then silently pins that first version across later image upgrades.
+ */
+export type VolumeMount = { volume: string; target: string; readOnly?: boolean };
 
 export type CreateContainerSpec = {
   /** docker --name; must be unique. */

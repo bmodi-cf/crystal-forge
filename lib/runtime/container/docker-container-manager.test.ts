@@ -38,6 +38,19 @@ describe('DockerContainerManager argv', () => {
     expect(argv).toContain('crystal-forge-runtime:latest sleep infinity');
   });
 
+  it('appends :ro to a mount marked readOnly (host bind of the forge env file)', async () => {
+    const rec = recorder();
+    const m = new DockerContainerManager({ capture: rec.capture });
+    await m.create({
+      name: 'forge-x',
+      image: 'reg.example.com/x:v1',
+      volumes: [{ volume: '/etc/crystal-forge/forge-env/x.env', target: '/app/.env', readOnly: true }],
+      command: [],
+    });
+    const argv = rec.calls[0]!.args.join(' ');
+    expect(argv).toContain('--volume /etc/crystal-forge/forge-env/x.env:/app/.env:ro');
+  });
+
   it('inspect returns running=true with no port when there is no host binding', async () => {
     const rec = recorder('true|\n');
     const m = new DockerContainerManager({ capture: rec.capture });
