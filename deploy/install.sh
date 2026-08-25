@@ -159,7 +159,9 @@ if [ "$DO_DASHBOARD" -eq 1 ]; then
   # Per-forge env files (prod mode). Each <slug>.env here is bind-mounted
   # read-only at /app/.env inside that forge's container, so prod secrets live
   # on this host only — never in the image, the registry, or the dashboard DB.
-  # 0700: the files hold API keys. Created empty; admins drop files in by hand.
+  # 0700 on the directory is what keeps the keys private on this host; the files
+  # inside must be 0644, since a bind-mounted root-owned 0600 file is unreadable
+  # by an image that runs as a non-root USER. Created empty; admins add files.
   FORGE_ENV_DIR=/etc/crystal-forge/forge-env
   # shellcheck disable=SC1090
   [ -r "$ENV_DST" ] && . "$ENV_DST"

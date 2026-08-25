@@ -154,9 +154,17 @@ pins that first version across later upgrades.
 ```bash
 sudo install -d -m 0700 /etc/crystal-forge/forge-env
 printf 'OPENAI_API_KEY=sk-...\n' \
-  | sudo install -m 0600 /dev/stdin /etc/crystal-forge/forge-env/second-set-of-eyes.env
+  | sudo install -m 0644 /dev/stdin /etc/crystal-forge/forge-env/second-set-of-eyes.env
 # restart that forge so its container is recreated with the mount
 ```
+
+**Mode 0644, not 0600** — the file must be readable by whatever UID the forge's
+image runs as. Bind mounts carry host ownership through numerically, so a
+root-owned 0600 file is unreadable by any image with a `USER` directive (the
+work-order tool runs as uid 1000 `node`; the template's images run as root).
+The secret is still protected on the host: the *directory* is 0700, so only root
+can reach the file. Getting this wrong fails at boot, not silently — the app
+sees the file exist and then throws EACCES reading it.
 
 - `<slug>` is the same slug used for the container name and image tag
   (`forge-<slug>`, `<registry>/<slug>:<version>`).

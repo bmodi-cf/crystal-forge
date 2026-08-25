@@ -90,8 +90,12 @@ agent needs to work in the codebase correctly.
   hides the baked app — a host dir empties it, and a named volume is seeded from
   the image once and then pins that version through later upgrades. The mount is
   skipped unless the host path is a regular file, because docker silently
-  creates a *directory* for a missing bind source. Container env still wins over
-  the file, so `DATABASE_URL` cannot be overridden from it. Secrets therefore
+  creates a *directory* for a missing bind source. The file needs mode **0644**
+  (inside the 0700 directory): bind mounts carry host UIDs through numerically,
+  so a root-owned 0600 file is unreadable by any image that sets `USER` — and
+  images differ (the template's run as root, the work-order tool as uid 1000).
+  Container env still wins over the file, so `DATABASE_URL` cannot be
+  overridden from it. Secrets therefore
   never travel in the image or the registry — the pilot builds images and has no
   business holding prod credentials. See `docs/DEPLOY.md`.
 - **`pg_dump`/`psql` run via `docker exec` into `$PG_CONTAINER`, not through
