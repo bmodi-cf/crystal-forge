@@ -14,6 +14,7 @@ function recordingManager(exitCode = 0) {
     stop: async () => {},
     remove: async () => {},
     list: async () => [],
+    writeUpload: async () => ({ path: 'uploads/x' }),
   } as ContainerManager;
   return { mgr, calls };
 }

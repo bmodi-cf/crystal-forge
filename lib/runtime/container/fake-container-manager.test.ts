@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { Readable } from 'node:stream';
 import { FakeContainerManager } from './fake-container-manager';
 
 describe('FakeContainerManager', () => {
@@ -29,5 +30,42 @@ describe('FakeContainerManager', () => {
     await m.create({ name: 'b', image: 'img', labels: { other: 'y' } });
     const found = await m.list({ label: 'crystal-forge.forgeId' });
     expect(found.map((c) => c.name)).toEqual(['a']);
+  });
+});
+
+describe('FakeContainerManager.writeUpload', () => {
+  it('records the upload and returns the repo-relative path', async () => {
+    const mgr = new FakeContainerManager();
+    const id = await mgr.create({ name: 'c', image: 'img' });
+    const res = await mgr.writeUpload(id, { name: 'logo.png', body: Readable.from(['abc']) });
+    expect(res.path).toBe('uploads/logo.png');
+    expect(mgr.uploads).toEqual([{ id, path: 'uploads/logo.png', bytes: 3 }]);
+  });
+
+  it('suffixes colliding names per container', async () => {
+    const mgr = new FakeContainerManager();
+    const id = await mgr.create({ name: 'c', image: 'img' });
+    const a = await mgr.writeUpload(id, { name: 'logo.png', body: Readable.from(['a']) });
+    const b = await mgr.writeUpload(id, { name: 'logo.png', body: Readable.from(['bb']) });
+    const c = await mgr.writeUpload(id, { name: 'logo.png', body: Readable.from(['ccc']) });
+    expect([a.path, b.path, c.path]).toEqual([
+      'uploads/logo.png', 'uploads/logo-2.png', 'uploads/logo-3.png',
+    ]);
+  });
+
+  it('suffixes extensionless names without a stray dot', async () => {
+    const mgr = new FakeContainerManager();
+    const id = await mgr.create({ name: 'c', image: 'img' });
+    await mgr.writeUpload(id, { name: 'NOTES', body: Readable.from(['x']) });
+    const second = await mgr.writeUpload(id, { name: 'NOTES', body: Readable.from(['x']) });
+    expect(second.path).toBe('uploads/NOTES-2');
+  });
+
+  it('propagates a body stream error instead of recording an upload', async () => {
+    const mgr = new FakeContainerManager();
+    const id = await mgr.create({ name: 'c', image: 'img' });
+    const boom = new Readable({ read() { this.destroy(new Error('boom')); } });
+    await expect(mgr.writeUpload(id, { name: 'x.txt', body: boom })).rejects.toThrow('boom');
+    expect(mgr.uploads).toEqual([]);
   });
 });

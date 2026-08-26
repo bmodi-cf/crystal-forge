@@ -1,3 +1,5 @@
+import type { Readable } from 'node:stream';
+
 /** A published port binding: host side is always bound to a specific IP. */
 export type PortPublish = { hostIp: string; hostPort: number; containerPort: number };
 
@@ -61,6 +63,13 @@ export type ContainerManager = {
   create(spec: CreateContainerSpec): Promise<string>;
   /** Run a one-off command inside a running container. */
   exec(id: string, cmd: string, args: string[], opts?: ExecOpts): Promise<{ exitCode: number }>;
+  /**
+   * Stream `body` into <workdir>/uploads/ inside the container, resolving name
+   * collisions with a numeric suffix. Returns the resolved repo-relative path.
+   * Streaming (rather than exec) because uploads are up to 100 MB and must not
+   * be buffered in the dashboard's heap.
+   */
+  writeUpload(id: string, opts: { name: string; body: Readable }): Promise<{ path: string }>;
   inspect(id: string): Promise<ContainerStatus>;
   stop(id: string): Promise<void>;
   remove(id: string): Promise<void>;

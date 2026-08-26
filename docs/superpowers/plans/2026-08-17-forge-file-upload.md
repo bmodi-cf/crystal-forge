@@ -41,7 +41,7 @@
   - `ContainerManager.writeUpload(id: string, opts: { name: string; body: Readable }): Promise<{ path: string }>` — returns the repo-relative path, e.g. `{ path: 'uploads/logo-2.png' }`.
   - `FakeContainerManager.uploads: { id: string; path: string; bytes: number }[]` — public array for assertions.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `lib/runtime/container/fake-container-manager.test.ts`:
 
@@ -86,12 +86,12 @@ describe('FakeContainerManager.writeUpload', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run lib/runtime/container/fake-container-manager.test.ts --config vitest.unit.config.ts`
 Expected: FAIL — `mgr.writeUpload is not a function`.
 
-- [ ] **Step 3: Add the interface member**
+- [x] **Step 3: Add the interface member**
 
 In `lib/runtime/container/types.ts`, add the import and the method. Put the method after `exec` so the reading order matches the implementations:
 
@@ -120,7 +120,7 @@ export type ContainerManager = {
 };
 ```
 
-- [ ] **Step 4: Implement it on the fake**
+- [x] **Step 4: Implement it on the fake**
 
 In `lib/runtime/container/fake-container-manager.ts`, add the import, the `uploads` field, a shared collision helper, and the method:
 
@@ -167,17 +167,17 @@ Inside the class:
   }
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `npx vitest run lib/runtime/container/fake-container-manager.test.ts --config vitest.unit.config.ts`
 Expected: PASS (4 new tests).
 
-- [ ] **Step 6: Typecheck**
+- [x] **Step 6: Typecheck**
 
 Run: `pnpm typecheck`
 Expected: exit 0. It will FAIL if `DockerContainerManager` no longer satisfies `ContainerManager` — that is expected and Task 2 fixes it. If it fails **only** with `Property 'writeUpload' is missing in type 'DockerContainerManager'`, that is the correct state; proceed. Any other error is yours to fix now.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add lib/runtime/container/types.ts lib/runtime/container/fake-container-manager.ts lib/runtime/container/fake-container-manager.test.ts

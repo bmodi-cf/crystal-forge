@@ -2,9 +2,26 @@ import type {
   ContainerManager, ContainerStatus, ContainerSummary,
   CreateContainerSpec, ExecOpts,
 } from './types';
+import type { Readable } from 'node:stream';
 
 type Entry = { id: string; spec: CreateContainerSpec; running: boolean };
 export type ExecCall = { id: string; cmd: string; args: string[]; opts?: ExecOpts };
+export type UploadRecord = { id: string; path: string; bytes: number };
+
+/**
+ * Resolve `name` against names already taken in `taken`, appending -2, -3, …
+ * before the extension. Mirrors the container-side shell loop in
+ * docker-container-manager.ts so fake and real behave identically.
+ */
+export function resolveUploadName(name: string, taken: Set<string>): string {
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  let cand = name;
+  let i = 2;
+  while (taken.has(cand)) { cand = `${stem}-${i}${ext}`; i += 1; }
+  return cand;
+}
 
 export class FakeContainerManager implements ContainerManager {
   private readonly containers = new Map<string, Entry>();
@@ -13,6 +30,8 @@ export class FakeContainerManager implements ContainerManager {
   private readonly failMatches: string[] = [];
   readonly execCalls: ExecCall[] = [];
   readonly created: CreateContainerSpec[] = [];
+  readonly uploads: UploadRecord[] = [];
+  private readonly takenUploads = new Map<string, Set<string>>();
 
   /** Queue the exit code the next exec() should return (default 0). */
   queueExit(code: number): void { this.exitQueue.push(code); }
@@ -36,6 +55,19 @@ export class FakeContainerManager implements ContainerManager {
     const full = `${cmd} ${args.join(' ')}`;
     if (this.failMatches.some((m) => full.includes(m))) return { exitCode: 1 };
     return { exitCode: this.exitQueue.length ? this.exitQueue.shift()! : 0 };
+  }
+
+  async writeUpload(id: string, opts: { name: string; body: Readable }): Promise<{ path: string }> {
+    // Drain first: a body that errors must reject before anything is recorded.
+    let bytes = 0;
+    for await (const chunk of opts.body) bytes += Buffer.from(chunk as Buffer).length;
+    let taken = this.takenUploads.get(id);
+    if (!taken) { taken = new Set<string>(); this.takenUploads.set(id, taken); }
+    const resolved = resolveUploadName(opts.name, taken);
+    taken.add(resolved);
+    const path = `uploads/${resolved}`;
+    this.uploads.push({ id, path, bytes });
+    return { path };
   }
 
   async inspect(id: string): Promise<ContainerStatus> {
