@@ -95,7 +95,11 @@ export function ForgePageClient({
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
-            <ChatPanel forgeId={forge.id} conversationId={activeId} />
+            <ChatPanel
+              forgeId={forge.id}
+              conversationId={activeId}
+              canUpload={canWrite && runtime?.status === 'running'}
+            />
           </div>
         </aside>
         <section className="flex-1 min-w-[320px]">

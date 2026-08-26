@@ -1272,7 +1272,7 @@ git commit -m "feat(forge-ui): useUploads hook with per-file progress and cancel
 - Consumes: `useUploads` (Task 7), `session.send` from `useChatSession`.
 - Produces: `ChatPanel` gains a **required** `canUpload: boolean` prop.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `app/(app)/forges/[id]/ChatPanel.test.tsx`. First, **add `canUpload={false}` to every existing `render(<ChatPanel …>)` call** (there are seven, at lines 49, 54, 62, 70, 77, 84, and 92) so the new required prop typechecks. Then append:
 
@@ -1366,12 +1366,12 @@ describe('ChatPanel uploads', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run "app/(app)/forges/[id]/ChatPanel.test.tsx" --config vitest.unit.config.ts`
 Expected: FAIL — no `upload-dropzone` testid, no "Upload files" button.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `app/(app)/forges/[id]/ChatPanel.tsx`:
 
@@ -1505,17 +1505,17 @@ In `app/(app)/forges/[id]/ForgePageClient.tsx:98`, pass the prop:
             />
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run "app/(app)/forges/[id]" --config vitest.unit.config.ts`
 Expected: PASS — the 7 new cases plus every pre-existing `ChatPanel` / `ForgePageClient` test.
 
-- [ ] **Step 5: Typecheck and lint**
+- [x] **Step 5: Typecheck and lint**
 
 Run: `pnpm typecheck && pnpm lint`
 Expected: both exit 0.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add "app/(app)/forges/[id]/ChatPanel.tsx" "app/(app)/forges/[id]/ChatPanel.test.tsx" "app/(app)/forges/[id]/ForgePageClient.tsx"

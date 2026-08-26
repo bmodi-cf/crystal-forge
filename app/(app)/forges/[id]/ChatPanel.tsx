@@ -1,14 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { Paperclip, X } from 'lucide-react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { useChatSession, type ChatStatus } from './useChatSession';
+import { useUploads } from './useUploads';
 
 type Props = {
   forgeId: string;
   conversationId: string | null;
+  /** False when the forge isn't running or the user lacks write access. */
+  canUpload: boolean;
 };
 
 const STATUS_LABEL: Record<ChatStatus, string> = {
@@ -22,10 +26,34 @@ const STATUS_LABEL: Record<ChatStatus, string> = {
 const AUTH_URL_RE = /https:\/\/\S*claude\.ai\S*/;
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
 
-export function ChatPanel({ forgeId, conversationId }: Props) {
+export function ChatPanel({ forgeId, conversationId, canUpload }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const session = useChatSession(forgeId, conversationId);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
+
+  // Held in a ref, and refreshed in an effect rather than during render, so
+  // onUploaded stays referentially stable across status flips without tripping
+  // the no-ref-writes-in-render rule.
+  const sessionRef = useRef(session);
+  useEffect(() => { sessionRef.current = session; }, [session]);
+  const onUploaded = useCallback((path: string) => {
+    // Type the path into Claude's prompt: trailing space, no newline, so the
+    // user finishes the sentence and presses Enter themselves.
+    if (sessionRef.current.status === 'open') sessionRef.current.send(`${path} `);
+  }, []);
+  const uploads = useUploads(forgeId, onUploaded);
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const uploadDisabledReason = canUpload ? null : 'Start the forge to upload files';
+
+  function handleDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragging(false);
+    if (!canUpload) return;
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length) uploads.start(files);
+  }
 
   // onData/send/resize are stable useCallbacks from useChatSession.
   const { onData, send, resize } = session;
@@ -123,6 +151,27 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
           {session.errorMessage ? <span className="text-[#d96868]">{session.errorMessage}</span> : null}
           <button
             type="button"
+            aria-label="Upload files"
+            title={uploadDisabledReason ?? 'Upload files into uploads/'}
+            disabled={!canUpload}
+            onClick={() => fileInputRef.current?.click()}
+            className="px-2 py-0.5 rounded border border-border text-ink-faint hover:text-ink disabled:opacity-40"
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length) uploads.start(files);
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
             onClick={() => { void session.end(); }}
             disabled={session.status !== 'open'}
             className="px-2 py-0.5 rounded border border-border text-ink-faint hover:text-ink disabled:opacity-40"
@@ -144,10 +193,44 @@ export function ChatPanel({ forgeId, conversationId }: Props) {
         </div>
       )}
 
+      {uploads.items.length > 0 && (
+        <div className="shrink-0 border-b border-border bg-surface-raised px-3 py-1.5 text-[11px]">
+          {uploads.items.map((it) => (
+            <div key={it.key} className="flex items-center gap-2">
+              <span className="truncate text-ink-dim">{it.name}</span>
+              {it.status === 'uploading' && <span className="text-ink-faint">{it.percent}%</span>}
+              {it.status === 'done' && <span className="text-ink-faint">→ {it.path}</span>}
+              {it.status === 'error' && <span className="text-[#d96868]">{it.error}</span>}
+              <button
+                type="button"
+                aria-label={it.status === 'uploading' ? `Cancel ${it.name}` : `Dismiss ${it.name}`}
+                onClick={() => (it.status === 'uploading' ? uploads.cancel(it.key) : uploads.dismiss(it.key))}
+                className="ml-auto shrink-0 text-ink-faint hover:text-ink"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Hide the xterm scrollbar so its show/hide doesn't change content width
           and feed the resize loop; wheel-scroll still works. */}
       <style>{`.xterm-viewport::-webkit-scrollbar{width:0;height:0}.xterm-viewport{scrollbar-width:none}`}</style>
-      <div data-testid="xterm-host" ref={hostRef} className="flex-1 min-h-0 overflow-hidden bg-[#0c0e12] p-1" />
+      <div
+        data-testid="upload-dropzone"
+        onDragOver={(e) => { e.preventDefault(); if (canUpload) setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        className="relative flex-1 min-h-0"
+      >
+        <div data-testid="xterm-host" ref={hostRef} className="h-full w-full overflow-hidden bg-[#0c0e12] p-1" />
+        {dragging && canUpload && (
+          <div className="pointer-events-none absolute inset-2 grid place-items-center rounded border-2 border-dashed border-border-strong bg-black/40 text-[12px] text-ink">
+            Drop files into uploads/
+          </div>
+        )}
+      </div>
     </div>
   );
 }
