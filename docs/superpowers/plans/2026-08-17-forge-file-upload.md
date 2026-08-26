@@ -840,7 +840,7 @@ git commit -m "feat(runtime): uploadToWorkspace service with ACL, byte cap, seri
 - Consumes: `getRuntimeService().uploadToWorkspace(...)` (Task 5), `UPLOAD_BYTE_LIMIT` (Task 3), `devOnlyRouteGuard` (`lib/mode.ts`), `respondToServiceError` (`lib/http.ts`).
 - Produces: `POST /api/forges/[id]/uploads?name=<filename>` — raw body in, `200 { path: string }` out.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `app/api/forges/[id]/uploads/route.test.ts`, modelled on `app/api/forges/[id]/start/route.test.ts`:
 
@@ -906,12 +906,12 @@ describe('uploads route', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run "app/api/forges/[id]/uploads/route.test.ts" --config vitest.unit.config.ts`
 Expected: FAIL — cannot resolve `./route`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `app/api/forges/[id]/uploads/route.ts`:
 
@@ -967,17 +967,17 @@ export async function POST(
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run "app/api/forges/[id]/uploads/route.test.ts" --config vitest.unit.config.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Typecheck and lint**
+- [x] **Step 5: Typecheck and lint**
 
 Run: `pnpm typecheck && pnpm lint`
 Expected: both exit 0.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add "app/api/forges/[id]/uploads"
