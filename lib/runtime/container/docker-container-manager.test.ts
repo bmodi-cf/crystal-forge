@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { DockerContainerManager } from './docker-container-manager';
+import { Readable } from 'node:stream';
+import { DockerContainerManager, UPLOAD_SCRIPT } from './docker-container-manager';
 
 function recorder(inspectOut = 'true|\n') {
   const calls: { args: string[] }[] = [];
@@ -93,5 +94,56 @@ describe('DockerContainerManager argv', () => {
     expect(argv).not.toContain('-t');
     expect(argv).toContain('-w /workspace');
     expect(argv).toContain('c1 sh -c pnpm dev');
+  });
+});
+
+describe('DockerContainerManager.writeUpload', () => {
+  function harness(result: { exitCode: number; stdout: string; stderr: string }) {
+    const calls: { cmd: string; args: string[]; stdin: Readable }[] = [];
+    const mgr = new DockerContainerManager({
+      spawnStream: async (cmd, args, stdin) => { calls.push({ cmd, args, stdin }); return result; },
+    });
+    return { mgr, calls };
+  }
+
+  it('passes the filename as an env var, never in the script', async () => {
+    const { mgr, calls } = harness({ exitCode: 0, stdout: 'uploads/a b.png\n', stderr: '' });
+    const res = await mgr.writeUpload('c1', { name: 'a b.png', body: Readable.from(['x']) });
+
+    expect(res).toEqual({ path: 'uploads/a b.png' });
+    const { cmd, args } = calls[0]!;
+    expect(cmd).toBe('docker');
+    expect(args).toEqual([
+      'exec', '-i', '-w', '/workspace', '-e', 'UPLOAD_NAME=a b.png',
+      'c1', 'sh', '-c', UPLOAD_SCRIPT,
+    ]);
+    // The script is a fixed constant — the untrusted name is nowhere inside it.
+    expect(args[9]).not.toContain('a b.png');
+  });
+
+  it('is not fooled by a shell-metacharacter filename', async () => {
+    const { mgr, calls } = harness({ exitCode: 0, stdout: 'uploads/x.txt\n', stderr: '' });
+    const evil = '"; rm -rf / #';
+    await mgr.writeUpload('c1', { name: evil, body: Readable.from(['x']) });
+    expect(calls[0]!.args).toContain(`UPLOAD_NAME=${evil}`);
+    expect(calls[0]!.args[9]).toBe(UPLOAD_SCRIPT);
+  });
+
+  it('returns the last stdout line as the path, tolerating trailing noise', async () => {
+    const { mgr } = harness({ exitCode: 0, stdout: 'uploads/logo-2.png\n', stderr: '' });
+    const res = await mgr.writeUpload('c1', { name: 'logo.png', body: Readable.from(['x']) });
+    expect(res.path).toBe('uploads/logo-2.png');
+  });
+
+  it('throws with stderr when the exec exits non-zero', async () => {
+    const { mgr } = harness({ exitCode: 1, stdout: '', stderr: 'No space left on device\n' });
+    await expect(mgr.writeUpload('c1', { name: 'x.txt', body: Readable.from(['x']) }))
+      .rejects.toThrow(/No space left on device/);
+  });
+
+  it('throws when the exec succeeds but prints no path', async () => {
+    const { mgr } = harness({ exitCode: 0, stdout: '\n', stderr: '' });
+    await expect(mgr.writeUpload('c1', { name: 'x.txt', body: Readable.from(['x']) }))
+      .rejects.toThrow(/no path/i);
   });
 });

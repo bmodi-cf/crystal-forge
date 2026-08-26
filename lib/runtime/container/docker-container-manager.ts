@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import type { Readable } from 'node:stream';
 import { childProcessRunner } from '../child-process-runner';
+import { CONTAINER_WORKDIR } from '../paths';
 import type { CommandRunner } from '../runner-types';
 import type {
   ContainerManager, ContainerStatus, ContainerSummary,
@@ -22,20 +24,81 @@ function defaultCapture(cmd: string, args: string[]): Promise<string> {
   });
 }
 
+/**
+ * Container-side upload script. POSIX sh, run via `sh -c`.
+ *
+ * The filename arrives as $UPLOAD_NAME (a docker `-e` env var) and is never
+ * interpolated into this string, so no filename can inject shell syntax.
+ *
+ * Writes to a dotted .part file and mv's into place only on a clean cat, with a
+ * trap sweeping the fragment on any failure — so a dropped connection or a full
+ * volume never leaves a truncated file under the real name.
+ */
+export const UPLOAD_SCRIPT = [
+  'set -e',
+  'mkdir -p uploads',
+  'n="$UPLOAD_NAME"',
+  'case "$n" in *.*) stem="${n%.*}"; ext=".${n##*.}" ;; *) stem="$n"; ext="" ;; esac',
+  'cand="$n"; i=2',
+  'while [ -e "uploads/$cand" ]; do cand="$stem-$i$ext"; i=$((i+1)); done',
+  'tmp="uploads/.$cand.part"',
+  `trap 'rm -f "$tmp"' EXIT`,
+  'cat > "$tmp"',
+  'mv "$tmp" "uploads/$cand"',
+  `printf '%s\\n' "uploads/$cand"`,
+].join('\n');
+
+export type SpawnStream = (
+  cmd: string,
+  args: string[],
+  stdin: Readable,
+) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+
+/**
+ * Spawn a command with a piped stdin and captured output. Separate from
+ * childProcessRunner, which hard-codes stdio:['ignore', fd, fd] and so can
+ * neither accept a body nor return the resolved path.
+ */
+function defaultSpawnStream(cmd: string, args: string[], stdin: Readable) {
+  return new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d) => { out += d.toString('utf8'); });
+    child.stderr.on('data', (d) => { err += d.toString('utf8'); });
+    // The child exiting early makes our writes EPIPE; swallow so it surfaces as
+    // a non-zero exit with stderr rather than an unhandled 'error' event.
+    child.stdin.on('error', () => {});
+    child.once('error', reject);
+    child.once('exit', (code) => resolve({ exitCode: code ?? -1, stdout: out, stderr: err }));
+    // A body error (byte-cap overrun, client abort) must surface to the caller
+    // as *that* error, not as a generic docker failure.
+    stdin.once('error', (bodyErr: Error) => {
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      reject(bodyErr);
+    });
+    stdin.pipe(child.stdin);
+  });
+}
+
 export type DockerDeps = {
   /** Injectable for tests; runs `docker <args>` and returns stdout. */
   capture?: (cmd: string, args: string[]) => Promise<string>;
   /** Injectable for tests; runs a logged, fire-and-forget docker command. */
   runner?: CommandRunner;
+  /** Injectable for tests; runs a command with piped stdin and captured output. */
+  spawnStream?: SpawnStream;
 };
 
 export class DockerContainerManager implements ContainerManager {
   private readonly capture: (cmd: string, args: string[]) => Promise<string>;
   private readonly runner: CommandRunner;
+  private readonly spawnStream: SpawnStream;
 
   constructor(deps: DockerDeps = {}) {
     this.capture = deps.capture ?? ((c, a) => defaultCapture(c, a));
     this.runner = deps.runner ?? childProcessRunner;
+    this.spawnStream = deps.spawnStream ?? defaultSpawnStream;
   }
 
   async create(spec: CreateContainerSpec): Promise<string> {
@@ -68,6 +131,22 @@ export class DockerContainerManager implements ContainerManager {
       ...(opts.logPath ? { logPath: opts.logPath } : {}),
       ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
     });
+  }
+
+  async writeUpload(id: string, opts: { name: string; body: Readable }): Promise<{ path: string }> {
+    const args = [
+      'exec', '-i',
+      '-w', CONTAINER_WORKDIR,
+      '-e', `UPLOAD_NAME=${opts.name}`,
+      id, 'sh', '-c', UPLOAD_SCRIPT,
+    ];
+    const { exitCode, stdout, stderr } = await this.spawnStream('docker', args, opts.body);
+    if (exitCode !== 0) {
+      throw new Error(`upload failed (exit ${exitCode}): ${stderr.trim()}`);
+    }
+    const path = stdout.trim().split('\n').pop()?.trim() ?? '';
+    if (!path) throw new Error('upload produced no path');
+    return { path };
   }
 
   async inspect(id: string): Promise<ContainerStatus> {

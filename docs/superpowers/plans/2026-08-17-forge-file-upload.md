@@ -199,7 +199,7 @@ git commit -m "feat(runtime): writeUpload on ContainerManager + fake implementat
   - `DockerDeps.spawnStream?: SpawnStream` — the injectable seam, matching the existing `capture` / `runner` pattern.
   - `UPLOAD_SCRIPT` (exported const) — the POSIX `sh` script run in the container.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `lib/runtime/container/docker-container-manager.test.ts`:
 
@@ -261,12 +261,12 @@ describe('DockerContainerManager.writeUpload', () => {
 
 If the existing test file constructs `DockerContainerManager` with a helper rather than inline deps, follow that file's local convention for building the instance — only the `spawnStream` dep is new.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run lib/runtime/container/docker-container-manager.test.ts --config vitest.unit.config.ts`
 Expected: FAIL — `UPLOAD_SCRIPT` is not exported / `writeUpload is not a function`.
 
-- [ ] **Step 3: Implement the script, the default spawn seam, and the method**
+- [x] **Step 3: Implement the script, the default spawn seam, and the method**
 
 In `lib/runtime/container/docker-container-manager.ts`:
 
@@ -378,17 +378,17 @@ In the class, add the field, assign it in the constructor beside the others, and
 
 No `-u` flag: the forge image ends with `USER forge` (`docker/forge-runtime.Dockerfile:35`), so the exec already runs as the user Claude runs as, and the file is owned by `forge`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run lib/runtime/container/docker-container-manager.test.ts --config vitest.unit.config.ts`
 Expected: PASS (5 new tests, existing ones unaffected).
 
-- [ ] **Step 5: Typecheck and lint**
+- [x] **Step 5: Typecheck and lint**
 
 Run: `pnpm typecheck && pnpm lint`
 Expected: both exit 0. `DockerContainerManager` now satisfies the interface, so Task 1's expected typecheck failure is gone.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/runtime/container/docker-container-manager.ts lib/runtime/container/docker-container-manager.test.ts
