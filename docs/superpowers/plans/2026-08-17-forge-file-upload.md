@@ -1016,7 +1016,7 @@ git commit -m "feat(api): POST /api/forges/[id]/uploads streams a file into the 
   ): UploadsApi;
   ```
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `app/(app)/forges/[id]/useUploads.test.ts`:
 
@@ -1139,12 +1139,12 @@ describe('useUploads', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run "app/(app)/forges/[id]/useUploads.test.ts" --config vitest.unit.config.ts`
 Expected: FAIL — cannot resolve `./useUploads`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `app/(app)/forges/[id]/useUploads.ts`:
 
@@ -1247,12 +1247,12 @@ export function useUploads(forgeId: string, onUploaded: (path: string) => void):
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run "app/(app)/forges/[id]/useUploads.test.ts" --config vitest.unit.config.ts`
 Expected: PASS (8 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add "app/(app)/forges/[id]/useUploads.ts" "app/(app)/forges/[id]/useUploads.test.ts"
