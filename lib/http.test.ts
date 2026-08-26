@@ -44,3 +44,12 @@ describe('respondToServiceError — runtime errors', () => {
     expect(await res.json()).toEqual({ error: 'full' });
   });
 });
+
+describe('respondToServiceError — upload errors', () => {
+  it('maps PayloadTooLargeError to 413 with its message', async () => {
+    const { PayloadTooLargeError } = await import('./errors');
+    const res = respondToServiceError(new PayloadTooLargeError('File exceeds the 100 MB limit'));
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'File exceeds the 100 MB limit' });
+  });
+});

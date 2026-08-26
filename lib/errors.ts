@@ -3,7 +3,8 @@ export type ErrorCode =
   | 'FORBIDDEN'
   | 'VALIDATION'
   | 'RUNTIME_BUSY'
-  | 'RUNTIME_CAPACITY';
+  | 'RUNTIME_CAPACITY'
+  | 'PAYLOAD_TOO_LARGE';
 
 export class AppError extends Error {
   readonly code: ErrorCode;
@@ -45,5 +46,11 @@ export class RuntimeBusyError extends AppError {
 export class RuntimeCapacityError extends AppError {
   constructor(message = 'No free runtime port; stop another forge first') {
     super('RUNTIME_CAPACITY', message);
+  }
+}
+
+export class PayloadTooLargeError extends AppError {
+  constructor(message: string) {
+    super('PAYLOAD_TOO_LARGE', message);
   }
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
   NotFoundError, ForbiddenError, ValidationError,
-  RuntimeBusyError, RuntimeCapacityError,
+  RuntimeBusyError, RuntimeCapacityError, PayloadTooLargeError,
 } from './errors';
 
 export function respondToServiceError(err: unknown): NextResponse {
@@ -19,6 +19,9 @@ export function respondToServiceError(err: unknown): NextResponse {
   }
   if (err instanceof RuntimeCapacityError) {
     return NextResponse.json({ error: err.message }, { status: 503 });
+  }
+  if (err instanceof PayloadTooLargeError) {
+    return NextResponse.json({ error: err.message }, { status: 413 });
   }
   console.error('[respondToServiceError] unhandled error', err);
   return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

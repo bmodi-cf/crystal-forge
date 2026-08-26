@@ -536,7 +536,7 @@ git commit -m "feat(runtime): sanitize upload filenames and define the byte cap"
 - Consumes: nothing.
 - Produces: `PayloadTooLargeError` (code `'PAYLOAD_TOO_LARGE'`), mapped to HTTP 413 by `respondToServiceError`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `lib/http.test.ts` (create the file with this content if it does not exist):
 
@@ -555,12 +555,12 @@ describe('respondToServiceError', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run lib/http.test.ts --config vitest.unit.config.ts`
 Expected: FAIL — `PayloadTooLargeError` is not exported (or the status is 500).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `lib/errors.ts`, extend the union and add the class:
 
@@ -590,12 +590,12 @@ In `lib/http.ts`, add it to the import list and add the branch before the final 
   }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run lib/http.test.ts --config vitest.unit.config.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add lib/errors.ts lib/http.ts lib/http.test.ts
