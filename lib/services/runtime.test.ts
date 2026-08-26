@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs/promises';
+import { Readable } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
 import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
@@ -11,7 +12,7 @@ import type { DatabaseProvisioner } from '@/lib/db/types';
 import type { ContainerManager, CreateContainerSpec } from '@/lib/runtime/container/types';
 import { makeRuntimeService } from './runtime';
 import { env } from '@/lib/env';
-import { ForbiddenError } from '@/lib/errors';
+import { ForbiddenError, RuntimeBusyError, PayloadTooLargeError } from '@/lib/errors';
 import { loadState } from '@/lib/runtime/state';
 
 let tmp: string;
@@ -467,6 +468,98 @@ describe('runtime service', () => {
       // (a 'running' write would resurrect a forge the user just stopped).
       await waitForRuntime(svc, tom, forge.id, (r) => r === null);
       expect(await svc.getRuntime(tom, forge.id)).toBeNull();
+    });
+  });
+});
+
+describe('uploadToWorkspace', () => {
+  it('streams a file into the running container and returns its path', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom' });
+      const forge = await makeForge(prisma, { name: 'Aquaflow Designer', createdById: tom.id });
+      const fakes = makeFakes();
+      const svc = makeRuntimeService({ ...fakes, prisma });
+      await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+
+      const res = await svc.uploadToWorkspace(tom, forge.id, 'logo.png', Readable.from(['abcd']));
+
+      expect(res.path).toBe('uploads/logo.png');
+      expect(fakes._containers.uploads).toHaveLength(1);
+      expect(fakes._containers.uploads[0]!.bytes).toBe(4);
+    });
+  });
+
+  it('sanitizes the name before it reaches the container', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom' });
+      const forge = await makeForge(prisma, { name: 'Aquaflow Designer', createdById: tom.id });
+      const fakes = makeFakes();
+      const svc = makeRuntimeService({ ...fakes, prisma });
+      await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+
+      const res = await svc.uploadToWorkspace(tom, forge.id, '../../etc/passwd', Readable.from(['x']));
+      expect(res.path).toBe('uploads/passwd');
+    });
+  });
+
+  it('serializes same-name uploads onto distinct paths', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom' });
+      const forge = await makeForge(prisma, { name: 'Aquaflow Designer', createdById: tom.id });
+      const fakes = makeFakes();
+      const svc = makeRuntimeService({ ...fakes, prisma });
+      await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+
+      const [a, b] = await Promise.all([
+        svc.uploadToWorkspace(tom, forge.id, 'a.txt', Readable.from(['1'])),
+        svc.uploadToWorkspace(tom, forge.id, 'a.txt', Readable.from(['22'])),
+      ]);
+      expect([a.path, b.path].sort()).toEqual(['uploads/a-2.txt', 'uploads/a.txt']);
+    });
+  });
+
+  it('rejects a non-owner with ForbiddenError', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom' });
+      const intruder = await makeUser(prisma, { email: 'i@x', name: 'Ivan' });
+      const forge = await makeForge(prisma, { name: 'Aquaflow Designer', createdById: tom.id });
+      const fakes = makeFakes();
+      const svc = makeRuntimeService({ ...fakes, prisma });
+      await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+
+      await expect(svc.uploadToWorkspace(intruder, forge.id, 'x.txt', Readable.from(['x'])))
+        .rejects.toBeInstanceOf(ForbiddenError);
+      expect(fakes._containers.uploads).toHaveLength(0);
+    });
+  });
+
+  it('rejects when the forge is not running', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom' });
+      const forge = await makeForge(prisma, { name: 'Aquaflow Designer', createdById: tom.id });
+      const svc = makeRuntimeService({ ...makeFakes(), prisma });
+
+      await expect(svc.uploadToWorkspace(tom, forge.id, 'x.txt', Readable.from(['x'])))
+        .rejects.toBeInstanceOf(RuntimeBusyError);
+    });
+  });
+
+  it('rejects a body that exceeds the byte limit', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom' });
+      const forge = await makeForge(prisma, { name: 'Aquaflow Designer', createdById: tom.id });
+      const fakes = makeFakes();
+      const svc = makeRuntimeService({ ...fakes, prisma });
+      await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+
+      const body = Readable.from([Buffer.alloc(64), Buffer.alloc(64)]);
+      await expect(svc.uploadToWorkspace(tom, forge.id, 'big.bin', body, 100))
+        .rejects.toBeInstanceOf(PayloadTooLargeError);
     });
   });
 });

@@ -1,10 +1,11 @@
 import type { PrismaClient } from '@prisma/client';
 import { canWriteForge, forgeReadFilter, canReadForge } from '@/lib/acl';
-import { ForbiddenError, NotFoundError, RuntimeBusyError } from '@/lib/errors';
+import { ForbiddenError, NotFoundError, RuntimeBusyError, PayloadTooLargeError } from '@/lib/errors';
 import { getGitHubClient } from '@/lib/github/client';
 import type { GitHubClient } from '@/lib/github/types';
 import { prisma as defaultPrisma } from '@/lib/prisma';
 import { randomBytes } from 'node:crypto';
+import { Readable, Transform } from 'node:stream';
 import { slugifyForgeName, slugToDbName, dbNameToRole } from '@/lib/github/slug';
 import { allocatePort } from '@/lib/runtime/ports';
 import { getContainerManager } from '@/lib/runtime/container';
@@ -17,6 +18,7 @@ import { probe as defaultProbe, PROBE_INTERVAL_MS, PROBE_TIMEOUT_MS } from '@/li
 import { mutateState, loadState } from '@/lib/runtime/state';
 import { workspaceVolumeName, claudeVolumeName, CONTAINER_WORKDIR, CLAUDE_HOME, logPath as logPathFor } from '@/lib/runtime/paths';
 import { env } from '@/lib/env';
+import { sanitizeUploadName, UPLOAD_BYTE_LIMIT } from '@/lib/runtime/upload-name';
 import type { RuntimeStateEntry, RuntimeStateView } from '@/lib/runtime/types';
 import type { SessionUser } from './types';
 
@@ -38,13 +40,45 @@ export type RuntimeDeps = {
 export type RuntimeService = {
   startForge(currentUser: SessionUser, forgeId: string): Promise<RuntimeStateEntry>;
   stopForge(currentUser: SessionUser, forgeId: string): Promise<void>;
+  uploadToWorkspace(
+    currentUser: SessionUser,
+    forgeId: string,
+    rawName: string,
+    body: Readable,
+    byteLimit?: number,
+  ): Promise<{ path: string }>;
   getRuntime(currentUser: SessionUser, forgeId: string): Promise<RuntimeStateView | null>;
   listRuntimes(currentUser: SessionUser): Promise<RuntimeStateView[]>;
 };
 
+/**
+ * Pass `source` through while counting bytes, failing the stream once `limit` is
+ * exceeded. This is the authoritative server-side cap: the route's
+ * Content-Length check is only a cheap pre-filter, and the client's is UX.
+ */
+function limitBytes(source: Readable, limit: number): Readable {
+  let total = 0;
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      total += (chunk as Buffer).length;
+      if (total > limit) {
+        cb(new PayloadTooLargeError(`Upload exceeds the ${Math.floor(limit / (1024 * 1024))} MB limit`));
+        return;
+      }
+      cb(null, chunk);
+    },
+  });
+  source.on('error', (err) => counter.destroy(err));
+  source.pipe(counter);
+  return counter;
+}
+
 export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
   const startInflight = new Map<string, Promise<RuntimeStateEntry>>();
   const stopInflight = new Map<string, Promise<void>>();
+  // Uploads are serialized per forge so two files can't resolve the same
+  // collision candidate. One dashboard process, so an in-memory chain suffices.
+  const uploadChain = new Map<string, Promise<unknown>>();
 
   async function loadForgeForAcl(forgeId: string) {
     const row = await deps.prisma.forge.findUnique({
@@ -261,6 +295,28 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
         .finally(() => stopInflight.delete(forgeId));
       stopInflight.set(forgeId, p);
       return p;
+    },
+
+    async uploadToWorkspace(currentUser, forgeId, rawName, body, byteLimit = UPLOAD_BYTE_LIMIT) {
+      const row = await loadForgeForAcl(forgeId);
+      if (!canWriteForge(currentUser, aclFor(row))) {
+        throw new ForbiddenError(`Cannot upload to forge ${forgeId}`);
+      }
+      const state = await loadState();
+      const entry = state[forgeId];
+      if (!entry || entry.status !== 'running' || !entry.containerId) {
+        throw new RuntimeBusyError('Forge is not running; start the forge first');
+      }
+      const containerId = entry.containerId;
+      const name = sanitizeUploadName(rawName);
+      const counted = limitBytes(body, byteLimit);
+
+      const prev = uploadChain.get(forgeId) ?? Promise.resolve();
+      const run = prev
+        .catch(() => {}) // a previous upload's failure must not poison this one
+        .then(() => deps.containerManager.writeUpload(containerId, { name, body: counted }));
+      uploadChain.set(forgeId, run.catch(() => {}));
+      return run;
     },
 
     async getRuntime(currentUser, forgeId) {

@@ -624,7 +624,7 @@ git commit -m "feat(errors): PayloadTooLargeError mapped to 413"
   ```
   Throws `ForbiddenError` (403), `NotFoundError` (404), `RuntimeBusyError` (409) when the runtime is not `running`, `PayloadTooLargeError` (413) on overrun.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `lib/services/runtime.test.ts`. Note the exact helper shapes this file uses (`lib/test/db.ts`): `withCleanDb` **passes `prisma` into the callback**, `makeUser(prisma, {...})` and `makeForge(prisma, {...})` take it as their first argument, and deps are spread as `makeRuntimeService({ ...fakes, prisma })`. The forge's creator passes `canWriteForge`, so no admin role is needed — a second user serves as the stranger, exactly as the existing `tom` / `intruder` tests do.
 
@@ -724,12 +724,12 @@ describe('uploadToWorkspace', () => {
 
 Add the imports this block needs at the top of the file: `Readable` from `node:stream`, and `RuntimeBusyError` + `PayloadTooLargeError` alongside the existing `ForbiddenError` import from `@/lib/errors`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm test lib/services/runtime.test.ts`
 Expected: FAIL — `svc.uploadToWorkspace is not a function`. (This suite needs Postgres; `./forge-launch.sh` without `--seed` is enough if the DB is not up.)
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `lib/services/runtime.ts`, add imports:
 
@@ -811,17 +811,17 @@ Add the implementation in the returned object, after `stopForge`:
     },
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm test lib/services/runtime.test.ts`
 Expected: PASS, including the 6 new cases and every pre-existing test in the file.
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 Run: `pnpm typecheck`
 Expected: exit 0.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/services/runtime.ts lib/services/runtime.test.ts
