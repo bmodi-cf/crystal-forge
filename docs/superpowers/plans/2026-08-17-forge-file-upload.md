@@ -409,7 +409,7 @@ git commit -m "feat(runtime): stream uploads into the container via docker exec"
   - `sanitizeUploadName(raw: string): string`
   - `UPLOAD_BYTE_LIMIT: number` (= `100 * 1024 * 1024`)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `lib/runtime/upload-name.test.ts`:
 
@@ -461,12 +461,12 @@ describe('sanitizeUploadName', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run lib/runtime/upload-name.test.ts --config vitest.unit.config.ts`
 Expected: FAIL — cannot resolve `./upload-name`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `lib/runtime/upload-name.ts`:
 
@@ -506,17 +506,17 @@ export function sanitizeUploadName(raw: string): string {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run lib/runtime/upload-name.test.ts --config vitest.unit.config.ts`
 Expected: PASS (8 tests).
 
-- [ ] **Step 5: Lint (the control-character regex needs its disable comment to be accepted)**
+- [x] **Step 5: Lint (the control-character regex needs its disable comment to be accepted)**
 
 Run: `pnpm lint`
 Expected: exit 0, no warnings about the regex.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add lib/runtime/upload-name.ts lib/runtime/upload-name.test.ts
