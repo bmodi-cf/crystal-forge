@@ -1532,7 +1532,7 @@ git commit -m "feat(forge-ui): drag-drop and paperclip uploads in the chat panel
 **Interfaces:**
 - Consumes: everything above. Runs against `FakeContainerManager` — `playwright.config.ts:32` already forces `FORGE_RUNTIME_MODE: 'fake'`.
 
-- [ ] **Step 1: Write the failing spec**
+- [x] **Step 1: Write the failing spec**
 
 Create `tests/e2e/forge-upload.spec.ts` with the full fixture below. It is the same setup `tests/e2e/forge-orchestration.spec.ts` uses — the clone fixture must exist or container setup fails, and `maya.chen@crystalfountains.com` is a seeded `DEVELOPER` who owns the seeded forge:
 
@@ -1611,9 +1611,12 @@ Two notes for whoever writes this:
 - The route into edit mode depends on how `ForgeCard` links out. `ForgeCard.tsx:96` shows the edit control's accessible name is `Edit <label>` — but that button opens the **settings modal**, not the Claude Code surface. Read `app/(app)/dashboard/ForgeCard.tsx` and pick the control that navigates to `/forges/<id>`; if none is convenient, `await page.goto('/forges/' + id)` using the id read from the card's `Open` link is a legitimate shortcut. Fix the selector to match reality rather than trusting `/edit/i` above.
 - In fake mode there is no real PTY, so **do not** assert the path appears inside the terminal; the progress line is the observable contract. The path-into-prompt behaviour is covered by the `ChatPanel` unit test in Task 8.
 
-- [ ] **Step 2: Run the spec**
+- [ ] **Step 2: Run the spec** — NOT RUN (2026-08-26). `pnpm e2e` does not exist;
+  the command is `./scripts/e2e.sh forge-upload.spec.ts`, which refuses on this
+  host because `crystal-forge.service` is active. Deferred by the user rather
+  than override the guard on the live pilot. Steps 3-4 are blocked on this.
 
-Run: `pnpm e2e tests/e2e/forge-upload.spec.ts`
+Run: `./scripts/e2e.sh --i-understand-this-seeds-the-db forge-upload.spec.ts`
 
 Unlike every other task here, this one is not red-then-green: Tasks 1-8 already implement the feature, so a passing run is the expected first outcome and confirms the layers integrate. A failure is a selector problem in the spec (or a genuine integration gap) — diagnose before changing anything.
 
