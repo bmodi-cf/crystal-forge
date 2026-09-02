@@ -29,6 +29,14 @@ describe('AdminNav', () => {
     expect(screen.queryByRole('link', { name: /promotions/i })).not.toBeInTheDocument();
   });
 
+  it('links Usage in both modes', () => {
+    const { unmount } = render(<AdminNav prodMode={false} />);
+    expect(screen.getByRole('link', { name: /usage/i })).toHaveAttribute('href', '/admin/usage');
+    unmount();
+    render(<AdminNav prodMode />);
+    expect(screen.getByRole('link', { name: /usage/i })).toHaveAttribute('href', '/admin/usage');
+  });
+
   // Inactive items carry `hover:bg-panel`, so match the active pair exactly.
   it('marks the active item', () => {
     render(<AdminNav prodMode />);

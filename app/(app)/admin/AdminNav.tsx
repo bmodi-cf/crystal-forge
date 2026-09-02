@@ -6,6 +6,9 @@ import { usePathname } from 'next/navigation';
 const BASE_ITEMS = [
   { href: '/admin/users', label: 'Users' },
   { href: '/admin/groups', label: 'Groups' },
+  // Mode-independent: each dashboard samples the host it runs on, so prod gets
+  // this page too.
+  { href: '/admin/usage', label: 'Usage' },
 ];
 
 // Prod deploys pinned images; dev promotes branches. The two never coexist, and
