@@ -211,3 +211,39 @@ model VerificationToken {
   @@id([identifier, token])
   @@map("verification_tokens")
 }
+
+/// One host-metrics sample. Wide and flat on purpose: no joins, no rollup table.
+/// CPU is stored as RAW CUMULATIVE JIFFIES, not a percentage — a percentage only
+/// exists between two reads, and raw counters make a missed sample read as a
+/// longer average instead of a phantom spike. They are also the only way a
+/// reboot is detectable (the counter decreases).
+model HostSample {
+  id Int      @id @default(autoincrement())
+  at DateTime @default(now()) @db.Timestamptz
+
+  // /proc/stat line 1. `idle` is field 4; `iowait` is field 5 and is separate.
+  cpuJiffiesTotal  BigInt @map("cpu_jiffies_total")
+  cpuJiffiesIdle   BigInt @map("cpu_jiffies_idle")
+  cpuJiffiesIowait BigInt @map("cpu_jiffies_iowait")
+  cpuCount         Int    @map("cpu_count")
+
+  // /proc/meminfo, bytes. Used is derived as total - available.
+  memTotal     BigInt @map("mem_total")
+  memAvailable BigInt @map("mem_available")
+
+  // fs.statfs('/'), bytes. Available is bavail (bfree includes root-reserved).
+  diskTotal     BigInt @map("disk_total")
+  diskAvailable BigInt @map("disk_available")
+
+  // Docker daemon /system/df, bytes. Nullable: sampled every 30 min rather than
+  // every 5 (the call costs ~17 s), and it can fail or time out.
+  dockerImages     BigInt? @map("docker_images")
+  dockerContainers BigInt? @map("docker_containers")
+  dockerVolumes    BigInt? @map("docker_volumes")
+  dockerBuildCache BigInt? @map("docker_build_cache")
+
+  runningForges Int? @map("running_forges")
+
+  @@index([at])
+  @@map("host_samples")
+}
