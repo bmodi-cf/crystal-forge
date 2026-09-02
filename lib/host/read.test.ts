@@ -6,7 +6,7 @@ const MEMINFO = 'MemTotal:       16373060 kB\nMemAvailable:    6505424 kB\n';
 
 // Real statfs('/') output from the pilot host. bavail < bfree: the difference
 // is root-reserved and must NOT be reported as free.
-const STATFS = { blocks: 65506593, bfree: 33875802, bavail: 30530049, frsize: 4096 };
+const STATFS = { blocks: 65506593, bfree: 33875802, bavail: 30530049, bsize: 4096 };
 
 function deps(overrides: Partial<Parameters<typeof readHostSnapshot>[0]> = {}) {
   return {
@@ -38,7 +38,7 @@ describe('readHostSnapshot', () => {
   it('uses bavail, not bfree', async () => {
     const snap = await readHostSnapshot(deps());
     // bfree would give 138,755,284,992 — larger, and wrong.
-    expect(snap.diskAvailable).toBe(BigInt(STATFS.bavail) * BigInt(STATFS.frsize));
+    expect(snap.diskAvailable).toBe(BigInt(STATFS.bavail) * BigInt(STATFS.bsize));
   });
 
   it('propagates a /proc read failure so the sampler can skip the tick', async () => {

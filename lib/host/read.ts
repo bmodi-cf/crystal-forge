@@ -18,7 +18,7 @@ export type HostSnapshot = {
 
 export type HostReaderDeps = {
   readText?: (path: string) => Promise<string>;
-  statfsPath?: (path: string) => Promise<{ blocks: number; bavail: number; frsize: number }>;
+  statfsPath?: (path: string) => Promise<{ blocks: number; bavail: number; bsize: number }>;
   cpuCount?: () => number;
 };
 
@@ -40,7 +40,9 @@ export async function readHostSnapshot(deps: HostReaderDeps = {}): Promise<HostS
 
   const cpu = parseCpuLine(statText);
   const mem = parseMeminfo(memText);
-  const frsize = BigInt(fs.frsize);
+  // bsize, not frsize: Linux reports both as 4096 for ext4 and `df` reads
+  // bsize, but only bsize is on Node's StatsFs type.
+  const blockSize = BigInt(fs.bsize);
 
   return {
     cpuJiffiesTotal: cpu.total,
@@ -49,8 +51,8 @@ export async function readHostSnapshot(deps: HostReaderDeps = {}): Promise<HostS
     cpuCount: cpuCount(),
     memTotal: mem.total,
     memAvailable: mem.available,
-    diskTotal: BigInt(fs.blocks) * frsize,
+    diskTotal: BigInt(fs.blocks) * blockSize,
     // bavail, not bfree: the difference is root-reserved and unavailable to a build.
-    diskAvailable: BigInt(fs.bavail) * frsize,
+    diskAvailable: BigInt(fs.bavail) * blockSize,
   };
 }

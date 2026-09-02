@@ -21,6 +21,38 @@ export async function register(): Promise<void> {
     console.error('[instrumentation] dashboard DB hardening failed', err);
   }
 
+  // Host usage sampler for /admin/usage. Runs in both modes — each dashboard
+  // samples the host it runs on. Wrapped so a sampler failure can never keep
+  // the dashboard from booting.
+  if (env.FORGE_USAGE_SAMPLE_MS > 0) {
+    try {
+      const { startUsageSampler, DOCKER_SAMPLE_INTERVAL_MS } = await import('./lib/host/sampler');
+      const { prismaSampleStore } = await import('./lib/host/store');
+      const { readHostSnapshot } = await import('./lib/host/read');
+      const { getContainerManager } = await import('@/lib/runtime/container');
+      const { FORGE_LABEL } = await import('./lib/runtime/runner');
+      const { prisma } = await import('./lib/prisma');
+      const mgr = getContainerManager();
+      startUsageSampler(
+        {
+          store: prismaSampleStore(prisma),
+          readSnapshot: () => readHostSnapshot(),
+          readDocker: () => mgr.diskUsage(),
+          countRunningForges: async () =>
+            (await mgr.list({ label: FORGE_LABEL, running: true })).length,
+        },
+        {
+          intervalMs: env.FORGE_USAGE_SAMPLE_MS,
+          retentionDays: env.FORGE_USAGE_RETENTION_DAYS,
+          dockerIntervalMs: DOCKER_SAMPLE_INTERVAL_MS,
+        },
+      );
+      console.info('[instrumentation] host usage sampler started');
+    } catch (err) {
+      console.error('[instrumentation] usage sampler failed to start', err);
+    }
+  }
+
   const mode = process.env.FORGE_DASHBOARD_MODE === 'prod' ? 'prod' : 'dev';
 
   if (mode === 'prod') {

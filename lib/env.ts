@@ -51,6 +51,11 @@ const baseSchema = z.object({
   REGISTRY_HOST: z.string().default('registry.crystalfountains.com'),
   // Reconcile-loop cadence in prod mode.
   FORGE_RECONCILE_INTERVAL_MS: z.coerce.number().int().min(1000).default(15000),
+  // Host usage sampler (see lib/host/sampler.ts). 0 disables it — set that way
+  // in the e2e suite, which seeds deterministic rows instead of waiting 5 min
+  // for a real sample.
+  FORGE_USAGE_SAMPLE_MS: z.coerce.number().int().min(0).default(300000),
+  FORGE_USAGE_RETENTION_DAYS: z.coerce.number().int().min(1).default(90),
   // Host directory holding per-forge env files (`<slug>.env`), bind-mounted
   // read-only at /app/.env. Prod-host only — forge config never travels in the
   // image. Read at call time by lib/runtime/prod/forge-env-file.ts, mirroring
