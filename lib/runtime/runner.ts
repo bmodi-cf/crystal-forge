@@ -5,7 +5,7 @@ import { logPath } from './paths';
 import { probe as defaultProbe, STARTING_TIMEOUT_MS } from './probe';
 import type { RuntimeStateFile } from './types';
 
-const FORGE_LABEL = 'crystal-forge.forgeId';
+export const FORGE_LABEL = 'crystal-forge.forgeId';
 
 /**
  * DB-backed lookup used only when adopting a running container that has no

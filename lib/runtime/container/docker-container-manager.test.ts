@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Readable } from 'node:stream';
-import { DockerContainerManager, UPLOAD_SCRIPT } from './docker-container-manager';
+import {
+  DockerContainerManager, UPLOAD_SCRIPT, parseDockerDiskUsage,
+} from './docker-container-manager';
 
 function recorder(inspectOut = 'true|\n') {
   const calls: { args: string[] }[] = [];
@@ -145,5 +147,76 @@ describe('DockerContainerManager.writeUpload', () => {
     const { mgr } = harness({ exitCode: 0, stdout: '\n', stderr: '' });
     await expect(mgr.writeUpload('c1', { name: 'x.txt', body: Readable.from(['x']) }))
       .rejects.toThrow(/no path/i);
+  });
+});
+
+// Trimmed capture of GET /system/df from the pilot host, with the real totals.
+const DF_PAYLOAD = JSON.stringify({
+  LayersSize: 23135864692,
+  Images: [{ Size: 900000000, SharedSize: 400000000 }],
+  Containers: [{ SizeRw: 1560223744 }, {}],
+  Volumes: [
+    { UsageData: { Size: 25503138118 } },
+    { UsageData: { Size: -1 } },
+    { UsageData: null },
+  ],
+  BuildCache: [{ Size: 52456054000 }, { Size: 966 }],
+});
+
+describe('parseDockerDiskUsage', () => {
+  it('reads exact byte totals, using deduplicated LayersSize for images', () => {
+    expect(parseDockerDiskUsage(DF_PAYLOAD)).toEqual({
+      imagesBytes: 23135864692,
+      containersBytes: 1560223744,
+      volumesBytes: 25503138118,
+      buildCacheBytes: 52456054966,
+    });
+  });
+
+  it('treats an uncomputed volume size (-1) as zero rather than subtracting', () => {
+    const body = JSON.stringify({ LayersSize: 0, Volumes: [{ UsageData: { Size: -1 } }] });
+    expect(parseDockerDiskUsage(body).volumesBytes).toBe(0);
+  });
+
+  it('defaults every missing section to zero', () => {
+    expect(parseDockerDiskUsage('{}')).toEqual({
+      imagesBytes: 0, containersBytes: 0, volumesBytes: 0, buildCacheBytes: 0,
+    });
+  });
+});
+
+describe('DockerContainerManager.diskUsage', () => {
+  it('parses the injected /system/df body', async () => {
+    const mgr = new DockerContainerManager({ dfFetch: async () => DF_PAYLOAD });
+    await expect(mgr.diskUsage()).resolves.toMatchObject({ buildCacheBytes: 52456054966 });
+  });
+
+  it('propagates a fetch failure so the caller can null the columns', async () => {
+    const mgr = new DockerContainerManager({
+      dfFetch: async () => { throw new Error('timed out'); },
+    });
+    await expect(mgr.diskUsage()).rejects.toThrow(/timed out/);
+  });
+});
+
+describe('DockerContainerManager.list', () => {
+  it('passes -a by default, preserving existing behaviour', async () => {
+    const calls: string[][] = [];
+    const mgr = new DockerContainerManager({
+      capture: async (_c, args) => { calls.push(args); return ''; },
+    });
+    await mgr.list({ label: 'crystal-forge.forgeId' });
+    expect(calls[0]).toContain('-a');
+  });
+
+  it('omits -a and filters on status=running when running is true', async () => {
+    const calls: string[][] = [];
+    const mgr = new DockerContainerManager({
+      capture: async (_c, args) => { calls.push(args); return ''; },
+    });
+    await mgr.list({ label: 'crystal-forge.forgeId', running: true });
+    expect(calls[0]).not.toContain('-a');
+    expect(calls[0]).toContain('--filter');
+    expect(calls[0]).toContain('status=running');
   });
 });

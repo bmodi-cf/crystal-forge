@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
 import type { Readable } from 'node:stream';
 import { childProcessRunner } from '../child-process-runner';
 import { CONTAINER_WORKDIR } from '../paths';
 import type { CommandRunner } from '../runner-types';
 import type {
   ContainerManager, ContainerStatus, ContainerSummary,
-  CreateContainerSpec, ExecOpts,
+  CreateContainerSpec, DockerDiskUsage, ExecOpts,
 } from './types';
 
 /** Run a docker command and capture trimmed stdout. */
@@ -22,6 +23,58 @@ function defaultCapture(cmd: string, args: string[]): Promise<string> {
       else reject(new Error(`docker ${args.join(' ')} failed (exit ${code}): ${err.trim()}`));
     });
   });
+}
+
+const DOCKER_SOCKET = '/var/run/docker.sock';
+const DF_TIMEOUT_MS = 30_000;
+
+/**
+ * GET /system/df from the docker daemon. Uses the unix socket rather than the
+ * CLI because only the API returns exact bytes: `--format json` hangs, and
+ * `--format '{{json .}}'` returns human strings like "23.14GB".
+ *
+ * The socket is idle while the daemon computes, so http's inactivity `timeout`
+ * is an effective ceiling on the whole call.
+ */
+function defaultDfFetch(timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      { socketPath: DOCKER_SOCKET, path: '/system/df', method: 'GET', timeout: timeoutMs },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => {
+          if (res.statusCode === 200) resolve(body);
+          else reject(new Error(`docker /system/df returned HTTP ${res.statusCode}`));
+        });
+      },
+    );
+    req.once('timeout', () => {
+      req.destroy(new Error(`docker /system/df timed out after ${timeoutMs}ms`));
+    });
+    req.once('error', reject);
+    req.end();
+  });
+}
+
+/** Parse a /system/df body into exact byte totals. Exported for tests. */
+export function parseDockerDiskUsage(body: string): DockerDiskUsage {
+  const d = JSON.parse(body) as {
+    LayersSize?: number;
+    Containers?: ({ SizeRw?: number } | null)[] | null;
+    Volumes?: ({ UsageData?: { Size?: number } | null } | null)[] | null;
+    BuildCache?: ({ Size?: number } | null)[] | null;
+  };
+  const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
+  return {
+    imagesBytes: d.LayersSize ?? 0,
+    containersBytes: sum((d.Containers ?? []).map((c) => c?.SizeRw ?? 0)),
+    // UsageData.Size is -1 when the daemon has not computed it; clamp so an
+    // unknown volume reads as 0 instead of subtracting a byte.
+    volumesBytes: sum((d.Volumes ?? []).map((v) => Math.max(v?.UsageData?.Size ?? 0, 0))),
+    buildCacheBytes: sum((d.BuildCache ?? []).map((b) => b?.Size ?? 0)),
+  };
 }
 
 /**
@@ -88,17 +141,21 @@ export type DockerDeps = {
   runner?: CommandRunner;
   /** Injectable for tests; runs a command with piped stdin and captured output. */
   spawnStream?: SpawnStream;
+  /** Injectable for tests; fetches the raw /system/df body. */
+  dfFetch?: (timeoutMs: number) => Promise<string>;
 };
 
 export class DockerContainerManager implements ContainerManager {
   private readonly capture: (cmd: string, args: string[]) => Promise<string>;
   private readonly runner: CommandRunner;
   private readonly spawnStream: SpawnStream;
+  private readonly dfFetch: (timeoutMs: number) => Promise<string>;
 
   constructor(deps: DockerDeps = {}) {
     this.capture = deps.capture ?? ((c, a) => defaultCapture(c, a));
     this.runner = deps.runner ?? childProcessRunner;
     this.spawnStream = deps.spawnStream ?? defaultSpawnStream;
+    this.dfFetch = deps.dfFetch ?? ((ms) => defaultDfFetch(ms));
   }
 
   async create(spec: CreateContainerSpec): Promise<string> {
@@ -177,9 +234,18 @@ export class DockerContainerManager implements ContainerManager {
     await this.capture('docker', ['rm', '-f', id]).catch(() => {});
   }
 
-  async list(opts: { label?: string } = {}): Promise<ContainerSummary[]> {
-    const args = ['ps', '-a', '--no-trunc', '--format', '{{.ID}}\t{{.Names}}\t{{.Labels}}'];
+  async diskUsage(): Promise<DockerDiskUsage> {
+    return parseDockerDiskUsage(await this.dfFetch(DF_TIMEOUT_MS));
+  }
+
+  async list(opts: { label?: string; running?: boolean } = {}): Promise<ContainerSummary[]> {
+    const args = [
+      'ps',
+      ...(opts.running ? [] : ['-a']),
+      '--no-trunc', '--format', '{{.ID}}\t{{.Names}}\t{{.Labels}}',
+    ];
     if (opts.label) args.push('--filter', `label=${opts.label}`);
+    if (opts.running) args.push('--filter', 'status=running');
     const out = await this.capture('docker', args);
     return out.split('\n').filter(Boolean).map((line) => {
       const [id = '', name = '', labelStr = ''] = line.split('\t');

@@ -318,6 +318,7 @@ describe('runtime service', () => {
         remove: base.remove.bind(base),
         list: base.list.bind(base),
         writeUpload: base.writeUpload.bind(base),
+        diskUsage: base.diskUsage.bind(base),
       };
       const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
       await svc.startForge(tom, forge.id);
@@ -351,6 +352,7 @@ describe('runtime service', () => {
           remove: base.remove.bind(base),
           list: base.list.bind(base),
         writeUpload: base.writeUpload.bind(base),
+        diskUsage: base.diskUsage.bind(base),
         };
         const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
         await svc.startForge(tom, forge.id);
@@ -379,6 +381,7 @@ describe('runtime service', () => {
         remove: base.remove.bind(base),
         list: base.list.bind(base),
         writeUpload: base.writeUpload.bind(base),
+        diskUsage: base.diskUsage.bind(base),
       };
       const setupCalls: Array<{ slug: string; repoFullName: string; token: string; logPath: string }> = [];
       const svc = makeRuntimeService({
@@ -431,6 +434,7 @@ describe('runtime service', () => {
         remove: base.remove.bind(base),
         list: base.list.bind(base),
         writeUpload: base.writeUpload.bind(base),
+        diskUsage: base.diskUsage.bind(base),
       };
       const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
       await svc.startForge(tom, forge.id);

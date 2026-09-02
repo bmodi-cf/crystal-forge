@@ -1,6 +1,6 @@
 import type {
   ContainerManager, ContainerStatus, ContainerSummary,
-  CreateContainerSpec, ExecOpts,
+  CreateContainerSpec, DockerDiskUsage, ExecOpts,
 } from './types';
 import type { Readable } from 'node:stream';
 
@@ -32,6 +32,21 @@ export class FakeContainerManager implements ContainerManager {
   readonly created: CreateContainerSpec[] = [];
   readonly uploads: UploadRecord[] = [];
   private readonly takenUploads = new Map<string, Set<string>>();
+
+  /** Mutable so a test can assert a specific figure reaches the store. */
+  diskUsageResult: DockerDiskUsage = {
+    imagesBytes: 1_000_000_000,
+    containersBytes: 2_000_000,
+    volumesBytes: 500_000_000,
+    buildCacheBytes: 3_000_000_000,
+  };
+  /** Set to make diskUsage() reject, exercising the null-columns path. */
+  diskUsageError: Error | null = null;
+
+  async diskUsage(): Promise<DockerDiskUsage> {
+    if (this.diskUsageError) throw this.diskUsageError;
+    return this.diskUsageResult;
+  }
 
   /** Queue the exit code the next exec() should return (default 0). */
   queueExit(code: number): void { this.exitQueue.push(code); }
@@ -84,11 +99,12 @@ export class FakeContainerManager implements ContainerManager {
 
   async remove(id: string): Promise<void> { this.containers.delete(id); }
 
-  async list(opts?: { label?: string }): Promise<ContainerSummary[]> {
+  async list(opts?: { label?: string; running?: boolean }): Promise<ContainerSummary[]> {
     const out: ContainerSummary[] = [];
     for (const e of this.containers.values()) {
       const labels = e.spec.labels ?? {};
       if (opts?.label && !(opts.label in labels)) continue;
+      if (opts?.running && !e.running) continue;
       out.push({ id: e.id, name: e.spec.name, labels });
     }
     return out;

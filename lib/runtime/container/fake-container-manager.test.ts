@@ -69,3 +69,36 @@ describe('FakeContainerManager.writeUpload', () => {
     expect(mgr.uploads).toEqual([]);
   });
 });
+
+describe('FakeContainerManager.diskUsage', () => {
+  it('returns fixed figures so the sampler works under FORGE_RUNTIME_MODE=fake', async () => {
+    const mgr = new FakeContainerManager();
+    await expect(mgr.diskUsage()).resolves.toEqual({
+      imagesBytes: 1_000_000_000,
+      containersBytes: 2_000_000,
+      volumesBytes: 500_000_000,
+      buildCacheBytes: 3_000_000_000,
+    });
+  });
+
+  it('can be told to fail, so callers can test the null-columns path', async () => {
+    const mgr = new FakeContainerManager();
+    mgr.diskUsageError = new Error('daemon down');
+    await expect(mgr.diskUsage()).rejects.toThrow(/daemon down/);
+  });
+});
+
+describe('FakeContainerManager.list with running', () => {
+  it('omits stopped containers when running is true', async () => {
+    const mgr = new FakeContainerManager();
+    const kept = await mgr.create({ name: 'a', image: 'i', labels: { 'crystal-forge.forgeId': 'f1' } });
+    const stopped = await mgr.create({ name: 'b', image: 'i', labels: { 'crystal-forge.forgeId': 'f2' } });
+    await mgr.stop(stopped);
+
+    const all = await mgr.list({ label: 'crystal-forge.forgeId' });
+    expect(all).toHaveLength(2);
+
+    const running = await mgr.list({ label: 'crystal-forge.forgeId', running: true });
+    expect(running.map((c) => c.id)).toEqual([kept]);
+  });
+});

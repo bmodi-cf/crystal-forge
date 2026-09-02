@@ -73,6 +73,26 @@ export type ContainerManager = {
   inspect(id: string): Promise<ContainerStatus>;
   stop(id: string): Promise<void>;
   remove(id: string): Promise<void>;
-  /** List containers, optionally filtered by a `key=value` label. */
-  list(opts?: { label?: string }): Promise<ContainerSummary[]>;
+  /** List containers, optionally filtered by a `key=value` label. Includes
+   *  stopped containers unless `running` is set — crashed forges do linger,
+   *  since a probe timeout deliberately keeps the container. */
+  list(opts?: { label?: string; running?: boolean }): Promise<ContainerSummary[]>;
+  /**
+   * Docker's disk consumption. EXPENSIVE: ~17 s on the pilot host, because the
+   * daemon walks every image, volume and build-cache record. Callers must
+   * rate-limit it (the usage sampler runs it every 30 min, not every tick).
+   */
+  diskUsage(): Promise<DockerDiskUsage>;
+};
+
+/**
+ * Docker's own disk accounting, in exact bytes, from the daemon's /system/df.
+ * `imagesBytes` is the DEDUPLICATED total (the endpoint's `LayersSize`), not the
+ * sum of image sizes, which double-counts shared layers.
+ */
+export type DockerDiskUsage = {
+  imagesBytes: number;
+  containersBytes: number;
+  volumesBytes: number;
+  buildCacheBytes: number;
 };

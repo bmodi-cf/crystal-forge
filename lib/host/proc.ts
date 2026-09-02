@@ -30,9 +30,9 @@ const KB = 1024n;
 /** Parse /proc/meminfo's MemTotal and MemAvailable, in bytes. */
 export function parseMeminfo(text: string): { total: bigint; available: bigint } {
   const read = (key: string): bigint => {
-    const m = new RegExp(`^${key}:\\s+(\\d+)\\s+kB`, 'm').exec(text);
-    if (!m) throw new Error(`/proc/meminfo has no ${key}`);
-    return BigInt(m[1]) * KB;
+    const kb = new RegExp(`^${key}:\\s+(\\d+)\\s+kB`, 'm').exec(text)?.[1];
+    if (kb === undefined) throw new Error(`/proc/meminfo has no ${key}`);
+    return BigInt(kb) * KB;
   };
   return { total: read('MemTotal'), available: read('MemAvailable') };
 }

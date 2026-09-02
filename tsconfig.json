@@ -1,6 +1,9 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
+    // ES2020, not Next's scaffolded ES2017: lib/host stores host metrics as
+    // BigInt (250 G of disk bytes exceeds a 32-bit Int), and BigInt literals
+    // (`906_528n`) are an ES2020 syntax error below it.
+    "target": "ES2020",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
