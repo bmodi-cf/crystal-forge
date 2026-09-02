@@ -104,3 +104,35 @@ agent needs to work in the codebase correctly.
   emitted a warning. Restores connect over TCP as the per-forge app role (not the
   trust socket as superuser) so the role ends up owning the restored tables —
   otherwise later `prisma migrate deploy` runs cannot `ALTER` them.
+- **`docker system df` costs ~17 s on the pilot host**, because the daemon walks
+  every image, volume and build-cache record (145 / 32 / 1128 as of 2026-09-02;
+  measured at 21 s end-to-end through the sampler). Only the daemon socket
+  (`GET /system/df`) returns exact bytes — `--format json` hangs and
+  `--format '{{json .}}'` emits human strings like `"23.14GB"`.
+  `ContainerManager.diskUsage()` wraps it, and the usage sampler calls it every
+  30 min, never on every tick. Anything else that wants docker's disk figures
+  must respect that budget.
+- **`/admin/usage` stores raw cumulative CPU jiffies, not percentages.** Every
+  rate is derived between consecutive rows in `lib/host/series.ts`, which is why
+  a missed sample reads as a longer average rather than a spike, and a reboot
+  (the counter going backwards) reads as a gap. Memory "used" is
+  `MemTotal - MemAvailable` and will not match `free`'s used column; disk free is
+  `bavail`, not `bfree` (and block size comes from statfs `bsize` — `frsize` is
+  absent from Node's `StatsFs` type); and the page labels everything GiB
+  (base-1024), so its docker figures read lower than `docker system df`'s
+  base-1000 output.
+- **`tsconfig.json` targets ES2020, not Next's scaffolded ES2017.** Host metrics
+  are Prisma `BigInt` (250 G of disk bytes exceeds a 32-bit `Int`), and BigInt
+  literals like `906_528n` are a syntax error below ES2020. Note `tsc` is
+  `incremental`, so after changing a compiler option delete
+  `tsconfig.tsbuildinfo` or stale errors replay from cache.
+- **The Playwright harness starts its own server via `PORT`, and waits on the
+  TCP port rather than a URL.** `pnpm dev` is `tsx server.ts`, which reads `PORT`
+  and ignores a `-p` flag, so `webServer.command` must not pass one. And
+  `webServer` is a *plugin* task, which Playwright runs **before** `globalSetup`
+  — at readiness-check time the `_e2e` database does not exist yet and every page
+  500s, a status Playwright refuses, so a `url:` check deadlocks the run.
+  `port:` waits on the socket instead and lets `globalSetup` create, migrate and
+  seed the database first. `CRYSTAL_FORGE_WS_PORT` is derived from `PORT` for the
+  same reason the dashboard port is: on the pilot the live service holds 3030 and
+  3100.
