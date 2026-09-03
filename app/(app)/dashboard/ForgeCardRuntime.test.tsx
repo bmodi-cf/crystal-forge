@@ -108,4 +108,40 @@ describe('ForgeCardRuntime', () => {
     expect(screen.getByRole('link', { name: /view on github/i })).toHaveAttribute('href', 'https://github.com/x/y');
     expect(screen.getByRole('button', { name: /delete/i })).toBeInTheDocument();
   });
+
+  const runningRuntime = {
+    forgeId: 'f1', slug: 'marketing-frufru', status: 'running' as const,
+    containerId: 'c1', port: 3007, startedAt: '2026-05-09T00:00:00.000Z',
+  };
+
+  const promoProps = {
+    forgeName: 'Marketing Fru Fru',
+    canWrite: true,
+    onRequestPromotion: vi.fn(),
+  };
+
+  it('enables Release when the forge is running', () => {
+    render(<ForgeCardRuntime {...promoProps} runtime={runningRuntime} />);
+    expect(screen.getByRole('button', { name: /release/i })).toBeEnabled();
+  });
+
+  it('disables Release when the forge is stopped', () => {
+    render(<ForgeCardRuntime {...promoProps} runtime={null} />);
+    expect(screen.getByRole('button', { name: /release/i })).toBeDisabled();
+  });
+
+  it('disables Release while the forge is still starting', () => {
+    render(
+      <ForgeCardRuntime {...promoProps} runtime={{ ...runningRuntime, status: 'starting' }} />,
+    );
+    expect(screen.getByRole('button', { name: /release/i })).toBeDisabled();
+  });
+
+  it('explains why Release is unavailable while stopped', () => {
+    render(<ForgeCardRuntime {...promoProps} runtime={null} />);
+    expect(screen.getByRole('button', { name: /release/i })).toHaveAttribute(
+      'title',
+      expect.stringMatching(/start the forge/i),
+    );
+  });
 });

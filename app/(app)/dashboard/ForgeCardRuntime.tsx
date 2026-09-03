@@ -135,7 +135,18 @@ type Props = {
   promotion?: Promotion | null;
   /** When set (and canWrite), renders a "Release" button that opens the promotion dialog. */
   onRequestPromotion?: () => void;
+  /** Current runtime; Release requires a *running* forge (see `releaseDisabledReason`). */
+  runtime?: RuntimeStateView | null;
 };
+
+/**
+ * A release is built from `origin/dev`, and the server refuses one unless the
+ * forge's workspace matches it exactly — a check that can only run inside a
+ * live container. Rather than let the request fail server-side, gate the button
+ * on the same precondition and say why.
+ */
+const RELEASE_NEEDS_RUNNING =
+  'Start the forge to release — its workspace has to be verified against dev first.';
 
 /** Bottom control row: Release / Git / Delete, right-aligned, with the promotion status line above. */
 export function ForgeCardRuntime({
@@ -145,8 +156,10 @@ export function ForgeCardRuntime({
   onDelete,
   promotion,
   onRequestPromotion,
+  runtime,
 }: Props) {
   const promotionActive = !!promotion && ACTIVE_PROMOTION_STATUSES.includes(promotion.status);
+  const isRunning = runtime?.status === 'running';
 
   return (
     <div className="mt-auto border-t border-border">
@@ -171,7 +184,8 @@ export function ForgeCardRuntime({
             <button
               type="button"
               onClick={onRequestPromotion}
-              disabled={promotionActive}
+              disabled={promotionActive || !isRunning}
+              title={!isRunning ? RELEASE_NEEDS_RUNNING : undefined}
               aria-label={`Release ${forgeName}`}
               className={promoteBtn}
             >

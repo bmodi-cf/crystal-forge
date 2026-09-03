@@ -13,6 +13,9 @@ function ghWithForge(): FakeGitHubClient {
   return gh;
 }
 
+/** Workspace guard stub: the forge is running and exactly matches origin/dev. */
+const inSync = async () => null;
+
 describe('requestPromotion', () => {
   let gh: FakeGitHubClient;
   beforeEach(() => { gh = ghWithForge(); });
@@ -27,12 +30,39 @@ describe('requestPromotion', () => {
       gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
       await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
 
-      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'minor' }, gh);
+      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'minor' }, gh, inSync);
 
       expect(dto.targetVersion).toBe('v1.0.0'); // first release ignores bump level
       expect(dto.prNumber).toBe(1);
       expect(dto.status).toBe('checks_running');
       expect(gh.getPullRequestState('test-owner/aquaflow', 1)).toEqual({ state: 'open', merged: false });
+    });
+  });
+
+  it('refuses when the forge workspace is not in sync with origin/dev', async () => {
+    await withCleanDb(async (prisma) => {
+      const owner = await makeUser(prisma, { email: 'o@x', name: 'Owner', groups: ['Eng'] });
+      const forge = await makeForge(prisma, {
+        name: 'Aquaflow', createdById: owner.id, groups: ['Eng'],
+        repoFullName: 'test-owner/aquaflow',
+      });
+      gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
+      await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
+
+      const outOfSync = async () => ({
+        kind: 'ahead' as const,
+        title: 'Workspace has unpushed commits',
+        message: 'Push to dev, then request the release.',
+      });
+
+      await expect(
+        requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, outOfSync),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      // No PR may be opened, and no request row left behind, for a tree that
+      // is not what would actually be built.
+      expect(gh.getPullRequestState('test-owner/aquaflow', 1)).toBeUndefined();
+      expect(await prisma.promotionRequest.count({ where: { forgeId: forge.id } })).toBe(0);
     });
   });
 
@@ -46,7 +76,7 @@ describe('requestPromotion', () => {
       });
       gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
       await expect(
-        requestPromotion(stranger, forge.id, { bumpLevel: 'patch' }, gh),
+        requestPromotion(stranger, forge.id, { bumpLevel: 'patch' }, gh, inSync),
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
   });
@@ -60,9 +90,9 @@ describe('requestPromotion', () => {
       });
       gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
       await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
-      await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh);
+      await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, inSync);
       await expect(
-        requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh),
+        requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, inSync),
       ).rejects.toThrow(/in progress/i);
     });
   });
@@ -80,7 +110,7 @@ describe('refreshPromotionGates', () => {
       });
       gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
       await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
-      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh);
+      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, inSync);
       gh.setRefChecks('test-owner/aquaflow', dto.headSha, [
         { name: 'build', status: 'completed', conclusion: 'success' },
         { name: 'typecheck', status: 'completed', conclusion: 'success' },
@@ -101,7 +131,7 @@ describe('refreshPromotionGates', () => {
       });
       gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
       await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
-      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh);
+      const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, inSync);
       gh.setRefChecks('test-owner/aquaflow', dto.headSha, [
         { name: 'build', status: 'completed', conclusion: 'failure' },
       ]);
@@ -128,7 +158,7 @@ async function seedAwaiting(prisma: PrismaClient, gh: FakeGitHubClient, reg: Fak
   });
   gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
   await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
-  const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh);
+  const dto = await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, inSync);
   // registry has the candidate image the CI build pushed:
   reg.seedTag('aquaflow', `sha-${dto.headSha}`);
   gh.setRefChecks('test-owner/aquaflow', dto.headSha,
@@ -231,7 +261,7 @@ describe('refreshPromotionGates mergeability', () => {
     });
     gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
     await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
-    return { owner, forge, dto: await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh) };
+    return { owner, forge, dto: await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, inSync) };
   }
 
   // The crystal-lattice PR #4 case: conflicts stop GitHub from ever dispatching
@@ -346,7 +376,7 @@ describe('refreshPromotionGates head tracking', () => {
     });
     gh.seedBranch('test-owner/aquaflow', 'main', 'sha-main');
     await gh.createBranch('test-owner/aquaflow', 'main', 'dev');
-    return { owner, forge, dto: await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh) };
+    return { owner, forge, dto: await requestPromotion(owner, forge.id, { bumpLevel: 'patch' }, gh, inSync) };
   }
 
   // Pushing to dev (a conflict fix, or just more work) moves the PR head, and

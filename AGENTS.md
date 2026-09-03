@@ -59,6 +59,19 @@ agent needs to work in the codebase correctly.
 - After schema changes, create a migration with `pnpm db:migrate` — don't hand-edit migration SQL.
 - **Forge restart = full container recreate, never reuse.** `stopForge`→`doStop` *stops and removes* the container; `startForge`→`finishStart` always `containerManager.create()`s a fresh one (there is no `docker start`-an-existing-container path). So container env (`FORGE_BASE_PATH`, `FORGE_DEV_ORIGINS`, `DATABASE_URL`, `GH_TOKEN`) is re-applied at every start (DB password rotates per start), and **only the named volumes — workspace + Claude home — persist** across the cycle. ⇒ To change a forge's container env you must stop+start it; to change the *dashboard* env that feeds `create()` (e.g. `FORGE_DEV_ORIGINS`), update `.env.local`, restart `crystal-forge.service`, *then* restart the forge.
 - **Deleting files inside this repo is pre-approved** — git history is sufficient backup, so remove dead code freely without stopping to ask. Deleting anything **outside** the repo still requires explicit approval.
+- **A release may only be cut from a running forge whose workspace is exactly `origin/dev`.**
+  `requestPromotion` opens a `dev -> main` PR that GitHub resolves entirely server-side, so the
+  forge's own workspace is never consulted — a commit sitting unpushed in the container is
+  silently *omitted* from the build, and a commit someone else pushed is silently *included*.
+  Either way the image is not what the pilot was validated on. (This shipped a stale
+  crystal-lattice v1.4.1: one unpushed commit, pilot correct, prod a version behind.)
+  `checkWorkspaceSync` therefore `exec`s a script in the container comparing `git rev-parse HEAD`
+  against `origin/dev` — HEAD, not the local `dev` ref, so a workspace parked on a feature branch
+  is caught too — and blocks the request unless the tree is clean and the shas match. It fails
+  closed: an unreachable origin or an unrecognised exit code blocks rather than passes, because
+  `ContainerManager.exec` returns only an exit code (no stdout), so the verdict is encoded
+  numerically in `WORKSPACE_SYNC_EXIT`. The Release button is disabled unless the forge is
+  `running`, since a stopped forge has no container to verify in.
 - **First-release bundles are the only pilot→prod data path, and they run once.**
   The pilot cuts `<slug>-seed:<version>` into the registry from an *accepted first*
   promotion (`admin/promotions`); prod imports it from `admin/deployments`. The

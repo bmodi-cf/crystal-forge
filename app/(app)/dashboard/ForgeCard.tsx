@@ -111,6 +111,7 @@ export function ForgeCard({ forge, canWrite, runtime, onRuntimeAction, onEdit, o
         onDelete={onDelete ? () => onDelete(forge) : undefined}
         promotion={promotion}
         onRequestPromotion={() => setPromoOpen(true)}
+        runtime={runtime}
       />
 
       <RequestPromotionDialog

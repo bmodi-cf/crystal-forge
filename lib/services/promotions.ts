@@ -10,6 +10,7 @@ import { slugifyForgeName } from '@/lib/github/slug';
 import type { SessionUser } from './types';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 import { ACTIVE_STATUSES } from './promotion-blocker';
+import { checkWorkspaceSync, type WorkspaceSyncBlocker } from './workspace-sync';
 
 export type PromotionSummary = {
   forgeName: string;
@@ -98,6 +99,7 @@ export async function requestPromotion(
   forgeId: string,
   input: { bumpLevel: BumpLevel },
   github: GitHubClient = getGitHubClient(),
+  checkWorkspace: (forgeId: string) => Promise<WorkspaceSyncBlocker | null> = checkWorkspaceSync,
 ): Promise<PromotionDto> {
   const forge = await loadForgeForAcl(forgeId);
   if (!canWriteForge(currentUser, toAcl(forge))) {
@@ -109,6 +111,17 @@ export async function requestPromotion(
   });
   if (existingOpen) {
     throw new ValidationError('A promotion is already in progress for this forge', {});
+  }
+
+  // The PR below is opened from `origin/dev` — GitHub resolves both sides
+  // server-side and never sees the forge's workspace. So a commit sitting
+  // unpushed in the container is silently omitted from the release, and a
+  // commit pushed by someone else is silently included. Both produce a build
+  // that is not what the pilot was validated on; refuse before a version
+  // number and a PR exist for it.
+  const blocker = await checkWorkspace(forgeId);
+  if (blocker) {
+    throw new ValidationError(`Cannot release ${forge.name}: ${blocker.message}`, {});
   }
 
   // Compute the target version from the last accepted release.
