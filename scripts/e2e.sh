@@ -87,5 +87,5 @@ PORT="${E2E_PORT:-3300}"
 
 echo "[e2e] using ${E2E_DBNAME} on :${PORT}"
 
-DATABASE_URL="$E2E_DATABASE_URL" E2E_PORT="$PORT" \
+DATABASE_URL="$E2E_DATABASE_URL" E2E_PORT="$PORT" FORGE_SEED_USAGE=1 \
   exec pnpm exec playwright test "${ARGS[@]}"

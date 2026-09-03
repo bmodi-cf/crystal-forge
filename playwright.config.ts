@@ -4,6 +4,10 @@ import { defineConfig, devices } from '@playwright/test';
 // database and picks the port. Never run `playwright test` directly against a
 // live deployment: global-setup re-seeds, and it refuses any non-"_e2e" DB.
 const PORT = process.env.E2E_PORT ?? '3300';
+// The runtime WS server needs its own port too, or the suite collides with a
+// live dashboard on the default 3100 (this working copy IS the pilot). Derived
+// from PORT so one E2E_PORT isolates the whole stack.
+const WS_PORT = String(Number(PORT) + 1);
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -24,14 +28,24 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
-    command: `pnpm dev -p ${PORT}`,
-    url: `http://localhost:${PORT}`,
+    // `pnpm dev` is `tsx server.ts`, which reads PORT and does NOT parse a `-p`
+    // flag — passing one silently left the server on its 3030 default while
+    // Playwright polled ${PORT} and timed out. Set the env var it reads.
+    command: 'pnpm dev',
+    // `port`, not `url`: webServer starts BEFORE globalSetup (it is a plugin
+    // task, and plugin setup runs first), so at readiness-check time the e2e
+    // database does not exist yet and every page 500s — a status Playwright
+    // refuses, deadlocking the run. Waiting on the TCP socket lets globalSetup
+    // create, migrate and seed the database before the first test.
+    port: Number(PORT),
     // Never adopt a server we didn't start: on the pilot that was the live
     // dashboard on :80, running against the live database.
     reuseExistingServer: false,
     env: {
       // Set by scripts/e2e.sh; global-setup has already refused anything that
       // isn't an isolated "_e2e" database by the time the server boots.
+      PORT,
+      CRYSTAL_FORGE_WS_PORT: WS_PORT,
       DATABASE_URL: process.env.DATABASE_URL ?? '',
       AUTH_DEV_USERS_ENABLED: 'true',
       GITHUB_CLIENT_MODE: 'fake',
@@ -40,6 +54,9 @@ export default defineConfig({
       GITHUB_BASE_URL: 'https://github.com',
       DB_PROVISIONER_MODE: 'fake',
       FORGE_RUNTIME_MODE: 'fake',
+      // The sampler would otherwise write real rows during the suite; the seed
+      // supplies deterministic history instead.
+      FORGE_USAGE_SAMPLE_MS: '0',
       CRYSTAL_FORGE_HOME: process.env.CRYSTAL_FORGE_HOME ?? `${process.cwd()}/.test-forge-home`,
       PATH: `${process.cwd()}/tests/e2e/fixtures/bin:${process.env.PATH ?? ''}`,
     },

@@ -140,6 +140,56 @@ function isPgAlreadyExistsError(err: unknown): boolean {
   return (err as { code?: string }).code === '42P04';
 }
 
+/**
+ * 48 h of synthetic HostSample rows, so /admin/usage has something to draw in
+ * e2e and on a fresh local instance. Gated on FORGE_SEED_USAGE=1 — never
+ * generate fake history into the pilot's live database.
+ */
+async function seedUsageSamples(): Promise<void> {
+  const INTERVAL_MS = 300_000;
+  const COUNT = 576; // 48 h at 5-minute samples
+  const DOCKER_EVERY = 6; // 30 min, matching DOCKER_SAMPLE_INTERVAL_MS
+  const start = Date.now() - COUNT * INTERVAL_MS;
+
+  // Counters are cumulative, exactly as the sampler stores them.
+  let cumTotal = 0n;
+  let cumIdle = 0n;
+  let cumIowait = 0n;
+
+  const rows = [];
+  for (let i = 0; i < COUNT; i += 1) {
+    // A daily swell between ~20 % and ~45 % busy, so the chart has shape.
+    const busyFrac = 0.2 + 0.25 * Math.abs(Math.sin((i / 288) * Math.PI * 2));
+    const perInterval = 30_000n; // 1 vCPU at 100 Hz for 5 minutes
+    const busy = BigInt(Math.round(30_000 * busyFrac));
+    cumTotal += perInterval;
+    cumIdle += perInterval - busy;
+    cumIowait += busy / 5n;
+
+    const withDocker = i % DOCKER_EVERY === 0;
+    const growth = BigInt(i) * 2_000_000n; // disk and images creep upward
+    rows.push({
+      at: new Date(start + i * INTERVAL_MS),
+      cpuJiffiesTotal: cumTotal,
+      cpuJiffiesIdle: cumIdle,
+      cpuJiffiesIowait: cumIowait,
+      cpuCount: 1,
+      memTotal: 16_766_013_440n,
+      memAvailable: 6_661_554_176n - BigInt(Math.round(500_000_000 * busyFrac)),
+      diskTotal: 268_315_004_928n,
+      diskAvailable: 130_000_000_000n - growth,
+      dockerImages: withDocker ? 23_135_864_692n + growth : null,
+      dockerContainers: withDocker ? 1_560_223_744n : null,
+      dockerVolumes: withDocker ? 25_503_138_118n : null,
+      dockerBuildCache: withDocker ? 52_456_054_966n + growth : null,
+      runningForges: withDocker ? 2 : null,
+    });
+  }
+
+  await prisma.hostSample.createMany({ data: rows });
+  console.log(`🖥️  Seeded ${rows.length} synthetic HostSample rows.`);
+}
+
 async function main() {
   console.log('🧹 Resetting seeded tables...');
   await prisma.message.deleteMany();
@@ -195,6 +245,8 @@ async function main() {
       await prisma.forgeGroup.create({ data: { forgeId: forge.id, groupId: group.id } });
     }
   }
+
+  if (process.env.FORGE_SEED_USAGE === '1') await seedUsageSamples();
 
   console.log('✅ Seed complete.');
 }
