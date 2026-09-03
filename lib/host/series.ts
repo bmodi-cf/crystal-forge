@@ -225,6 +225,11 @@ export function buildSeries(
 
   const lastRow = sorted[sorted.length - 1]!;
   const lastInterval = [...intervals].reverse().find((i): i is NonNullable<Interval> => i !== null);
+  // runningForges rides along with the docker probe, sampled every 30 min
+  // rather than every 5, so the newest row carries null five times in six.
+  // Carry the last known count forward instead of reporting "unknown".
+  const lastForgeCount = [...sorted].reverse()
+    .find((r) => r.runningForges !== null)?.runningForges ?? null;
   const latest: UsageLatest = {
     at: lastRow.at.toISOString(),
     cpuPct: lastInterval ? (lastInterval.dBusy / lastInterval.dTotal) * 100 : null,
@@ -232,7 +237,7 @@ export function buildSeries(
     memTotalBytes: Number(lastRow.memTotal),
     diskUsedBytes: Number(lastRow.diskTotal - lastRow.diskAvailable),
     diskTotalBytes: Number(lastRow.diskTotal),
-    runningForges: lastRow.runningForges,
+    runningForges: lastForgeCount,
     cpuCount: lastRow.cpuCount,
   };
 

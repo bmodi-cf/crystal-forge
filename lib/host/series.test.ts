@@ -164,6 +164,25 @@ describe('buildSeries', () => {
     });
   });
 
+  // runningForges rides along with the docker probe, which is sampled every
+  // 30 min rather than every 5, so five rows in six carry null. Reading it off
+  // the final row alone left the tile showing "—" most of the time.
+  it('reports the most recent known runningForges, not the final row\'s null', () => {
+    const series = buildSeries(
+      [
+        row(0, { runningForges: 3 }),
+        row(5, { cpuJiffiesTotal: 30_000n, cpuJiffiesIdle: 15_000n, runningForges: null }),
+      ],
+      OPTS,
+    );
+    expect(series.latest).toMatchObject({ cpuPct: 50, runningForges: 3 });
+  });
+
+  it('reports a null runningForges when no row has ever carried one', () => {
+    const series = buildSeries([row(0, { runningForges: null })], OPTS);
+    expect(series.latest?.runningForges).toBeNull();
+  });
+
   it('carries the bucket size for the requested range', () => {
     expect(buildSeries([row(0)], { range: '90d', sampleIntervalMs: INTERVAL }).bucketMs)
       .toBe(RANGES['90d'].bucketMs);
