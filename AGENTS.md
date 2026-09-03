@@ -136,3 +136,23 @@ agent needs to work in the codebase correctly.
   seed the database first. `CRYSTAL_FORGE_WS_PORT` is derived from `PORT` for the
   same reason the dashboard port is: on the pilot the live service holds 3030 and
   3100.
+- **`server.ts` must hand upgrades to the *router server's* `upgradeHandler`, not
+  the inner base server's `getUpgradeHandler()`.** Suppressing Next's own
+  `'upgrade'` listener (the `didWebSocketSetup` flag, needed so it stops
+  `socket.end()`ing forge HMR tunnels) means we must call what that listener
+  would have called. `getUpgradeHandler()` reaches a *different* object and does
+  not route the dashboard's own dev HMR socket, so under `dev:true` the handshake
+  never completes and **no page hydrates**: every client component ships its SSR
+  markup and then sits inert — no effects, no `onClick`, so a fetch-on-mount page
+  spins on its skeleton forever and buttons do nothing. Production never opens an
+  HMR socket, so the pilot cannot show this; only the Playwright suite, the one
+  thing that runs `server.ts` with `dev:true`, does. Symptom to recognise: the
+  page renders, all chunks return 200, and there is no console error — just
+  nothing reacting.
+- **A stale e2e suite is the norm here, so diff it against a baseline before
+  blaming your change.** The suite is gated behind `./scripts/e2e.sh` and rarely
+  run, so specs drift behind the UI: as of 2026-09-02 four of them still click a
+  forge's *name* to open it (only the "Claude Code Workspace" button is a link),
+  expect the pre-migration `bmodi-cf` GitHub org, or assert dialog copy that has
+  been reworded. When a run comes back red, re-run it with your change reverted
+  and compare the failure *sets* — the absolute count means little.

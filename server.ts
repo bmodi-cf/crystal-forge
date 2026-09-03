@@ -1,5 +1,6 @@
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
+import type { Duplex } from 'node:stream';
 import next from 'next';
 
 const port = parseInt(process.env.PORT || '3030', 10);
@@ -22,7 +23,17 @@ app.prepare().then(async () => {
 
   const server = createServer((req, res) => handle(req, res));
 
-  const upgradeHandler = app.getUpgradeHandler();
+  // Take over the *router server's* upgrade handler — the one Next's own
+  // (suppressed) listener above calls — not the inner base server's
+  // `getUpgradeHandler()`. Only the former routes the dashboard's dev HMR
+  // socket; with the latter that socket never completes its handshake and, in
+  // dev, **no page hydrates**: every client component ships its SSR markup and
+  // then sits inert (no effects, no onClick). Production has no HMR socket at
+  // all, which is why the pilot never showed it and only the Playwright suite —
+  // the one thing that runs this server with `dev:true` — did.
+  const upgradeHandler = (app as unknown as {
+    upgradeHandler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
+  }).upgradeHandler;
 
   if (process.env.FORGE_DASHBOARD_MODE !== 'prod') {
     const { forgeHmrTarget, handleForgeHmrUpgrade, defaultTunnel } = await import('./lib/runtime/hmr-proxy');
