@@ -4,7 +4,7 @@ import { withCleanDb, makeUser, makeForge } from '@/lib/test/db';
 import { FakeGitHubClient } from '@/lib/github/fake-client';
 import { BranchProtectionUnavailableError } from '@/lib/github/types';
 import { FakeDatabaseProvisioner } from '@/lib/db/fake-provisioner';
-import { listForges, getForge, createForge, updateForge, deleteForge } from './forges';
+import { listForges, getForge, createForge, updateForge, deleteForge, renderClaudeMd } from './forges';
 import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors';
 
 let fake: FakeGitHubClient;
@@ -130,6 +130,27 @@ describe('getForge', () => {
       const u = await makeUser(prisma, { email: 'u@x', name: 'U', groups: [] });
       await expect(getForge(u, '00000000-0000-0000-0000-000000000000')).rejects.toBeInstanceOf(NotFoundError);
     });
+  });
+});
+
+describe('renderClaudeMd', () => {
+  it('imports AGENTS.md, so the template guide is not written into every forge unread', () => {
+    // The generated file REPLACES the template's CLAUDE.md, whose entire body is
+    // `@AGENTS.md`. Drop the import here and AGENTS.md still ships in every forge
+    // — it just never loads, which is silent: nothing fails, the guidance is
+    // simply absent from the agent's context.
+    expect(renderClaudeMd('Aquaflow', 'aquaflow')).toContain('@AGENTS.md');
+  });
+
+  it('states the sandbox rules before importing the app guide', () => {
+    const md = renderClaudeMd('Aquaflow', 'aquaflow');
+    expect(md.indexOf('## Sandbox rules')).toBeLessThan(md.indexOf('@AGENTS.md'));
+  });
+
+  it('names the forge database in the rule that fences it off', () => {
+    expect(renderClaudeMd('Aquaflow', 'aquaflow')).toContain(
+      "Your database is **aquaflow**. Never touch `crystal_forge`",
+    );
   });
 });
 

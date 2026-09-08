@@ -78,6 +78,16 @@ exit 0
  * agent which DB to touch, that the dev port comes from env, and that kill
  * commands are off-limits.
  */
+/**
+ * Body of the forge's \`CLAUDE.md\`. This OVERWRITES the template's own copy, so
+ * it has to re-import \`AGENTS.md\` itself: the template ships \`CLAUDE.md\` as the
+ * single line \`@AGENTS.md\`, and without that import repeated here every forge
+ * carried the template's development guide — Next 16 / Prisma 7 gotchas, "do NOT
+ * build your own auth", the basePath rules — as a file no agent ever loaded.
+ *
+ * Sandbox rules come first and the import last: the rules are the part that must
+ * not be missed, and they are about this forge rather than about the app.
+ */
 export function renderClaudeMd(name: string, dbName: string): string {
   return `# Forge: ${name}
 
@@ -108,6 +118,10 @@ You are working inside a Crystal Forge sandbox cloned to this directory.
 
 See \`forge.config.json\` for \`name\`, \`description\`, \`slug\`, \`dbName\`,
 \`createdAt\`.
+
+## App conventions
+
+@AGENTS.md
 `;
 }
 
