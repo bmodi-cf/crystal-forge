@@ -47,7 +47,10 @@ test('open forge → start → new conversation → message round trip → persi
   await prewarm();
 
   await page.goto('/dashboard');
-  await page.locator('article', { hasText: FORGE_NAME }).getByText(FORGE_NAME).click();
+  // The forge name is static text; the card's launcher link is what opens a
+  // forge (and starts it, which the stop-and-reload below then settles).
+  await page.locator('article', { hasText: FORGE_NAME })
+    .getByRole('link', { name: /claude code workspace/i }).click();
   await expect(page).toHaveURL(/\/forges\/[0-9a-f-]+/);
 
   // Extract forge ID and stop if already running (handles reuseExistingServer state).
@@ -65,7 +68,9 @@ test('open forge → start → new conversation → message round trip → persi
 
   // Iframe content reachable through the page object.
   const iframeUrl = await page.locator('iframe').first().getAttribute('src');
-  expect(iframeUrl).toMatch(/^http:\/\/localhost:30\d\d$/);
+  // Served through the dashboard's path proxy — the forge's host port is bound
+  // to 127.0.0.1 and is never a URL the browser sees.
+  expect(iframeUrl).toMatch(new RegExp(`^/app/${SLUG}/?$`));
 
   // Start a new conversation.
   await page.getByRole('button', { name: /\+ new/i }).click();

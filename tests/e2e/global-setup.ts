@@ -54,10 +54,15 @@ export default async function globalSetup(): Promise<void> {
     ...process.env,
     DATABASE_URL: url,
     GITHUB_CLIENT_MODE: 'fake',
-    GITHUB_REPO_OWNER: process.env.GITHUB_REPO_OWNER ?? 'bmodi-cf',
-    GITHUB_TEMPLATE_REPO:
-      process.env.GITHUB_TEMPLATE_REPO ?? 'bmodi-cf/crystal-forge-template-webapp',
-    GITHUB_BASE_URL: process.env.GITHUB_BASE_URL ?? 'https://github.com',
+    // Pinned, not inherited: `dotenv.config` above has already loaded
+    // .env.local, so falling back to process.env seeded repo URLs under
+    // whatever org this machine points at (the pilot moved to
+    // CrystalFountainsInc, which silently broke the specs asserting a slug).
+    // These must match playwright.config.ts's webServer env, which hardcodes
+    // the same values — seed and server have to agree on the owner.
+    GITHUB_REPO_OWNER: 'bmodi-cf',
+    GITHUB_TEMPLATE_REPO: 'bmodi-cf/crystal-forge-template-webapp',
+    GITHUB_BASE_URL: 'https://github.com',
     DB_PROVISIONER_MODE: 'fake',
   };
 

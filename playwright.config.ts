@@ -20,6 +20,14 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: 'list',
+  // Playwright's 5 s default assumes a built app. This suite runs `next dev`,
+  // which compiles each route on first request — on the pilot's single vCPU
+  // that is routinely 8-12 s for a chart- or terminal-heavy page, so a first
+  // navigation or first paint would fail on compile time alone while the same
+  // spec passed in isolation off a warm .next cache. Waiting longer costs
+  // nothing when the assertion holds; it only changes how long a genuine
+  // failure takes to report.
+  expect: { timeout: 20_000 },
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: 'on-first-retry',
@@ -54,6 +62,11 @@ export default defineConfig({
       GITHUB_BASE_URL: 'https://github.com',
       DB_PROVISIONER_MODE: 'fake',
       FORGE_RUNTIME_MODE: 'fake',
+      // Let the fake container manager run the pre-warmed clone's server.js on
+      // the published port, so finishStart's probe can succeed and a forge
+      // actually reaches "running" — the specs' original premise, from before
+      // forges moved into containers.
+      FORGE_FAKE_SERVE: '1',
       // The sampler would otherwise write real rows during the suite; the seed
       // supplies deterministic history instead.
       FORGE_USAGE_SAMPLE_MS: '0',

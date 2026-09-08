@@ -48,7 +48,7 @@ test('edit dialog renders the Forge name as immutable text, not an input', async
 
   // Name is rendered as static text — there is no form control associated with the "Name" label.
   await expect(dialog.getByLabel(/^name$/i)).toHaveCount(0);
-  await expect(dialog.getByText(/forge names are immutable/i)).toBeVisible();
+  await expect(dialog.getByText(/used for the forge url; immutable/i)).toBeVisible();
   await expect(dialog.getByText('Forge Labs', { exact: true })).toBeVisible();
 
   await dialog.getByRole('button', { name: /cancel/i }).click();

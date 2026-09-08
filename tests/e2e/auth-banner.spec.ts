@@ -56,7 +56,10 @@ test.describe('auth URL banner', () => {
 
     // Navigate to the forge page.
     await page.goto('/dashboard');
-    await page.locator('article', { hasText: FORGE_NAME }).getByText(FORGE_NAME).click();
+    // The forge name is static text; the card's launcher link is what opens a
+    // forge (and starts it, which the stop-and-reload below then settles).
+    await page.locator('article', { hasText: FORGE_NAME })
+      .getByRole('link', { name: /claude code workspace/i }).click();
     await expect(page).toHaveURL(/\/forges\/[0-9a-f-]+/);
 
     const forgeId = page.url().match(/\/forges\/([0-9a-f-]+)/)?.[1];

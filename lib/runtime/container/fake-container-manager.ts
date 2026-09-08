@@ -3,8 +3,18 @@ import type {
   CreateContainerSpec, DockerDiskUsage, ExecOpts,
 } from './types';
 import type { Readable } from 'node:stream';
+import { spawn, type ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { forgeHome } from '../paths';
 
-type Entry = { id: string; spec: CreateContainerSpec; running: boolean };
+type Entry = {
+  id: string;
+  spec: CreateContainerSpec;
+  running: boolean;
+  /** The stand-in dev server, when FORGE_FAKE_SERVE is on. */
+  child?: ChildProcess;
+};
 export type ExecCall = { id: string; cmd: string; args: string[]; opts?: ExecOpts };
 export type UploadRecord = { id: string; path: string; bytes: number };
 
@@ -61,8 +71,51 @@ export class FakeContainerManager implements ContainerManager {
   async create(spec: CreateContainerSpec): Promise<string> {
     this.created.push(spec);
     const id = `fake-${++this.seq}`;
-    this.containers.set(id, { id, spec, running: true });
+    const entry: Entry = { id, spec, running: true };
+    const child = this.serveClone(spec);
+    if (child) entry.child = child;
+    this.containers.set(id, entry);
     return id;
+  }
+
+  /**
+   * Run the pre-warmed clone's dev server on the published host port.
+   *
+   * `finishStart` probes 127.0.0.1:<hostPort> and will not report `running`
+   * until something answers, so without this a forge started in fake mode sits
+   * in `starting` until the probe deadline and then reports `crashed`. Before
+   * docker isolation the runtime spawned the clone's dev script directly and
+   * the e2e fixtures were written against that; this restores the same
+   * observable behaviour for the fake path.
+   *
+   * Opt-in via FORGE_FAKE_SERVE, and silent unless the clone actually exists:
+   * the unit suite uses this class heavily and must never spawn a process.
+   */
+  private serveClone(spec: CreateContainerSpec): ChildProcess | null {
+    if (process.env.FORGE_FAKE_SERVE !== '1') return null;
+    const hostPort = spec.publish?.hostPort;
+    if (hostPort === undefined) return null;
+
+    const slug = spec.name.replace(/^forge-/, '');
+    const dir = path.join(forgeHome(), 'clones', slug);
+    const entrypoint = path.join(dir, 'server.js');
+    if (!fs.existsSync(entrypoint)) return null;
+
+    const child = spawn(process.execPath, [entrypoint], {
+      cwd: dir,
+      env: { ...process.env, PORT: String(hostPort) },
+      stdio: 'ignore',
+      detached: false,
+    });
+    child.unref();
+    return child;
+  }
+
+  /** Kill the stand-in dev server, if this entry has one. */
+  private stopClone(e: Entry | undefined): void {
+    if (!e?.child) return;
+    try { e.child.kill('SIGKILL'); } catch { /* already gone */ }
+    delete e.child;
   }
 
   async exec(id: string, cmd: string, args: string[], opts?: ExecOpts): Promise<{ exitCode: number }> {
@@ -95,9 +148,13 @@ export class FakeContainerManager implements ContainerManager {
   async stop(id: string): Promise<void> {
     const e = this.containers.get(id);
     if (e) e.running = false;
+    this.stopClone(e);
   }
 
-  async remove(id: string): Promise<void> { this.containers.delete(id); }
+  async remove(id: string): Promise<void> {
+    this.stopClone(this.containers.get(id));
+    this.containers.delete(id);
+  }
 
   async list(opts?: { label?: string; running?: boolean }): Promise<ContainerSummary[]> {
     const out: ContainerSummary[] = [];

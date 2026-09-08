@@ -50,7 +50,7 @@ test.beforeEach(async ({ context }) => {
   await fs.rm(HOME, { recursive: true, force: true });
 });
 
-test('start, open, stop a forge', async ({ page, request }) => {
+test('start, open, stop a forge', async ({ page }) => {
   await devLogin(page, 'maya.chen@crystalfountains.com');
 
   await prewarmCloneFixture();
@@ -65,9 +65,13 @@ test('start, open, stop a forge', async ({ page, request }) => {
 
   const open = card.getByRole('link', { name: /^open$/i });
   const href = await open.getAttribute('href');
-  expect(href).toMatch(/^http:\/\/localhost:30\d\d$/);
+  // A forge is reached through the dashboard's path proxy, not its host port:
+  // the port is bound to 127.0.0.1 and never exposed to a browser.
+  expect(href).toMatch(new RegExp(`^/app/${SLUG}/?$`));
 
-  const child = await request.get(href!);
+  // page.request, not the `request` fixture: the proxy is authenticated, so the
+  // fetch has to carry this page's session cookie.
+  const child = await page.request.get(href!);
   expect(child.status()).toBe(200);
   expect(await child.text()).toContain(`Welcome to ${FORGE_NAME}`);
 
