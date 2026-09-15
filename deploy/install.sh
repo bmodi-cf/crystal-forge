@@ -189,7 +189,12 @@ if [ "$DO_BACKUP" -eq 1 ]; then
     echo "  -> $ENV_DST (kept existing config)"
   else
     sudo install -D -m 0644 "$REPO_ROOT/deploy/crystal-forge-backup.env.example" "$ENV_DST"
-    echo "  -> $ENV_DST (new — edit to override container/paths/retention)"
+    # REPO_DIR is load-bearing when --backup is installed without --dashboard:
+    # the shared ensure-postgres guard reads /etc/default/crystal-forge, which
+    # only the dashboard install writes, so the backup unit must carry the
+    # checkout path itself or the guard cannot find docker-compose.yml.
+    sudo sed -i -e "s|^REPO_DIR=.*|REPO_DIR=$REPO_ROOT|" "$ENV_DST"
+    echo "  -> $ENV_DST (new — REPO_DIR=$REPO_ROOT; edit to override container/paths/retention)"
   fi
 
   backup_unit crystal-forge-backup.service
