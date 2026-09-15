@@ -182,9 +182,11 @@ describe('restoreForgeDatabase', () => {
 describe('seedMarkerSql', () => {
   it('creates the marker table unconditionally so a re-import aborts the transaction', () => {
     const sql = seedMarkerSql('sha256:' + 'a'.repeat(64), 'v1.0.0');
-    expect(sql).toMatch(/CREATE TABLE _forge_seed/);
+    // Schema-qualified: the marker is appended to a pg_dump that has already
+    // cleared search_path, so an unqualified name cannot be created.
+    expect(sql).toMatch(/CREATE TABLE public\._forge_seed/);
     expect(sql).not.toMatch(/IF NOT EXISTS/);
-    expect(sql).toMatch(/INSERT INTO _forge_seed/);
+    expect(sql).toMatch(/INSERT INTO public\._forge_seed/);
     expect(sql).toContain('a'.repeat(64));
     expect(sql).toContain('v1.0.0');
   });
@@ -318,6 +320,28 @@ describe('restoreForgeDatabase (integration)', () => {
       c.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"),
     );
     expect(tables.rows).toEqual([]);
+  });
+
+  // pg_dump always emits `set_config('search_path', '', false)` and then
+  // schema-qualifies everything it writes. The marker is appended *after* that
+  // line and shares the session, so an unqualified CREATE TABLE has no schema to
+  // create in and psql exits 3. Every other test here feeds hand-written SQL that
+  // leaves search_path alone, which is exactly why this reached production.
+  it('applies the marker after a dump that clears search_path', async () => {
+    const dumpPreamble =
+      "SELECT pg_catalog.set_config('search_path', '', false);\n" +
+      'CREATE TABLE public."Fixture" (id text PRIMARY KEY);\n' +
+      'INSERT INTO public."Fixture" (id) VALUES (\'f-1\');\n';
+
+    await restoreForgeDatabase({
+      dbName: DB, role: ROLE, password: PASSWORD,
+      sql: dumpPreamble + seedMarkerSql('sha256:' + 'd'.repeat(64), 'v1.0.0'),
+    });
+
+    expect(await readSeedMarker(DB)).toEqual({
+      bundleDigest: 'sha256:' + 'd'.repeat(64),
+      version: 'v1.0.0',
+    });
   });
 
   it('a second restore of the marker aborts the whole transaction', async () => {

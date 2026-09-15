@@ -152,13 +152,20 @@ export function seedMarkerSql(bundleDigest: string, version: string): string {
   if (!SAFE_VERSION.test(version)) {
     throw new Error(`Refusing to record unsafe version: ${JSON.stringify(version)}`);
   }
+  // Schema-qualified deliberately. This SQL is appended to a pg_dump, which
+  // emits `set_config('search_path', '', false)` and then qualifies everything
+  // it writes. The marker shares that session, so an unqualified name has no
+  // schema to create in and psql fails with "no schema has been selected to
+  // create in" — aborting the whole restore. readSeedMarker already assumes
+  // public via to_regclass('public._forge_seed'); this matches it.
   return [
-    'CREATE TABLE _forge_seed (',
+    'CREATE TABLE public._forge_seed (',
     '  bundle_digest text PRIMARY KEY,',
     '  version       text        NOT NULL,',
     '  applied_at    timestamptz NOT NULL DEFAULT now()',
     ');',
-    `INSERT INTO _forge_seed (bundle_digest, version) VALUES ('${bundleDigest}', '${version}');`,
+    'INSERT INTO public._forge_seed (bundle_digest, version) ' +
+      `VALUES ('${bundleDigest}', '${version}');`,
     '',
   ].join('\n');
 }
@@ -218,7 +225,7 @@ export async function readSeedMarker(
     );
     if (!exists.rows[0]?.present) return null;
     const res = await client.query<{ bundle_digest: string; version: string }>(
-      'SELECT bundle_digest, version FROM _forge_seed ORDER BY applied_at LIMIT 1',
+      'SELECT bundle_digest, version FROM public._forge_seed ORDER BY applied_at LIMIT 1',
     );
     const row = res.rows[0];
     return row ? { bundleDigest: row.bundle_digest, version: row.version } : null;

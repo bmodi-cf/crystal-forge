@@ -452,7 +452,7 @@ describe('importBundle', () => {
       expect(restored).toHaveLength(1);
       expect(restored[0]!.dbName).toBe('second_set_of_eyes');
       expect(restored[0]!.role).toBe('second_set_of_eyes_app');
-      expect(restored[0]!.sql).toMatch(/ReviewDocument[\s\S]*CREATE TABLE _forge_seed/);
+      expect(restored[0]!.sql).toMatch(/ReviewDocument[\s\S]*CREATE TABLE public\._forge_seed/);
       expect(restored[0]!.sql).toContain(result.bundleDigest);
     });
   });
