@@ -3,7 +3,8 @@
 **Date:** 2026-09-15
 **Status:** reported, awaiting fix
 **Severity:** high — production has no database backups and no Postgres start guard
-**Affects:** PRODUCTION host (`automationPROD`) only. The pilot is not known to be affected; verify separately.
+**Affects:** PRODUCTION host (`automationPROD`) only. The pilot was checked on 2026-09-15 and is
+**not** affected — see "Pilot: confirmed healthy" below.
 
 ## Summary
 
@@ -144,9 +145,36 @@ Reboot-safety is the real acceptance test and cannot be proven without a reboot.
 If one can be scheduled, the check is that the dashboard serves 200s afterwards
 with no manual `forge-launch.sh` run.
 
+## Pilot: confirmed healthy (2026-09-15)
+
+Checked after this report was first written; the drift is production-only.
+
+| Check | Pilot result |
+|---|---|
+| `systemctl list-timers 'crystal-forge*' --all` | 1 timer — `crystal-forge-backup.timer`, next 2026-09-16 02:32 EDT |
+| Last run | 2026-09-15 02:35 EDT, `Result=success`, exit 0 |
+| Latest daily archive | `crystal-forge-2026-09-15.tar`, 55 MB, 34 dumps |
+| GFS rotation | intact — dailies back to 2026-09-04, weekly Sep 14, monthly Sep 1 |
+
+So the pilot was provisioned through `deploy/install.sh` and production was not.
+Nothing needs building for prod: the units it lacks are already in the repo at
+`deploy/systemd/crystal-forge-backup.{service,timer}` and the installer puts them
+in place. This is an install, not a development task.
+
+### Consequence for a first-release cutover
+
+Prod currently has **no restore point**. A first-release import that goes wrong
+there cannot be rolled back from a backup — recovery is the documented manual
+path: drop the forge database by hand and re-import (the `_forge_seed` marker
+makes a second import abort rather than merge, and there is no `--force`).
+
+Running the installer before any cutover removes that exposure. Since the bundle
+is a snapshot, a backup taken by hand — `systemctl start crystal-forge-backup.service`
+— immediately before the cut, while the source forge is frozen, gives a restore
+point matching the bundle exactly rather than one up to 24 h stale.
+
 ## Out of scope
 
 - Changing the backup retention tiers or `BACKUP_ROOT`.
-- Auditing the pilot host for the same drift — likely worth doing, tracked separately.
 - Adding drift detection so a host running a stale unit reports itself. Worth
   considering; it is the reason this went unnoticed for weeks.
