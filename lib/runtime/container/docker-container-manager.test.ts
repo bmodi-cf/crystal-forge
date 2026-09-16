@@ -54,6 +54,25 @@ describe('DockerContainerManager argv', () => {
     expect(argv).toContain('--volume /etc/crystal-forge/forge-env/x.env:/app/.env:ro');
   });
 
+  it('caps memory and disables swap when memoryMb is set', async () => {
+    const rec = recorder();
+    const m = new DockerContainerManager({ capture: rec.capture });
+    await m.create({ name: 'forge-x', image: 'img', memoryMb: 3072 });
+    const argv = rec.calls[0]!.args.join(' ');
+    expect(argv).toContain('--memory 3072m');
+    // Equal to --memory, so the container gets no swap at all: a runaway is
+    // OOM-killed in seconds instead of thrashing the host through reclaim.
+    expect(argv).toContain('--memory-swap 3072m');
+  });
+
+  it('omits the memory flags entirely when memoryMb is 0', async () => {
+    const rec = recorder();
+    const m = new DockerContainerManager({ capture: rec.capture });
+    await m.create({ name: 'forge-x', image: 'img', memoryMb: 0 });
+    const argv = rec.calls[0]!.args.join(' ');
+    expect(argv).not.toContain('--memory');
+  });
+
   it('inspect returns running=true with no port when there is no host binding', async () => {
     const rec = recorder('true|\n');
     const m = new DockerContainerManager({ capture: rec.capture });

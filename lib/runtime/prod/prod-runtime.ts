@@ -15,6 +15,8 @@ export type ProdRuntimeDeps = {
   probeIntervalMs?: number;
   /** Host path of the forge's env file, or null when it has none. */
   resolveEnvFile?: (slug: string) => Promise<string | null>;
+  /** Per-container memory cap in MiB; defaults to FORGE_MEMORY_LIMIT_MB. */
+  memoryLimitMb?: number;
 };
 
 export type ProdStartInput = {
@@ -92,6 +94,7 @@ export async function startForgeContainer(
       // No GH_TOKEN: prod does no git.
     },
     publish: { hostIp: '127.0.0.1', hostPort: port, containerPort: 3000 },
+    memoryMb: deps.memoryLimitMb ?? env.FORGE_MEMORY_LIMIT_MB,
     // No workspace volume and no Claude volume: prod containers are immutable
     // and disposable (a restart recreates them). The only mount is the forge's
     // env file, when the admin has placed one on this host.

@@ -57,6 +57,15 @@ describe('startForgeContainer', () => {
     expect(remaining).toHaveLength(0);
   });
 
+  it('caps the prod container at the configured memory limit', async () => {
+    const d = deps({ memoryLimitMb: 2048 });
+    await startForgeContainer(d, input);
+    const spec = (d.containerManager as FakeContainerManager).created[0]!;
+    // Prod containers are recreated by the reconciler on every restart, so an
+    // unbounded one can OOM the host repeatedly with no manual step in between.
+    expect(spec.memoryMb).toBe(2048);
+  });
+
   it('creates the per-forge database (prod forges are enabled via SQL, not createForge)', async () => {
     const d = deps();
     await startForgeContainer(d, input);

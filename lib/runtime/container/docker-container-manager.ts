@@ -170,6 +170,9 @@ export class DockerContainerManager implements ContainerManager {
       args.push('--volume', `${vol.volume}:${vol.target}${vol.readOnly ? ':ro' : ''}`);
     }
     if (spec.network) args.push('--network', spec.network);
+    if (spec.memoryMb) {
+      args.push('--memory', `${spec.memoryMb}m`, '--memory-swap', `${spec.memoryMb}m`);
+    }
     args.push(spec.image, ...(spec.command ?? ['sleep', 'infinity']));
     const id = (await this.capture('docker', args)).trim();
     await this.capture('docker', ['start', id]);

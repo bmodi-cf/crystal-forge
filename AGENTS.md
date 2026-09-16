@@ -59,6 +59,20 @@ agent needs to work in the codebase correctly.
 - After schema changes, create a migration with `pnpm db:migrate` — don't hand-edit migration SQL.
 - **Forge restart = full container recreate, never reuse.** `stopForge`→`doStop` *stops and removes* the container; `startForge`→`finishStart` always `containerManager.create()`s a fresh one (there is no `docker start`-an-existing-container path). So container env (`FORGE_BASE_PATH`, `FORGE_DEV_ORIGINS`, `DATABASE_URL`, `GH_TOKEN`) is re-applied at every start (DB password rotates per start), and **only the named volumes — workspace + Claude home — persist** across the cycle. ⇒ To change a forge's container env you must stop+start it; to change the *dashboard* env that feeds `create()` (e.g. `FORGE_DEV_ORIGINS`), update `.env.local`, restart `crystal-forge.service`, *then* restart the forge.
 - **Deleting files inside this repo is pre-approved** — git history is sufficient backup, so remove dead code freely without stopping to ask. Deleting anything **outside** the repo still requires explicit approval.
+- **Forge containers are memory-capped; the cap only applies at `create()`.**
+  `FORGE_MEMORY_LIMIT_MB` (default 3072) becomes `--memory` *and* `--memory-swap`
+  on every forge container, dev and prod. Equal values disable swap for the
+  container on purpose: an unbounded forge previously took the whole host with
+  it — on 2026-09-16 four of them held ~13 GiB of 15.6, and the global OOM killer
+  picked off `dbus-daemon` and a user `systemd` while the host thrashed for three
+  hours. Capped, the kernel kills the offending forge's dev server inside its own
+  cgroup and the probe reports it `crashed`. Size it against *anon* memory, not
+  `docker stats`: a forge's `memory.current` is mostly reclaimable page cache
+  (measured 1.1-1.7 GiB anon vs 0.5-1.0 GiB cache), and the kernel evicts cache
+  before it kills anything. `0` disables the cap. Because container config is
+  only applied at create time, a running forge keeps its old cgroup until it is
+  stopped and started again — and changing the value needs a
+  `crystal-forge.service` restart first, per the recreate note above.
 - **A release may only be cut from a running forge whose workspace is exactly `origin/dev`.**
   `requestPromotion` opens a `dev -> main` PR that GitHub resolves entirely server-side, so the
   forge's own workspace is never consulted — a commit sitting unpushed in the container is

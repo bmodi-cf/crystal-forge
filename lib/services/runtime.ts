@@ -38,6 +38,8 @@ export type RuntimeDeps = {
   probeTimeoutMs?: number;
   /** Delay between probe attempts; defaults to PROBE_INTERVAL_MS. */
   probeIntervalMs?: number;
+  /** Per-container memory cap in MiB; defaults to FORGE_MEMORY_LIMIT_MB. */
+  memoryLimitMb?: number;
 };
 
 export type RuntimeService = {
@@ -194,6 +196,7 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
         DATABASE_URL: databaseUrl,
       },
       publish: { hostIp: '127.0.0.1', hostPort: port, containerPort: 3000 },
+      memoryMb: deps.memoryLimitMb ?? env.FORGE_MEMORY_LIMIT_MB,
       volumes: [
         { volume: workspaceVolumeName(slug), target: CONTAINER_WORKDIR },
         // Shared warm pnpm store — see PNPM_STORE_VOLUME.

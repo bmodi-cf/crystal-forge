@@ -67,6 +67,12 @@ const baseSchema = z.object({
   FORGE_RUNTIME_MODE: z.enum(['docker', 'fake']).default('docker'),
   FORGE_RUNTIME_IMAGE: z.string().default('crystal-forge-runtime:latest'),
   FORGE_NETWORK: z.string().default('crystal-forge-net'),
+  // Hard memory cap per forge container, in MiB. Swap is disabled alongside it,
+  // so a runaway forge is OOM-killed inside its own cgroup within seconds
+  // instead of dragging the whole host through minutes of reclaim. Sized at
+  // roughly double a forge's observed unreclaimable footprint (~1.1-1.7 GiB) to
+  // leave room for compile spikes. 0 disables the cap.
+  FORGE_MEMORY_LIMIT_MB: z.coerce.number().int().min(0).default(3072),
   // Comma-separated hostnames the forge dev server trusts for cross-origin dev
   // requests (Next allowedDevOrigins). Must include the dashboard/pilot host(s).
   FORGE_DEV_ORIGINS: z.string().default('localhost'),

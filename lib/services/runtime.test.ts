@@ -478,6 +478,35 @@ describe('runtime service', () => {
     });
   });
 
+  it('caps the forge container at the configured memory limit', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const base = new FakeContainerManager();
+      const specs: CreateContainerSpec[] = [];
+      const recording: ContainerManager = {
+        create: (spec) => { specs.push(spec); return base.create(spec); },
+        exec: base.exec.bind(base),
+        inspect: base.inspect.bind(base),
+        stop: base.stop.bind(base),
+        remove: base.remove.bind(base),
+        list: base.list.bind(base),
+        writeUpload: base.writeUpload.bind(base),
+        diskUsage: base.diskUsage.bind(base),
+      };
+      const svc = makeRuntimeService({
+        ...makeFakes(), prisma, containerManager: recording, memoryLimitMb: 2048,
+      });
+      await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+      // Unlimited forge containers let one runaway take the whole host down
+      // with it; a cgroup cap confines the kill to the forge that overran.
+      expect(specs[0]?.memoryMb).toBe(2048);
+    });
+  });
+
   it('logs the setup failure to the console', async () => {
     await withCleanDb(async (prisma) => {
       const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });

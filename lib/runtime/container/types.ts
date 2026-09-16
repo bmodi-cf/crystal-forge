@@ -26,6 +26,13 @@ export type CreateContainerSpec = {
   network?: string;
   /** Long-lived PID 1. Defaults to a keep-alive (`sleep infinity`). */
   command?: string[];
+  /**
+   * Hard memory cap in MiB, enforced by the kernel on the container's cgroup.
+   * Swap is disabled alongside it (`--memory-swap` equal to `--memory`), so a
+   * runaway is OOM-killed inside its own cgroup rather than dragging the host
+   * through minutes of reclaim. 0 or undefined means unlimited.
+   */
+  memoryMb?: number;
 };
 
 export type ExecOpts = {
