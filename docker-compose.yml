@@ -18,6 +18,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # Durable pilot infra: dockerd brings this back after *its own* restart, not
+    # just after a reboot. crystal-forge.service's ExecStartPre only runs when the
+    # dashboard unit starts, so it cannot cover a dockerd restart underneath a
+    # live dashboard — which is what an `apt upgrade` of docker-ce does. On
+    # 2026-09-16 that left the dashboard up on a dead database for four minutes.
+    restart: unless-stopped
 
   registry:
     image: registry:2
@@ -37,8 +43,8 @@ services:
       - crystal-forge-net
     volumes:
       - crystal-forge-registry-data:/var/lib/registry
-    # Durable pilot infra: self-restart on reboot (unlike postgres, which
-    # forge-launch.sh relaunches each session).
+    # Durable pilot infra: self-restart on reboot and after a dockerd restart,
+    # same as postgres above.
     restart: unless-stopped
 
 volumes:
