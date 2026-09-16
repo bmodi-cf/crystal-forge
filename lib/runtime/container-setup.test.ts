@@ -6,15 +6,11 @@ describe('setupForgeContainer', () => {
   it('runs clone, env copy, basePath inject, install, and prisma generate', async () => {
     const m = new FakeContainerManager();
     const id = await m.create({ name: 'x', image: 'img' });
-    // Simulate a fresh container: the `test -d .git` (call 1) and
-    // `test -d node_modules` (call 11) probes report ABSENT (exit 1) so the
-    // clone and install steps actually run; every other step succeeds (exit 0).
-    // Call sequence: 1 test -d .git, 2 git clone, 3 remote set-url, 4 checkout
-    // dev, 5 write the gh credential store (must run BEFORE gh auth setup-git —
-    // see container-setup.ts step 1b), 6 gh auth setup-git, 7 .env.local seed,
-    // 8 basePath inject, 9 chmod hook, 10 restart-app.sh, 11 settings.json,
-    // 12 test -d node_modules.
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1].forEach((code) => m.queueExit(code));
+    // Simulate a fresh container: the `test -d .git` probe reports ABSENT so
+    // the clone runs; every other step succeeds. Matched by name rather than
+    // call position, which no longer has to be kept in step with the setup
+    // sequence. (The install needs no probe — it always runs.)
+    m.failCommand('test -d /workspace/.git');
     await setupForgeContainer(m, id, {
       slug: 'acme', repoFullName: 'org/acme', token: 'gh_tok', logPath: '/tmp/acme.log',
     });
@@ -29,8 +25,8 @@ describe('setupForgeContainer', () => {
     expect(credWriteIdx).toBeLessThan(setupGitIdx);
     expect(cmds.some((c) => c.includes('next.config.base.ts'))).toBe(true); // basePath inject
     expect(cmds.some((c) => c === 'pnpm install')).toBe(true);
-    expect(cmds.some((c) => c === 'pnpm prisma generate')).toBe(true);
-    expect(cmds.some((c) => c === 'pnpm prisma migrate deploy')).toBe(true);
+    expect(cmds.some((c) => c.startsWith('pnpm ') && c.endsWith(' prisma generate'))).toBe(true);
+    expect(cmds.some((c) => c.startsWith('pnpm ') && c.endsWith(' prisma migrate deploy'))).toBe(true);
   });
 
   it('basePath wrapper also injects allowedDevOrigins from FORGE_DEV_ORIGINS', async () => {
@@ -66,7 +62,7 @@ describe('setupForgeContainer', () => {
     // It still probes for the migrations dir...
     expect(cmds.some((c) => c.includes('test -d /workspace/prisma/migrations'))).toBe(true);
     // ...but does not attempt to deploy migrations that don't exist.
-    expect(cmds.some((c) => c === 'pnpm prisma migrate deploy')).toBe(false);
+    expect(cmds.some((c) => c.endsWith('prisma migrate deploy'))).toBe(false);
   });
 
   it('runs prisma migrate deploy when prisma/migrations is present', async () => {
@@ -77,7 +73,7 @@ describe('setupForgeContainer', () => {
       slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log',
     });
     const cmds = m.execCalls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
-    expect(cmds.some((c) => c === 'pnpm prisma migrate deploy')).toBe(true);
+    expect(cmds.some((c) => c.startsWith('pnpm ') && c.endsWith(' prisma migrate deploy'))).toBe(true);
   });
 
   it('seeds the gh credential store with the create-time token', async () => {
@@ -144,5 +140,36 @@ describe('setupForgeContainer', () => {
     await expect(setupForgeContainer(m, id, {
       slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log',
     })).rejects.toThrow(/git clone/);
+  });
+
+  it('installs even when node_modules is already present', async () => {
+    const m = new FakeContainerManager();
+    const id = await m.create({ name: 'x', image: 'img' });
+    // Every probe reports PRESENT (exit 0) — the shape of a forge restarting on
+    // its persistent workspace volume. A present node_modules says nothing
+    // about whether it still matches pnpm-lock.yaml, so the install must run
+    // anyway: it is the only step budgeted for real installation work.
+    await setupForgeContainer(m, id, {
+      slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log',
+    });
+    const cmds = m.execCalls.map((c) => `${c.cmd} ${c.args.join(' ')}`);
+    expect(cmds.some((c) => c === 'pnpm install')).toBe(true);
+  });
+
+  it('stops pnpm implicitly installing during the prisma steps', async () => {
+    const m = new FakeContainerManager();
+    const id = await m.create({ name: 'x', image: 'img' });
+    await setupForgeContainer(m, id, {
+      slug: 'acme', repoFullName: 'org/acme', token: 't', logPath: '/tmp/x.log',
+    });
+    // pnpm verifies node_modules against the lockfile before running ANY
+    // command and silently installs when they differ. Inside these steps that
+    // relocates a multi-minute install into their short budget, so each must
+    // opt out and leave installation to `pnpm install`.
+    const prismaSteps = m.execCalls.filter((c) => c.cmd === 'pnpm' && c.args.includes('prisma'));
+    expect(prismaSteps.length).toBeGreaterThan(0);
+    for (const step of prismaSteps) {
+      expect(step.args).toContain('--config.verify-deps-before-run=false');
+    }
   });
 });

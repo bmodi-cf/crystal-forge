@@ -8,6 +8,14 @@ const CLONE_TIMEOUT_MS = 5 * 60 * 1000;
 const INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
 const QUICK_TIMEOUT_MS = 60 * 1000;
 
+/**
+ * Before running ANY command, pnpm verifies node_modules against the lockfile
+ * and silently installs when the two differ. That turns a step budgeted for a
+ * cheap command into an unbounded one, so every short-budget step opts out and
+ * leaves installation to step 5, which is budgeted for it.
+ */
+const NO_IMPLICIT_INSTALL = ['--config.verify-deps-before-run=false'];
+
 export type SetupOpts = { slug: string; repoFullName: string; token: string; logPath: string };
 
 // Wrapper written when injecting basePath. Mirrors clone.ts BASE_PATH_WRAPPER.
@@ -148,14 +156,26 @@ export async function setupForgeContainer(
     `SETTINGS_EOF`,
   ].join('\n')]);
 
-  // 5. Install deps if node_modules is absent.
-  const modulesPresent = (await exec('test', ['-d', `${W}/node_modules`])).exitCode === 0;
-  if (!modulesPresent) {
-    await assertOk(exec('pnpm', ['install'], { timeoutMs: INSTALL_TIMEOUT_MS }), 'pnpm install');
-  }
+  // 5. Install deps on every start.
+  //    This used to be gated on `test -d node_modules`, which is a *presence*
+  //    check, not a freshness one. A workspace volume whose pnpm-lock.yaml had
+  //    advanced past its node_modules — a dependency landing on dev while the
+  //    forge was stopped — still looked installed, so this step was skipped and
+  //    pnpm performed the install implicitly inside step 6's 60s budget
+  //    instead. That cannot finish (the store is empty in a fresh container, so
+  //    it downloads from cold), and because the partial result still satisfies
+  //    `test -d`, every retry took the same doomed path: a permanently
+  //    setup-failed forge.
+  //    Unconditional is cheap — pnpm short-circuits to "Already up to date" in
+  //    about a second when the tree already matches the lockfile.
+  await assertOk(exec('pnpm', ['install'], { timeoutMs: INSTALL_TIMEOUT_MS }), 'pnpm install');
 
-  // 6. Generate Prisma client (every start; cheap).
-  await assertOk(exec('pnpm', ['prisma', 'generate'], { timeoutMs: QUICK_TIMEOUT_MS }), 'pnpm prisma generate');
+  // 6. Generate Prisma client (every start; cheap — and NO_IMPLICIT_INSTALL is
+  //    what keeps it cheap).
+  await assertOk(
+    exec('pnpm', [...NO_IMPLICIT_INSTALL, 'prisma', 'generate'], { timeoutMs: QUICK_TIMEOUT_MS }),
+    'pnpm prisma generate',
+  );
 
   // 7. Apply pending migrations to the forge's provisioned DB. Uses the injected
   //    DATABASE_URL (rotated each start), so it must run in-container, before the
@@ -171,7 +191,8 @@ export async function setupForgeContainer(
     (await exec('test', ['-d', `${W}/prisma/migrations`])).exitCode === 0;
   if (hasMigrations) {
     await assertOk(
-      exec('pnpm', ['prisma', 'migrate', 'deploy'], { timeoutMs: INSTALL_TIMEOUT_MS }),
+      exec('pnpm', [...NO_IMPLICIT_INSTALL, 'prisma', 'migrate', 'deploy'],
+        { timeoutMs: INSTALL_TIMEOUT_MS }),
       'pnpm prisma migrate deploy',
     );
   }
