@@ -1,4 +1,4 @@
-import http from 'node:http';
+import net from 'node:net';
 
 /** Delay between health-probe attempts during bring-up. */
 export const PROBE_INTERVAL_MS = 1000;
@@ -36,29 +36,36 @@ export const SETUP_BUDGET_MS = 600_000;
 export const STARTING_TIMEOUT_MS = SETUP_BUDGET_MS + PROBE_TIMEOUT_MS;
 
 export function probe(port: number, opts: { timeoutMs?: number } = {}): Promise<boolean> {
-  // Generous default: on a loaded host (several forges compiling at once) a
-  // healthy dev server can legitimately take multiple seconds to answer.
+  // Liveness, not readiness: can something accept a connection on this port?
+  //
+  // This used to complete an HTTP GET / and accept any status, on the reasoning
+  // that "even 404/500 means a process is listening". But in dev, `/` is
+  // compiled on demand, and because FORGE_BASE_PATH puts `/` outside the app it
+  // forces a cold Turbopack compile of `_not-found` — a route nothing but the
+  // probe ever asks for. Measured on a 1-vCPU host: the dev server was up in
+  // 2.9s and that GET took 79s. Every attempt hit the per-attempt timeout, so
+  // the forge was reported `crashed` while serving its own pages fine, and the
+  // generous PROBE_TIMEOUT_MS was meaningless — a response slower than one
+  // attempt could never be observed however long the deadline.
+  //
+  // A TCP connect answers the actual question and is no weaker a signal:
+  // accepting 404/500 already meant this was never a health check. Next binds
+  // the port before it compiles anything, so this goes green as soon as the
+  // server is up.
   const timeoutMs = opts.timeoutMs ?? 5000;
   return new Promise<boolean>((resolve) => {
     let settled = false;
+    const socket = new net.Socket();
     const finish = (ok: boolean) => {
       if (settled) return;
       settled = true;
+      socket.destroy();
       resolve(ok);
     };
-    const req = http.request(
-      { host: '127.0.0.1', port, path: '/', method: 'GET', timeout: timeoutMs },
-      (res) => {
-        // Any response — even 404/500 — means a process is listening.
-        res.resume();
-        finish(true);
-      },
-    );
-    req.once('error', () => finish(false));
-    req.once('timeout', () => {
-      req.destroy();
-      finish(false);
-    });
-    req.end();
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+    socket.connect(port, '127.0.0.1');
   });
 }

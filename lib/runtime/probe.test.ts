@@ -37,9 +37,14 @@ describe('probe', () => {
     expect(await probe(3914, { timeoutMs: 500 })).toBe(false);
   });
 
-  it('returns false on timeout', async () => {
-    server = http.createServer(() => { /* never respond */ });
+  // Replaces an earlier 'returns false on timeout' case, which encoded the bug:
+  // a forge whose dev server was up in 2.9s was reported `crashed` because the
+  // probe's own GET had to wait 79s for a cold Turbopack compile of a route
+  // only the probe ever requests. The probe wants liveness, not readiness, so a
+  // bound port is the signal — Next binds before it compiles anything.
+  it('returns true when the port is listening but no response comes', async () => {
+    server = http.createServer(() => { /* never respond: mid-compile */ });
     await new Promise<void>((r) => server!.listen(3915, '127.0.0.1', () => r()));
-    expect(await probe(3915, { timeoutMs: 100 })).toBe(false);
+    expect(await probe(3915, { timeoutMs: 100 })).toBe(true);
   });
 });
