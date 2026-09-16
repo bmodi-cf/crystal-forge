@@ -16,7 +16,10 @@ import type { DatabaseProvisioner } from '@/lib/db/types';
 import { buildScopedDatabaseUrl } from '@/lib/db/url';
 import { probe as defaultProbe, PROBE_INTERVAL_MS, PROBE_TIMEOUT_MS } from '@/lib/runtime/probe';
 import { mutateState, loadState } from '@/lib/runtime/state';
-import { workspaceVolumeName, claudeVolumeName, CONTAINER_WORKDIR, CLAUDE_HOME, logPath as logPathFor } from '@/lib/runtime/paths';
+import {
+  workspaceVolumeName, claudeVolumeName, CONTAINER_WORKDIR, CLAUDE_HOME,
+  PNPM_STORE_DIR, PNPM_STORE_VOLUME, logPath as logPathFor,
+} from '@/lib/runtime/paths';
 import { env } from '@/lib/env';
 import { sanitizeUploadName, UPLOAD_BYTE_LIMIT } from '@/lib/runtime/upload-name';
 import type { RuntimeStateEntry, RuntimeStateView } from '@/lib/runtime/types';
@@ -193,6 +196,8 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       publish: { hostIp: '127.0.0.1', hostPort: port, containerPort: 3000 },
       volumes: [
         { volume: workspaceVolumeName(slug), target: CONTAINER_WORKDIR },
+        // Shared warm pnpm store — see PNPM_STORE_VOLUME.
+        { volume: PNPM_STORE_VOLUME, target: PNPM_STORE_DIR },
         // Persist the agent's Claude home (login + conversation transcripts) so
         // it survives container recreation — no forced re-login, --resume works.
         { volume: claudeVolumeName(slug), target: CLAUDE_HOME },
@@ -206,6 +211,10 @@ export function makeRuntimeService(deps: RuntimeDeps): RuntimeService {
       await deps.setup(deps.containerManager, containerId, { slug, repoFullName, token, logPath: log });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // Log as well as record: state.json is not somewhere anyone looks, so a
+      // setup failure that only lands there is invisible to journalctl and the
+      // forge reads as though it was never started.
+      console.error('[runtime/finishStart] setup failed', { slug, forgeId, error: msg });
       await deps.containerManager.remove(containerId).catch(() => {});
       await mutateState((s) => { s[forgeId] = { ...baseEntry, containerId, status: 'setup-failed', setupError: msg }; });
       return; // terminal state recorded; the client poller surfaces it

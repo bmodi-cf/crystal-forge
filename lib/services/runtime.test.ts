@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import os from 'node:os';
@@ -445,6 +445,67 @@ describe('runtime service', () => {
       );
       expect(vols.find((v) => v.target === '/home/forge')?.volume)
         .toBe('forge-marketing-fru-fru-claude');
+    });
+  });
+
+  it('mounts the shared pnpm store volume', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const base = new FakeContainerManager();
+      const specs: CreateContainerSpec[] = [];
+      const recording: ContainerManager = {
+        create: (spec) => { specs.push(spec); return base.create(spec); },
+        exec: base.exec.bind(base),
+        inspect: base.inspect.bind(base),
+        stop: base.stop.bind(base),
+        remove: base.remove.bind(base),
+        list: base.list.bind(base),
+        writeUpload: base.writeUpload.bind(base),
+        diskUsage: base.diskUsage.bind(base),
+      };
+      const svc = makeRuntimeService({ ...makeFakes(), prisma, containerManager: recording });
+      await svc.startForge(tom, forge.id);
+      await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'running');
+      // Shared across forges on purpose: the store is content-addressable, so
+      // one warm copy serves every forge. Without it the store lives in the
+      // container layer and every start re-downloads from cold, because a forge
+      // container is recreated rather than restarted.
+      const vols = specs[0]?.volumes ?? [];
+      expect(vols.find((v) => v.target === '/pnpm-store')?.volume).toBe('forge-pnpm-store');
+    });
+  });
+
+  it('logs the setup failure to the console', async () => {
+    await withCleanDb(async (prisma) => {
+      const tom = await makeUser(prisma, { email: 't@x', name: 'Tom', groups: ['Engineering'] });
+      const forge = await makeForge(prisma, {
+        name: 'Marketing Fru Fru', createdById: tom.id, groups: ['Engineering'],
+      });
+      const svc = makeRuntimeService({
+        ...makeFakes(),
+        prisma,
+        setup: async () => { throw new Error('git clone exploded'); },
+      });
+      // Without this the failure exists only in state.json, so it is invisible
+      // to journalctl and the forge looks like it was never started at all.
+      const errors: unknown[][] = [];
+      const spy = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errors.push(a); });
+      try {
+        await svc.startForge(tom, forge.id);
+        await waitForRuntime(svc, tom, forge.id, (r) => r?.status === 'setup-failed');
+      } finally {
+        spy.mockRestore();
+      }
+      // console.error's structured second argument is rendered by node's
+      // inspector in the journal, so serialise rather than String() it.
+      const flat = errors
+        .map((a) => a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' '))
+        .join('\n');
+      expect(flat).toContain('git clone exploded');
+      expect(flat).toContain('marketing-fru-fru');
     });
   });
 

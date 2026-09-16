@@ -26,6 +26,19 @@ export function workspaceVolumeName(slug: string): string {
   return `forge-${slug}`;
 }
 
+/**
+ * Mount point and volume for pnpm's content-addressable package store.
+ *
+ * Shared by every forge rather than per-forge: the store is addressed by
+ * content, so one warm copy serves all of them and a brand-new forge starts
+ * warm. Without a volume the store lives in the container's writable layer,
+ * and since a forge container is recreated (never restarted), every start
+ * re-downloads every package from cold. Grows without bound — needs an
+ * occasional `pnpm store prune`.
+ */
+export const PNPM_STORE_DIR = '/pnpm-store';
+export const PNPM_STORE_VOLUME = 'forge-pnpm-store';
+
 /** In-container home for the agent's Claude config, credentials, and transcripts. */
 /** Mount point for the per-forge Claude home volume — covers the entire user
  *  home so ~/.claude/ (credentials) and ~/.claude.json (global config/userID)
